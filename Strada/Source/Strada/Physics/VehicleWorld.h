@@ -159,10 +159,12 @@ namespace Strada
 		// engine's speed within its range, as SetVehicleSettings keeps them.
 		void KeepWithinDefinitions();
 
-		// After the system's own state, the characters and the contacts (PhysicsScene::SaveState): each vehicle's latest and
-		// applied inputs, pending shift, Manual gearbox, lean spring integral and its wheels' steering angles, slips and
-		// surfaces, which Jolt does not save, in the order of the entities' UUIDs. RestoreState reads what SaveState wrote for
-		// the same vehicles and returns false when the stream fails.
+		// After the system's own state, the characters and the contacts (PhysicsScene::SaveState): the number of vehicles, then
+		// each vehicle's entity, latest and applied inputs, pending shift, gearbox mode and Manual gearbox, lean spring
+		// integral and its wheels' steering angles, slips and surfaces, which Jolt does not save, in the order of the entities'
+		// UUIDs. RestoreState reads what SaveState wrote for the same vehicles, all of it before any applies, and returns false,
+		// changing nothing, when the stream fails or names other vehicles; a gearbox whose mode was edited in place since is
+		// handed over as SetVehicleSettings hands it.
 		void SaveState(JPH::StateRecorder& recorder) const;
 		[[nodiscard]] bool RestoreState(JPH::StateRecorder& recorder);
 		// Adds the vehicles' state to the world's hash in the order Docs/Architecture.md §8 ("Vehicles", "The state in the

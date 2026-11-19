@@ -161,7 +161,9 @@ namespace Strada
 		// bodies' positions, rotations, velocities, forces and sleep state, the contacts, the joints' warm starts and the
 		// vehicles' constraints, controllers and wheels), each character's state with its own and walking velocity and ground
 		// displacement, the contacts reported so far with the events not taken yet and the step count, and each vehicle's
-		// inputs, shift state and wheels' steering, slips and surfaces, which Jolt does not save.
+		// inputs, pending shift, gearbox mode and shift state, lean spring integral and wheels' steering, slips and surfaces,
+		// which Jolt does not save. A gearbox whose mode was edited in place since a snapshot is handed over when it is
+		// restored, as SetVehicleSettings hands it over.
 		[[nodiscard]] PhysicsSnapshot SaveState() const;
 		// Goes back to a snapshot of this world, so that the steps that follow run as they did from there. Fails, changing
 		// nothing, for a snapshot of another world or once a body, joint, character or vehicle was added, removed or replaced

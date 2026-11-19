@@ -2479,6 +2479,8 @@ namespace Strada
 			record.Character->SaveState(recorder);
 		}
 		data.Contacts.SaveState(recorder);
+		// What Jolt does not save of the vehicles (their constraints are in the system's state).
+		data.Vehicles->SaveState(recorder);
 		PhysicsSnapshot snapshot;
 		snapshot.m_World = data.World;
 		snapshot.m_Structure = data.Structure;
@@ -2516,6 +2518,7 @@ namespace Strada
 			restored = !recorder.IsFailed();
 		}
 		restored = restored && data.Contacts.RestoreState(recorder) && !recorder.IsFailed();
+		restored = restored && data.Vehicles->RestoreState(recorder) && !recorder.IsFailed();
 		ST_CORE_ASSERT(restored, "A physics snapshot of the same structure could not be restored");
 		if (!restored)
 		{
@@ -2567,6 +2570,8 @@ namespace Strada
 			hash.AddUInt32(static_cast<uint32_t>(character.GetGroundState()));
 			hash.AddUInt64(data.GetBodyEntity(character.GetGroundBodyID()).GetValue());
 		}
+		// Only in a world with vehicles: one without hashes as before they existed.
+		data.Vehicles->AddToHash(hash);
 		return hash.GetHash();
 	}
 

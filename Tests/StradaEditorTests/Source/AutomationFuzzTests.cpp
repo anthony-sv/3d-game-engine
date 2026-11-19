@@ -1654,6 +1654,7 @@ namespace
 		// loading another scene, gives it a new version, and the records start over).
 		std::set<std::string> SimulatedCharacters;
 		std::set<std::string> SimulatedBodies;
+		std::set<std::string> SimulatedWheels;
 		std::optional<uint64_t> SimulatedSceneVersion;
 
 		FuzzFixture()
@@ -1927,7 +1928,8 @@ namespace
 			Profiler::BeginFrame();
 		}
 
-		// Records the running scene's entities that the frame about to run simulates (SimulatedCharacters, SimulatedBodies);
+		// Records the running scene's entities that the frame about to run simulates or places (SimulatedCharacters,
+		// SimulatedBodies, SimulatedWheels);
 		// forgets them when no game plays, or when GetScene returns another scene than the one they were recorded in.
 		void RecordSimulatedEntities()
 		{
@@ -1936,6 +1938,7 @@ namespace
 			{
 				SimulatedCharacters.clear();
 				SimulatedBodies.clear();
+				SimulatedWheels.clear();
 				SimulatedSceneVersion = version;
 			}
 			if (!version)
@@ -1954,6 +1957,10 @@ namespace
 					SimulatedBodies.insert(scene.GetRegistry().get<IDComponent>(handle).ID.ToString());
 				}
 			}
+			for (entt::entity const handle : scene.GetAllEntitiesWith<IDComponent, VehicleWheelComponent>())
+			{
+				SimulatedWheels.insert(scene.GetRegistry().get<IDComponent>(handle).ID.ToString());
+			}
 		}
 
 		// The edited scene (or the running copy) saves and loads again.
@@ -1968,8 +1975,8 @@ namespace
 		// is not part of the history (redoing an entity's creation places it where it was created). That holds for an entity
 		// that held a controller or a dynamic body earlier in this running scene too: it keeps the pose the simulation gave it
 		// when the component leaves it (an undo, a removal, a body made static), and no step of the history ever held that
-		// pose. It changes nothing else of their transforms, which the history still covers: the scale of both, the rotation
-		// of characters.
+		// pose. Vehicles place their wheels' entities alike (VehicleWheel), turning and moving them. It changes nothing else
+		// of their transforms, which the history still covers: the scale of all, the rotation of characters.
 		Json WithoutSimulatedPoses(Json scene) const
 		{
 			if (!Play.IsPlaying())
@@ -1991,7 +1998,8 @@ namespace
 					transform.erase("Translation");
 				}
 				else if ((components.contains("RigidBody") && components["RigidBody"].value("Type", "") == "Dynamic") ||
-				         (recorded && SimulatedBodies.contains(id)))
+				         components.contains("VehicleWheel") ||
+				         (recorded && (SimulatedBodies.contains(id) || SimulatedWheels.contains(id))))
 				{
 					transform.erase("Translation");
 					transform.erase("Rotation");

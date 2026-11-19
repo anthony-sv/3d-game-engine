@@ -1372,7 +1372,7 @@ category), and script interop component lookups.
 | `MeshCollider` | `MeshColliderComponent` | `Mesh` asset (0 = use `Mesh` component), `Convex`, `IsTrigger`, `Material`, `Materials` (`.sphysmat`[], one per submesh of a triangle mesh, at most 31; 0 or missing = `Material`), `Friction`, `Restitution` |
 | `Joint` | `JointComponent` | `Type` (Fixed/Hinge/Ball/Distance/Slider), `ConnectedEntity` UUID (0 = the world), `Anchor` (local), `ConnectedAnchor` (the connected entity's local space, or world), `Axis` (local), `LimitsEnabled`, `MinLimit`/`MaxLimit` (hinges: deg; sliders: m), `MinDistance`/`MaxDistance` (-1 = the starting distance), `MotorEnabled`, `MotorSpeed` (deg/s or m/s), `MotorMaxForce` |
 | `Vehicle` | `VehicleComponent` | `Definition` (a `.svehicle`, §7.3; 0 = none); on an entity with a dynamic `RigidBody` and a collider, the chassis; the rider's inputs are run-time state, not fields (§8, "Vehicles") |
-| `VehicleWheel` | `VehicleWheelComponent` | `Wheel` (the name of a wheel of the nearest `Vehicle` above the entity, any letter case); the entity's local X is the axle, and it has no collider (§8, "Vehicles") |
+| `VehicleWheel` | `VehicleWheelComponent` | `Wheel` (the name of a wheel of the nearest `Vehicle` above the entity, any letter case); the entity's local X is the axle, and it has no collider; while the scene runs, the vehicle places it at every step and draws it between steps (§8, "Vehicles", "Interpolated wheels") |
 | `CharacterController` | `CharacterControllerComponent` | `Radius`, `Height` (the whole capsule), `Offset` (the capsule's center), `StepHeight`, `MaxSlopeAngle` (deg, 1..89), `Mass` (kg), `PushForce` (N), `GravityFactor` (0..1000), `Layer` |
 | `AudioSource` | `AudioSourceComponent` | `Clip` asset, `Stream` (read the clip's file while playing), `Volume`, `Pitch`, `Loop`, `PlayOnStart`, `Spatial`, `MinDistance`, `MaxDistance`, `Bus` (the mixer's bus by name, any letter case; empty, or a name the mixer lacks, is Master), `Priority` (0 to 255; lower goes silent first at the engine's limit), `MaxVoices` (1 to 64; its main voice and its one-shots), `DopplerLevel` (0 to 5; how much of the doppler effect a spatial source takes, §9.8) |
 | `AudioListener` | `AudioListenerComponent` | `Active` |
@@ -2959,7 +2959,8 @@ wheel all of its torque).
   UUID: the UUID (`AddUInt64`); the four inputs as applied, in Jolt's order (forward, right, brake, hand brake, read back
   from the controller); the engine's speed in revolutions per minute; the gearbox's state as the bytes
   `VehicleTransmission::SaveState` writes (`VehicleTransmission.cpp:141-148`: the gear as a 32-bit integer, the clutch's
-  friction and the three timers, since Jolt keeps them private), added as bytes; the length of the controller's last
+  friction and the three timers, since Jolt keeps them private), written into a recorder of a fixed buffer, which
+  allocates nothing, and added as bytes (`AddBytes`); the length of the controller's last
   collision step; the lean's target as Jolt's vector (x, y, z); Strada's Manual gear (`AddInt32`) and its two timers,
   which stay 0 in `Automatic` mode, so they are added for every vehicle; then for each of the two wheels, front first,
   its spin, its angle, its steering angle, its suspension length and its contact entity (`AddUInt64` of the UUID found
@@ -2986,12 +2987,16 @@ wheel all of its torque).
   terms sum to a zero too (an upright bike at rest has an angle error of -0, since Jolt's `Sign(0)` is 1, `Math.h:154`,
   `MotorcycleController.cpp:214`), the sign bit of the impulse would come from the integral the restoring world holds.
   Restored with the rest, the integral makes the restore exact by construction. Strada saves its own part after the
-  characters and contacts, vehicle by vehicle in UUID order: the latest and applied inputs, the pending shift count, a
-  Manual gearbox's state, the lean spring's integral, and each wheel's steering angle, slips and surface slot (with the
-  entity under it), which Jolt does not save but the vehicle's state and the hash read (`PreCollide` and `PostCollide`
-  set the steering, slips and surfaces again before the next step reads them), so that what a script reads right after a
-  restore is what it read when the snapshot was taken. After the restore the gear is brought within the definition's
-  gears, as above. The scene's
+  characters and contacts: the number of vehicles, then vehicle by vehicle in UUID order its entity, the latest and
+  applied inputs, the pending shift count, the gearbox's mode and a Manual gearbox's state, the lean spring's integral,
+  and each wheel's steering angle, slips and surface slot (with the entity under it), which Jolt does not save but the
+  vehicle's state and the hash read (`PreCollide` and `PostCollide` set the steering, slips and surfaces again before the
+  next step reads them), so that what a script reads right after a restore is what it read when the snapshot was taken.
+  The restore reads the whole part before any of it applies, and a part that does not hold the world's vehicles is
+  refused. A gearbox whose mode was changed in place since the snapshot is handed over at the restore as the edit handed
+  it over: a gearbox now `Manual` takes the gear Jolt's state was restored to (and drops the pending requests), so it
+  neither falls to neutral nor keeps an automatic gearbox's empty state, and one now `Automatic` keeps no manual shift.
+  After the restore the gear is brought within the definition's gears, as above. The scene's
   snapshot adds how each wheel entity is drawn (below). `Scene::RestorePhysicsState` refuses, changing nothing, once a
   vehicle was made, made again or removed. The engine sets every controller value from the definition when it makes the
   vehicle and when the definition changes, and never reads them back through `GetSettings()` (which gives the lean
@@ -3025,21 +3030,29 @@ wheel all of its torque).
   minute, its value the fraction of `MaxTorque`; Jolt reads it at the speed over `MaxRPM` (`VehicleEngine.h:63`), which the
   sampling divides by. Each wheel's `mWheelUp` and `mWheelForward` are the chassis's `Up` and `Forward` (Jolt's defaults
   are +Y and +Z, `Wheel.h:33-34`, and a Strada model's front is -Z).
-- **Interpolated wheels.** After each step the scene records each wheel's suspension length, steering angle and spin
-  angle, with the spin's advance in the step (the wheel's angle from the step before, unwrapped by its spin, so a wheel
-  that turns more than half a turn in a step is drawn turning forward), and places each `VehicleWheel` entity where the
-  step leaves its wheel: the chassis entity's world translation and rotation (not its scale) times the wheel's transform
-  in the chassis's space (`ComposeVehicleWheelTransform`, which composes it as Jolt's
-  `VehicleConstraint::GetWheelLocalTransform` does, `VehicleConstraint.cpp:116-145`, for a model whose axle is its local X
-  and whose up is its local Y), set in the entity's parent's space with the entity's own scale kept. Between steps each is
-  drawn from the chassis as drawn and the wheel's values the part of the way from the step before to the last one that the
-  time left over makes up, as bodies are, and before the next physics changes and steps each goes back exactly to where its
-  last step left it. Nothing about the wheels is in the hash or reaches the simulation: a wheel entity has no body, and the
-  vehicle writes its transform at every step and frame, so a script's or the editor's edit of it lasts until then.
-  **Every write is made in the wheel's parent's space from the parent's world transform at the moment of the write**
-  (after the step, in `Scene.Interpolate` and in `Scene.ReturnToSteps`), so the wheel's world pose is the vehicle's
-  whatever its parent is or does: a wheel may be the child of a fork that a script turns, and the tests compare world
-  poses. The frame runs the scripts' `OnUpdate` before `Scene.UpdatePhysics` and each `OnFixedUpdate` before its step
+- **Interpolated wheels.** After each step the scene records each wheel's suspension length, steering angle, angle and
+  spin, with the angle's advance in the step: Jolt keeps the angle within a turn, so its change is unwrapped by the turns
+  the wheel's mean spin over the step makes up, and a wheel that turns more than half a turn in a step is drawn turning
+  forward. It then places each `VehicleWheel` entity where the step leaves its wheel: the chassis entity's world
+  translation and rotation (not its scale) times the wheel's transform in the chassis's space
+  (`ComposeVehicleWheelTransform`, which composes it as Jolt's `VehicleConstraint::GetWheelLocalTransform` does,
+  `VehicleConstraint.cpp:116-145`, for a model whose axle is its local X and whose up is its local Y, from the vehicle's
+  values with its directions normalized as the world takes them), set in the entity's parent's space with the entity's own
+  scale kept. Between steps each is drawn from the chassis as drawn and the wheel's values the part of the way from the
+  step before to the last one that the time left over makes up, as bodies are (at its last step when the chassis's
+  `RigidBody` does not interpolate), and before the next physics changes and steps each goes back exactly to where its last
+  step left it. A wheel is placed from its vehicle's first step on (before it, the entity stays where it was put), and a
+  vehicle made again starts again. Nothing about the wheels is in the hash or reaches the simulation: a wheel entity has
+  no body, and the vehicle writes its transform at every step and frame, so a script's or the editor's edit of it lasts
+  until then. **Every write is made in the wheel's parent's space from the parent's world transform at the moment of the
+  write, and from nothing else** (after the step, in `Scene.Interpolate`, in `Scene.ReturnToSteps`, and when physics
+  changes made between frames return the entities to their steps and draw them again), so the wheel's world pose is the
+  vehicle's whatever its parent is or does, and the same step and parent give the same bits whatever the wheel showed
+  before: a wheel may be the child of a fork that a script turns, and the tests compare world poses. A `VehicleWheel` on an
+  entity with a body or a character of its own (which the writes would move), with no `Vehicle` above it, or whose name the
+  definition of its vehicle lacks is left as it is, each reason said once; one below a `Vehicle` that makes no vehicle says
+  nothing, as its `Vehicle` says why. The scene's snapshot keeps each vehicle's last two steps of its wheels, and a
+  restore draws the wheels again from them and the chassis as it was. The frame runs the scripts' `OnUpdate` before `Scene.UpdatePhysics` and each `OnFixedUpdate` before its step
   (`Scene.cpp:673-680`, `RunFixedStep`), so a fork turned there is in place when the wheel is written; a parent moved
   after `Scene.UpdatePhysics` in the same frame (by the editor, or contact handlers) moves the wheel with it until the
   next write. A fork that follows the steering takes the steering angle the last step left (`VehicleWheelState::
@@ -3057,7 +3070,9 @@ wheel all of its torque).
   after a data asset changed or a vehicle's component or body changed; the wheels are recorded inside `Scene.SyncFromPhysics`, drawn inside `Scene.Interpolate` and
   returned inside `Scene.ReturnToSteps`.
 - **Budget.** The vehicle constraint within 50 µs per vehicle per step in Release on the reference machine (Roadmap.md's
-  targets), read by a benchmark behind `STRADA_VEHICLE_BENCHMARK=1`.
+  targets), read by a benchmark behind `STRADA_VEHICLE_BENCHMARK=1`, which reads the state hash's and a snapshot's share
+  of each vehicle beside it; a scene benchmark behind the same switch reads what drawing the wheels costs in the zones
+  that record, draw and return them.
 
 Jolt computes in single precision and asserts on (or, in Release, is corrupted by) values its math overflows, so
 `PhysicsScene` keeps everything within limits (`Physics/PhysicsTypes.h`): positions within 10,000 km of the origin

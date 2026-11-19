@@ -554,6 +554,7 @@ Copy ID), says when it is built into the engine or was imported with a model, an
 | Visual script | An Open button, its description, numbers of nodes and links, the events it uses, which scripts use it, its variables and its functions |
 | Curve | The curve editor, then its fields: the extrapolations and the keys ([Curves](#curves)) |
 | Physics material | Its fields: friction, restitution and how contacts combine them, rolling resistance, the surface's name, the impact sound and particles ([Physics materials](#physics-materials)) |
+| Vehicle | Its fields: the two wheels, the chassis's axes, the engine, the gearbox and the lean ([Vehicles](#vehicles)) |
 
 An asset whose file is missing says so. Inspecting an asset never writes its file.
 
@@ -894,6 +895,49 @@ the new values before the next physics step, and scripts and graphs read them on
 read every field of a material (`Strada.PhysicsMaterial`), and a raycast names the material of the surface it hit, which
 tells a script whether a wheel is on asphalt or gravel ([Scripting](Scripting.md#physics-materials),
 [Visual scripting](VisualScripting.md#physics-materials)).
+
+### Vehicles
+
+A vehicle (`.svehicle`) is a motorcycle's definition. `Wheels` holds exactly two, the front (which steers) and then the
+rear (which the engine drives); each has its `Name`, where its suspension is attached on the chassis and the way it
+travels, its shortest and longest lengths, preload, spring frequency and damping, its steering axis and largest steering
+angle, its radius, width, inertia and damping, the torque the front brake applies at it and the torque the rear brake
+applies at it (`FrontBrakeTorque`, `RearBrakeTorque`: the front brake usually brakes the front wheel alone, the rear brake
+the rear), and its tyre's grip over its slip, forward and sideways, as curves (`LongitudinalFriction`,
+`LateralFriction`). Then the chassis's `Up` and `Forward` (a model's front is -Z), the largest pitch and roll, the `Engine`
+(its largest torque, idle and largest speeds, inertia, damping and its torque over its speed as a curve), the
+`Transmission` (`Automatic`, which shifts by itself at its shift points, or `Manual`, which the game shifts; the gear
+ratios, the final drive to the rear wheel, the automatic gearbox's times and shift points, the clutch's strength) and the
+`Lean` (the largest lean, the lean spring's constant and damping, its smoothing, and whether the lean limits the
+steering). The curves are curve assets ([Curves](#curves)); one that is not set, or names no curve, is the engine's
+default, and the console says so once when the vehicle is made. There is no reverse gear, no handbrake and nothing a car
+has: a vehicle is a motorcycle.
+
+Edit a vehicle in the Inspector. `Wheels` keeps its order, the first being the front, and its rows are titled by the
+wheels' names ("0: Front"). An edit the definition's checks refuse (not two wheels, a name used twice, a suspension
+whose longest length is below its shortest, a direction of zero length, `Up` and `Forward` along one line, a rear wheel
+that steers, an idle speed at or above the largest, shift points out of order) is not made, and the console says why,
+naming the field. Agents read and edit it with `vehicle.get` and `vehicle.set` ([Automation](Automation.md)).
+
+The two components make it ride. A `Vehicle` on an entity with a dynamic RigidBody and a collider names its
+`Definition`: while the scene plays, that entity is the motorcycle's chassis, and its colliders give it its mass, its
+centre of mass and how it rolls (a narrow, light chassis needs less lean damping). A `VehicleWheel` on an entity below it
+draws one wheel: the one its `Wheel` names (in any letter case) of the nearest entity above it with a `Vehicle`. The
+vehicle places the entity where the wheel's suspension, steering and spin put it, its local X the axle and its Y up,
+after every physics step and smoothly between steps when the chassis's RigidBody interpolates; the entity keeps its own
+scale, and is drawn only (give it a mesh, never a collider). A wheel entity with a collider or a character of its own, one
+with no `Vehicle` above it, and one whose name the definition lacks stay where they are, and the console says why once.
+The rider's throttle, brakes and lean are not fields of either component: the game gives them while it plays, once per
+physics step.
+
+While the game plays, an edit of the definition (or of one of its curves) reaches the bike at its next physics step and
+it rides on, except an edit of `Up` or `Forward`, which makes the vehicle again. Each wheel's tyre grips by the
+`TyreGrip` of the physics material under it and slows by its `RollingResistance` ([Physics materials](#physics-materials)).
+
+What the tyres do not do yet, plainly: each wheel brakes by its own brake, and weight moves to the front under braking
+as the chassis allows, but a tyre's forward and sideways grip each have their own limit, so a wheel braked to a stop
+keeps its sideways grip. Trail braking and sliding the rear wheel on its brake, as a riding simulation has them, are not
+promised by this engine yet.
 
 ### Mixers
 

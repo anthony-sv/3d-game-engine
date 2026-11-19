@@ -190,6 +190,35 @@ namespace Strada
 			glm::vec3 Carried = glm::vec3(0.0f);
 			UUID Ground = UUID::Invalid();
 		};
+		// A vehicle's wheel as a step left it: what its VehicleWheel entity is drawn from (radians, meters) and its spin
+		// (radians per second), which tells how far it turned in the step.
+		struct WheelStep
+		{
+			float SuspensionLength = 0.0f;
+			float SteerAngle = 0.0f;
+			float RotationAngle = 0.0f;
+			float AngularVelocity = 0.0f;
+
+			bool operator==(WheelStep const& other) const = default;
+		};
+		// How a vehicle's wheels are drawn between steps (Scene::DrawVehicleWheels): each wheel after the last two steps, and
+		// how far it turned from the first to the second (its angle's change unwrapped by its spin, so a wheel turning more
+		// than half a turn in a step is drawn turning forward). Nothing to draw before the vehicle's first step.
+		struct WheelDrawing
+		{
+			std::array<WheelStep, VehicleWheelCount> PreviousStep{};
+			std::array<WheelStep, VehicleWheelCount> Step{};
+			std::array<float, VehicleWheelCount> Advance{};
+			bool HasSteps = false;
+
+			bool operator==(WheelDrawing const& other) const = default;
+		};
+		// A vehicle's entity and how its wheels are drawn.
+		struct VehicleWheels
+		{
+			UUID Entity = UUID::Invalid();
+			WheelDrawing Drawing;
+		};
 
 		PhysicsSnapshot m_Physics;
 		uint64_t m_Step = 0;
@@ -201,6 +230,8 @@ namespace Strada
 		// In UUID order.
 		std::vector<Body> m_Bodies;
 		std::vector<Character> m_Characters;
+		// The vehicles the scene had made, in UUID order.
+		std::vector<VehicleWheels> m_Vehicles;
 	};
 
 	// An ECS world: entities with components, an ordered hierarchy, settings and runtime state. Main thread only.
@@ -389,12 +420,13 @@ namespace Strada
 		std::optional<uint64_t> GetRecordedPhysicsHash() const { return m_RecordedPhysicsHash; }
 		// Saves the running scene's simulation between frames (ScenePhysicsSnapshot): the physics world's state
 		// (PhysicsScene::SaveState), the fixed step count, the accumulator, the sequence of the UUIDs entities made while
-		// running take, and what the scene exchanged with each body and character. Physics component changes not applied yet
-		// are applied first. Fails when the scene runs no physics.
+		// running take, what the scene exchanged with each body and character, and the steps each vehicle's wheels are drawn
+		// between. Physics component changes not applied yet are applied first. Fails when the scene runs no physics.
 		[[nodiscard]] Result<ScenePhysicsSnapshot> SavePhysicsState();
 		// Goes back to a snapshot of this run between frames: the physics world, the step count and accumulator, the UUID
 		// sequence (an ID still held by an entity made since is skipped), and the entities of bodies and characters where they
-		// were then, so the steps that follow run as they did. Physics component changes not applied yet are applied first, as
+		// were then, with the vehicles' wheels drawn as they were, so the steps that follow run as they did. Physics component
+		// changes not applied yet are applied first, as
 		// the next frame would. Then it fails, changing nothing more, when the scene runs no physics, the snapshot is of
 		// another run, or a body, joint, character or vehicle was added, removed or rebuilt since. What the simulation does
 		// not change (scripts' state, entities without bodies, settings) stays as it is.
@@ -650,6 +682,19 @@ namespace Strada
 		// version (an edit, a reload, a file that starts or stops loading), in the order of their UUIDs.
 		void SyncVehicles();
 		void OnVehicleComponentChanged(entt::registry& registry, entt::entity handle);
+		// The wheels of the vehicles (Docs/Architecture.md §8, "Interpolated wheels"). After each step, each vehicle's wheels
+		// as the step left them (suspension length, steering, angle and spin) are recorded, and the VehicleWheel entities placed
+		// there. Draws each VehicleWheel entity whose wheel names (in any letter case) a wheel of the nearest entity above it
+		// that has a made vehicle: the chassis entity's world translation and rotation as they are now, times the wheel's
+		// transform in the chassis's space (ComposeVehicleWheelTransform) the part `alpha` of the way from the step before
+		// (0) to the last one (1), or at the last step when the chassis's RigidBody does not interpolate; set in the wheel's
+		// parent's space, its scale kept. alpha 1 places them exactly where their last step left them (before the physics
+		// changes and steps of a frame). A wheel entity with a body or a character of its own, or without a vehicle or wheel
+		// to draw, is left alone, said once.
+		void RecordVehicleWheelSteps(float step);
+		void DrawVehicleWheels(float alpha);
+		// The entities whose vehicles the scene made, in the order of their UUIDs (a snapshot's vehicles).
+		std::vector<entt::entity> GetMadeVehicleOrder() const;
 
 		// Audio runtime (SceneAudio.cpp).
 		struct AudioSourceState;
@@ -951,8 +996,18 @@ namespace Strada
 			bool Made = false;
 			VehicleDesc Desc;
 			std::string Said;
+			// While Made: what its wheels are drawn with (Desc's wheels without their curves, their directions normalized, and
+			// the chassis's axes as the world takes them, NormalizeVehicleAxes), the definition's wheel names, and how the
+			// wheels are drawn between steps.
+			std::array<VehicleWheelDesc, VehicleWheelCount> WheelGeometry{};
+			glm::vec3 Up = glm::vec3(0.0f, 1.0f, 0.0f);
+			glm::vec3 Forward = glm::vec3(0.0f, 0.0f, -1.0f);
+			std::array<std::string, VehicleWheelCount> WheelNames{};
+			ScenePhysicsSnapshot::WheelDrawing Wheels;
 		};
 		std::unordered_map<entt::entity, VehicleSyncState> m_Vehicles;
+		// What was last said about a VehicleWheel entity that draws no wheel, so that each reason is said once.
+		std::unordered_map<entt::entity, std::string> m_VehicleWheelsSaid;
 		// Entities whose Vehicle, body, definition or curves changed while running; their vehicles are updated before the next
 		// step, after the bodies and characters.
 		std::unordered_set<entt::entity> m_ChangedVehicles;

@@ -17,7 +17,11 @@
 #include "Strada/Scene/Components.h"
 #include "Strada/Scene/Entity.h"
 
+#include <glm/gtc/constants.hpp>
+#include <glm/gtc/quaternion.hpp>
+
 #include <algorithm>
+#include <array>
 #include <cmath>
 #include <optional>
 #include <string>
@@ -92,6 +96,32 @@ namespace Strada
 			glm::quat localRotation;
 			glm::vec3 localScale;
 			if (Math::DecomposeTransform(local, localPosition, localRotation, localScale))
+			{
+				transform.Translation = localPosition;
+				transform.Rotation = localRotation;
+			}
+		}
+
+		// Places an entity at a world position and rotation computed in its parent's space from the parent's world transform
+		// alone, keeping its own scale: the same pose and parent always give the same bits, whatever the entity showed before
+		// (a wheel drawn between steps goes back exactly to where its step put it).
+		void SetWorldPoseInParent(Scene& scene, Entity entity, glm::vec3 const& position, glm::quat const& rotation)
+		{
+			TransformComponent& transform = entity.GetComponent<TransformComponent>();
+			Entity const parent = scene.GetParent(entity);
+			if (!parent)
+			{
+				transform.Translation = position;
+				transform.Rotation = Math::NormalizeRotation(rotation);
+				return;
+			}
+			glm::mat4 const local =
+				glm::inverse(scene.GetWorldTransform(parent)) * Math::ComposeTransform(position, rotation, glm::vec3(1.0f));
+			glm::vec3 localPosition;
+			glm::quat localRotation;
+			glm::vec3 localScale;
+			// Parents without a usable transform (zero scale) have no space to place the entity in.
+			if (Math::DecomposeTransform(local, localPosition, localRotation, localScale) && IsFinite(localPosition))
 			{
 				transform.Translation = localPosition;
 				transform.Rotation = localRotation;
@@ -594,6 +624,7 @@ namespace Strada
 		m_CharacterOrderChanged = false;
 		m_ChangedCharacters.clear();
 		m_Vehicles.clear();
+		m_VehicleWheelsSaid.clear();
 		m_ChangedVehicles.clear();
 		m_VehicleEpoch = 0;
 		m_JointsChanged = false;
@@ -732,6 +763,7 @@ namespace Strada
 			// Between frames entities may be drawn between steps: bodies and joints are made from where the steps left them.
 			ReturnBodiesToSteps();
 			ReturnCharactersToSteps();
+			DrawVehicleWheels(1.0f);
 			RebuildChangedBodies();
 			// After a frame's steps (its contact events, OnDestroy, the next OnUpdate or an edit), the frame still shows them
 			// between their steps, as far as it did: the same alpha gives the same poses. Never inside the steps, which must
@@ -741,6 +773,7 @@ namespace Strada
 				float const alpha = GetDrawingAlpha();
 				InterpolateBodyTransforms(alpha);
 				InterpolateCharacterTransforms(alpha);
+				DrawVehicleWheels(alpha);
 			}
 		}
 	}
@@ -998,6 +1031,8 @@ namespace Strada
 			{
 				state.Made = true;
 				state.Desc = desc;
+				// Made again, its wheels are drawn from its first step on.
+				state.Wheels = {};
 			}
 			else
 			{
@@ -1010,6 +1045,28 @@ namespace Strada
 			m_Physics->RemoveVehicle(id);
 			state.Made = false;
 			state.Desc = {};
+		}
+		if (state.Made)
+		{
+			// What its wheels are drawn with: the values the world was given, its directions as the world takes them, and the
+			// definition's wheel names (which no value of the world holds, so a rename applies here alone).
+			glm::vec3 up = state.Desc.Up;
+			glm::vec3 forward = state.Desc.Forward;
+			if (NormalizeVehicleAxes(up, forward))
+			{
+				state.Up = up;
+				state.Forward = forward;
+			}
+			Vehicle const& definition = sources.Definition->GetData();
+			for (size_t index = 0; index < VehicleWheelCount; index++)
+			{
+				VehicleWheelDesc const& wheel = state.Desc.Wheels[index];
+				VehicleWheelDesc& geometry = state.WheelGeometry[index];
+				geometry.Position = wheel.Position;
+				geometry.SuspensionDirection = glm::normalize(wheel.SuspensionDirection);
+				geometry.SteeringAxis = glm::normalize(wheel.SteeringAxis);
+				state.WheelNames[index] = index < definition.Wheels.size() ? definition.Wheels[index].Name : std::string();
+			}
 		}
 		std::string said = problem;
 		for (std::string const& note : notes)
@@ -1024,6 +1081,144 @@ namespace Strada
 				ST_CORE_WARN("Physics: the Vehicle of '{}' {}", entity.GetName(), said);
 			}
 			state.Said = std::move(said);
+		}
+	}
+
+	std::vector<entt::entity> Scene::GetMadeVehicleOrder() const
+	{
+		std::vector<entt::entity> order;
+		SortKeysByUUID(m_Vehicles, order);
+		std::erase_if(order,
+		              [this](entt::entity handle)
+		              {
+						  return !m_Vehicles.at(handle).Made;
+					  });
+		return order;
+	}
+
+	void Scene::RecordVehicleWheelSteps(float step)
+	{
+		for (auto& [handle, state] : m_Vehicles)
+		{
+			std::optional<VehicleState> const vehicle = state.Made ? m_Physics->GetVehicleState(state.Entity) : std::nullopt;
+			if (!vehicle)
+			{
+				continue;
+			}
+			ScenePhysicsSnapshot::WheelDrawing& drawing = state.Wheels;
+			for (size_t index = 0; index < VehicleWheelCount; index++)
+			{
+				VehicleWheelState const& wheel = vehicle->Wheels[index];
+				ScenePhysicsSnapshot::WheelStep const now{wheel.SuspensionLength, wheel.SteerAngle, wheel.RotationAngle,
+				                                          wheel.AngularVelocity};
+				ScenePhysicsSnapshot::WheelStep const before = drawing.HasSteps ? drawing.Step[index] : now;
+				// Jolt keeps the angle within a turn; the spin tells how many whole turns its change in the step leaves out.
+				float advance = 0.0f;
+				if (drawing.HasSteps)
+				{
+					float const turned = now.RotationAngle - before.RotationAngle;
+					float const expected = 0.5f * (before.AngularVelocity + now.AngularVelocity) * step;
+					float const turn = glm::two_pi<float>();
+					advance = turned + std::round((expected - turned) / turn) * turn;
+				}
+				drawing.PreviousStep[index] = before;
+				drawing.Step[index] = now;
+				drawing.Advance[index] = std::isfinite(advance) ? advance : 0.0f;
+			}
+			drawing.HasSteps = true;
+		}
+		DrawVehicleWheels(1.0f);
+	}
+
+	void Scene::DrawVehicleWheels(float alpha)
+	{
+		auto const wheels = m_Registry.view<VehicleWheelComponent>();
+		for (entt::entity const handle : wheels)
+		{
+			Entity const wheel(handle, this);
+			// The wheel of the nearest entity above it with a Vehicle (said once when there is none to draw).
+			std::string problem;
+			VehicleSyncState const* vehicle = nullptr;
+			Entity chassis;
+			size_t index = 0;
+			if (m_Bodies.contains(handle) || m_Characters.contains(handle))
+			{
+				problem = "draws no wheel: its entity has a body or a character of its own, which the vehicle would move";
+			}
+			else
+			{
+				Entity above = GetParent(wheel);
+				for (size_t depth = 0; above && !above.HasComponent<VehicleComponent>() && depth < m_EntityMap.size(); depth++)
+				{
+					above = GetParent(above);
+				}
+				auto const found = above && above.HasComponent<VehicleComponent>() ? m_Vehicles.find(above.GetHandle()) : m_Vehicles.end();
+				std::string const& name = m_Registry.get<VehicleWheelComponent>(handle).Wheel;
+				if (!above || !above.HasComponent<VehicleComponent>())
+				{
+					problem = "draws no wheel: no entity above it has a Vehicle";
+				}
+				else if (found != m_Vehicles.end() && found->second.Made)
+				{
+					std::array<std::string, VehicleWheelCount> const& names = found->second.WheelNames;
+					auto const named = std::find_if(names.begin(), names.end(),
+					                                [&name](std::string const& candidate)
+					                                {
+														return IsSameVehicleWheelName(candidate, name);
+													});
+					if (named == names.end())
+					{
+						problem = fmt::format("draws no wheel: the definition of the Vehicle of '{}' has no wheel named '{}'",
+						                      above.GetName(), name);
+					}
+					else
+					{
+						vehicle = &found->second;
+						chassis = above;
+						index = static_cast<size_t>(named - names.begin());
+					}
+				}
+			}
+			std::string& said = m_VehicleWheelsSaid[handle];
+			if (problem != said)
+			{
+				if (!problem.empty())
+				{
+					ST_CORE_WARN("Physics: the VehicleWheel of '{}' {}", wheel.GetName(), problem);
+				}
+				said = std::move(problem);
+			}
+			// Nothing to draw before the vehicle's first step.
+			if (vehicle == nullptr || !vehicle->Wheels.HasSteps)
+			{
+				continue;
+			}
+			glm::vec3 position;
+			glm::quat rotation;
+			glm::vec3 scale;
+			if (!Math::DecomposeTransform(GetWorldTransform(chassis), position, rotation, scale))
+			{
+				continue;
+			}
+			RigidBodyComponent const* body = m_Registry.try_get<RigidBodyComponent>(chassis.GetHandle());
+			float const part = body != nullptr && body->Interpolation == RigidBodyInterpolation::Interpolate ? alpha : 1.0f;
+			ScenePhysicsSnapshot::WheelDrawing const& drawing = vehicle->Wheels;
+			ScenePhysicsSnapshot::WheelStep const& from = drawing.PreviousStep[index];
+			ScenePhysicsSnapshot::WheelStep const& to = drawing.Step[index];
+			// From the last step back, as bodies are, so that the whole step (1) is exactly there.
+			float const back = 1.0f - part;
+			glm::mat4 const local = ComposeVehicleWheelTransform(vehicle->WheelGeometry[index], vehicle->Up, vehicle->Forward,
+			                                                     to.SuspensionLength - back * (to.SuspensionLength - from.SuspensionLength),
+			                                                     to.SteerAngle - back * (to.SteerAngle - from.SteerAngle),
+			                                                     to.RotationAngle - back * drawing.Advance[index]);
+			glm::vec3 wheelPosition;
+			glm::quat wheelRotation;
+			glm::vec3 wheelScale;
+			if (Math::DecomposeTransform(Math::ComposeTransform(position, rotation, glm::vec3(1.0f)) * local, wheelPosition, wheelRotation,
+			                             wheelScale))
+			{
+				SetWorldPoseInParent(*this, wheel, wheelPosition, wheelRotation);
+			}
 		}
 	}
 
@@ -1442,6 +1637,8 @@ namespace Strada
 				ReturnBodiesToSteps();
 				NoteBodiesMovedSinceSteps();
 				ReturnCharactersToSteps();
+				// From the chassis where its last step left it.
+				DrawVehicleWheels(1.0f);
 			}
 			RebuildChangedBodies();
 		}
@@ -1472,6 +1669,8 @@ namespace Strada
 				float const alpha = GetDrawingAlpha();
 				InterpolateBodyTransforms(alpha);
 				InterpolateCharacterTransforms(alpha);
+				// From the chassis as it is drawn.
+				DrawVehicleWheels(alpha);
 				m_IsDrawnBetweenSteps = true;
 			}
 			m_ContactEvents = m_Physics->TakeContactEvents();
@@ -1500,6 +1699,8 @@ namespace Strada
 				WriteBodyTransforms();
 				WriteCharacterTransforms();
 				RecordBodySteps();
+				// After the chassis's entity is where the step left it.
+				RecordVehicleWheelSteps(step);
 			}
 		}
 		m_FixedStepCount++;
@@ -1773,6 +1974,11 @@ namespace Strada
 			snapshot.m_Characters.push_back({state.Entity, transform != nullptr ? *transform : TransformComponent(), state.Position,
 			                                 state.PreviousStepPosition, state.StepPosition, state.Carried, state.Ground});
 		}
+		for (entt::entity const handle : GetMadeVehicleOrder())
+		{
+			VehicleSyncState const& state = m_Vehicles.at(handle);
+			snapshot.m_Vehicles.push_back({state.Entity, state.Wheels});
+		}
 		return snapshot;
 	}
 
@@ -1797,9 +2003,15 @@ namespace Strada
 		               {
 						   return m_Characters.at(handle).Entity == saved.Entity && m_Registry.valid(handle);
 					   });
-		if (!sameBodies || !sameCharacters)
+		std::vector<entt::entity> const vehicles = GetMadeVehicleOrder();
+		bool const sameVehicles = std::equal(vehicles.begin(), vehicles.end(), snapshot.m_Vehicles.begin(), snapshot.m_Vehicles.end(),
+		                                     [this](entt::entity handle, ScenePhysicsSnapshot::VehicleWheels const& saved)
+		                                     {
+												 return m_Vehicles.at(handle).Entity == saved.Entity;
+											 });
+		if (!sameBodies || !sameCharacters || !sameVehicles)
 		{
-			return Error{"bodies or characters were added or removed since the snapshot"};
+			return Error{"bodies, characters or vehicles were added or removed since the snapshot"};
 		}
 		if (Result<void> restored = m_Physics->RestoreState(snapshot.m_Physics); !restored)
 		{
@@ -1842,6 +2054,12 @@ namespace Strada
 				*transform = saved.Transform;
 			}
 		}
+		// The wheels drawn as they were, from their chassis where it was and the steps they were drawn between.
+		for (size_t i = 0; i < vehicles.size(); i++)
+		{
+			m_Vehicles.at(vehicles[i]).Wheels = snapshot.m_Vehicles[i].Drawing;
+		}
+		DrawVehicleWheels(m_IsDrawnBetweenSteps ? GetDrawingAlpha() : 1.0f);
 		// The events of the steps that are undone were taken already; the next frame's are those of the steps it runs.
 		m_ContactEvents.clear();
 		return {};

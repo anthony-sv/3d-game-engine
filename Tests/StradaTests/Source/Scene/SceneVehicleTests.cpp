@@ -1,4 +1,6 @@
+#include "Core/ProfilerTestUtilities.h"
 #include "Physics/PhysicsTestUtilities.h"
+#include "Script/ScriptTestUtilities.h"
 #include "TestUtilities.h"
 
 #include "Strada/Asset/AssetManager.h"
@@ -8,18 +10,25 @@
 #include "Strada/Asset/Vehicle.h"
 #include "Strada/Asset/VehicleAsset.h"
 #include "Strada/Core/Log.h"
+#include "Strada/Core/Platform.h"
+#include "Strada/Core/Profiler.h"
 #include "Strada/Math/Curve.h"
+#include "Strada/Math/Math.h"
 #include "Strada/Scene/Entity.h"
 #include "Strada/Scene/Scene.h"
 
 #include <doctest/doctest.h>
 #include <glm/glm.hpp>
+#include <glm/gtc/constants.hpp>
+#include <glm/gtc/quaternion.hpp>
 
 #include <algorithm>
+#include <array>
 #include <cmath>
 #include <cstdint>
 #include <initializer_list>
 #include <limits>
+#include <map>
 #include <memory>
 #include <optional>
 #include <string>
@@ -407,4 +416,823 @@ TEST_CASE("Scene: a bike duplicated keeps its definition and its wheels' names, 
 	CHECK(scene.GetPhysicsScene()->GetVehicleCount() == 2);
 	CHECK(scene.GetPhysicsScene()->HasVehicle(copy.GetUUID()));
 	scene.OnRuntimeStop();
+}
+
+namespace
+{
+	constexpr uint64_t BikeId = 200;
+	constexpr uint64_t FrontWheelId = 201;
+	constexpr uint64_t RearWheelId = 202;
+	constexpr float Frame30 = 1.0f / 30.0f;
+	constexpr float Frame144 = 1.0f / 144.0f;
+
+	// A ride as a function of the fixed step count alone (rule 40). Every input and shift changes at even counts only, so
+	// that a frame of two steps (30 frames a second) gives both the inputs of its first step, as an OnFixedUpdate reading
+	// the step count would give them.
+	struct RideScript
+	{
+		VehicleInputs (*Inputs)(uint64_t step) = nullptr;
+		int32_t (*Shift)(uint64_t step) = nullptr;
+	};
+
+	// The three-rate ride: the throttle opened and eased, a lean to the right and back to the left, both brakes, and in
+	// the Manual gearbox shifts up at steps 20, 100 and 200 and down at 300.
+	VehicleInputs ExitRideInputs(uint64_t step)
+	{
+		VehicleInputs inputs;
+		inputs.Throttle = step < 150 ? 0.7f : 0.3f;
+		inputs.Lean = step >= 90 && step < 210 ? 0.4f : (step >= 210 && step < 260 ? -0.3f : 0.0f);
+		inputs.FrontBrake = step >= 240 && step < 320 ? 0.3f : 0.0f;
+		inputs.RearBrake = step >= 270 && step < 330 ? 0.4f : 0.0f;
+		return inputs;
+	}
+
+	int32_t ExitRideShift(uint64_t step)
+	{
+		return step == 20 || step == 100 || step == 200 ? 1 : (step == 300 ? -1 : 0);
+	}
+
+	// The snapshot's ride: at step 200 the bike leans, both brakes are on, the clutch closes after the shift at 160 and a
+	// shift is requested for the next step.
+	VehicleInputs SnapshotRideInputs(uint64_t step)
+	{
+		VehicleInputs inputs;
+		inputs.Throttle = step < 120 ? 0.6f : 0.4f;
+		inputs.Lean = step >= 60 && step < 210 ? 0.4f : (step >= 240 ? -0.2f : 0.0f);
+		inputs.FrontBrake = step >= 150 && step < 220 ? 0.25f : 0.0f;
+		inputs.RearBrake = step >= 170 && step < 230 ? 0.3f : 0.0f;
+		return inputs;
+	}
+
+	int32_t SnapshotRideShift(uint64_t step)
+	{
+		return step == 30 || step == 160 || step == 200 ? 1 : (step == 260 ? -1 : 0);
+	}
+
+	// Sets a bike's inputs before each frame from the step count, as the ride's OnFixedUpdate would (the scripting members
+	// are VH2's): the frame's steps take the inputs of its first, and each shift is requested once, before the frame whose
+	// first step is its count.
+	struct Rider
+	{
+		UUID Bike = UUID::Invalid();
+		RideScript Script;
+		std::optional<uint64_t> Shifted;
+
+		void BeforeFrame(Scene& scene)
+		{
+			uint64_t const step = scene.GetFixedStepCount();
+			PhysicsScene& world = *scene.GetPhysicsScene();
+			world.SetVehicleInputs(Bike, Script.Inputs(step));
+			int32_t const shift = Script.Shift(step);
+			if (shift != 0 && Shifted != step)
+			{
+				world.RequestVehicleShift(Bike, shift);
+				Shifted = step;
+			}
+		}
+	};
+
+	// A Manual bike whose lean spring settles within the step of the case (Docs/Architecture.md §8, "Vehicles").
+	Vehicle MakeManualBike()
+	{
+		Vehicle values;
+		values.Transmission.Mode = VehicleTransmissionMode::Manual;
+		return values;
+	}
+
+	Entity MakeChild(Scene& scene, uint64_t id, std::string const& name, Entity parent)
+	{
+		Entity child = scene.CreateEntityWithUUID(UUID(id), name);
+		REQUIRE(scene.SetParent(child, parent, false).IsOk());
+		return child;
+	}
+
+	// The bike of the riding cases at the origin, its wheel entities below it (the front one below a fork that turns
+	// nothing), with fixed UUIDs.
+	Entity MakeRiddenBike(Scene& scene, AssetHandle definition, bool wheels, RigidBodyInterpolation interpolation)
+	{
+		Entity bike = MakeBike(scene, BikeId, 0.0f, definition);
+		bike.GetComponent<RigidBodyComponent>().Interpolation = interpolation;
+		if (wheels)
+		{
+			Entity fork = MakeChild(scene, 203, "Fork", bike);
+			fork.GetComponent<TransformComponent>().Translation = {0.0f, 0.6f, -0.5f};
+			MakeChild(scene, FrontWheelId, "Front Wheel", fork).AddComponent<VehicleWheelComponent>().Wheel = "Front";
+			MakeChild(scene, RearWheelId, "Rear Wheel", bike).AddComponent<VehicleWheelComponent>().Wheel = "rear";
+		}
+		return bike;
+	}
+
+	// What a ride gave after each step it was read at: the scene's hash and the vehicle's state.
+	struct RideLog
+	{
+		std::map<uint64_t, uint64_t> Hashes;
+		std::map<uint64_t, VehicleState> States;
+	};
+
+	// Rides the three-rate ride for `steps` steps at frames of frameTime seconds, checking how many steps each frame runs.
+	RideLog RideAtRate(float frameTime, uint64_t steps)
+	{
+		AssetHandle const definition = AddDataAsset(MakeManualBike(), "Bike " + std::to_string(frameTime) + ".svehicle");
+		Scene scene("Ride");
+		MakeGround(scene);
+		MakeRiddenBike(scene, definition, true, RigidBodyInterpolation::Interpolate);
+		scene.OnRuntimeStart(PhysicsOnly());
+		REQUIRE(scene.GetPhysicsScene() != nullptr);
+		REQUIRE(scene.GetPhysicsScene()->HasVehicle(UUID(BikeId)));
+		Rider rider{UUID(BikeId), {ExitRideInputs, ExitRideShift}, std::nullopt};
+		RideLog log;
+		for (int frame = 0; frame < 100000 && scene.GetFixedStepCount() < steps; frame++)
+		{
+			uint64_t const before = scene.GetFixedStepCount();
+			rider.BeforeFrame(scene);
+			scene.OnUpdateRuntime(Timestep(frameTime));
+			uint64_t const after = scene.GetFixedStepCount();
+			// Every step takes the inputs its count gives: a frame of two steps starts at an even count, whose inputs both
+			// steps share; a frame at 144 runs one step or none.
+			if (frameTime == Frame30)
+			{
+				REQUIRE(before % 2 == 0);
+				REQUIRE(after == before + 2);
+			}
+			else if (frameTime == Step)
+			{
+				REQUIRE(after == before + 1);
+			}
+			else
+			{
+				REQUIRE(after <= before + 1);
+			}
+			if (after != before)
+			{
+				log.Hashes[after] = scene.ComputePhysicsStateHash();
+				log.States[after] = StateOf(scene, BikeId);
+			}
+		}
+		REQUIRE(scene.GetFixedStepCount() == steps);
+		scene.OnRuntimeStop();
+		return log;
+	}
+
+	// Every reading of a vehicle, bit for bit.
+	bool SameReading(VehicleState const& a, VehicleState const& b)
+	{
+		bool same = a.Entity == b.Entity && a.Inputs == b.Inputs && a.AppliedInputs == b.AppliedInputs && a.EngineSpeed == b.EngineSpeed &&
+		            a.EngineTorque == b.EngineTorque && a.Gear == b.Gear && a.ClutchFriction == b.ClutchFriction &&
+		            a.IsShifting == b.IsShifting && a.ForwardSpeed == b.ForwardSpeed && a.LeanAngle == b.LeanAngle &&
+		            a.TargetLeanAngle == b.TargetLeanAngle;
+		for (size_t index = 0; index < VehicleWheelCount; index++)
+		{
+			VehicleWheelState const& first = a.Wheels[index];
+			VehicleWheelState const& second = b.Wheels[index];
+			same = same && first.ContactEntity == second.ContactEntity && first.Surface == second.Surface &&
+			       first.TyreGrip == second.TyreGrip && first.RollingResistance == second.RollingResistance &&
+			       first.ContactPoint == second.ContactPoint && first.ContactNormal == second.ContactNormal &&
+			       first.SuspensionLength == second.SuspensionLength && first.AngularVelocity == second.AngularVelocity &&
+			       first.RotationAngle == second.RotationAngle && first.SteerAngle == second.SteerAngle &&
+			       first.LongitudinalSlip == second.LongitudinalSlip && first.LateralSlip == second.LateralSlip;
+		}
+		return same;
+	}
+
+	TransformComponent TransformOf(Scene& scene, uint64_t id)
+	{
+		return scene.GetEntityByUUID(UUID(id)).GetComponent<TransformComponent>();
+	}
+
+	bool SamePose(TransformComponent const& a, TransformComponent const& b)
+	{
+		return a.Translation == b.Translation && a.Rotation == b.Rotation && a.Scale == b.Scale;
+	}
+}
+
+TEST_CASE("ScenePhysics: a bike ridden by its step count gives the same state hashes at 30, 60 and 144 frames a second")
+{
+	Testing::AssetManagerScope const assets;
+	Testing::PhysicsSystemScope const physics;
+	// Throttle, lean and both brakes set at the fixed step by the step count, with Manual shifts, the wheels drawn between
+	// steps: 360 steps (6 s) at each rate, every even step compared bit for bit.
+	constexpr uint64_t Steps = 360;
+	RideLog const at30 = RideAtRate(Frame30, Steps);
+	RideLog const at60 = RideAtRate(Step, Steps);
+	RideLog const at144 = RideAtRate(Frame144, Steps);
+	size_t compared = 0;
+	bool sameHashes = true;
+	bool sameReadings = true;
+	for (uint64_t step = 2; step <= Steps; step += 2)
+	{
+		CAPTURE(step);
+		REQUIRE(at30.Hashes.contains(step));
+		REQUIRE(at60.Hashes.contains(step));
+		REQUIRE(at144.Hashes.contains(step));
+		sameHashes = sameHashes && at30.Hashes.at(step) == at60.Hashes.at(step) && at60.Hashes.at(step) == at144.Hashes.at(step);
+		sameReadings = sameReadings && SameReading(at30.States.at(step), at60.States.at(step)) &&
+		               SameReading(at60.States.at(step), at144.States.at(step));
+		compared++;
+	}
+	CHECK(compared == Steps / 2);
+	CHECK(sameHashes);
+	CHECK(sameReadings);
+	// Each step applied the inputs of its count (the count before it).
+	bool applied = true;
+	for (auto const& [step, state] : at144.States)
+	{
+		applied = applied && state.AppliedInputs == ExitRideInputs(step - 1);
+	}
+	CHECK(applied);
+
+	// It rode as the ride says, in bands (physics is deterministic per platform only; it rides at about 8.4 m/s at step 150,
+	// leans 0.25 rad at 200 and -0.12 rad at 300, and slows from 11.4 m/s at 300 to 10.3 m/s at 360): moving at a few meters
+	// a second once the throttle has been open for 2.5 s, leaning to its right while the lean input is right and to its left
+	// after it, slower once both brakes have been on, and in the gear its shifts leave (up at 20, 100 and 200, down at 300).
+	VehicleState const& opened = at60.States.at(150);
+	VehicleState const& leaningRight = at60.States.at(200);
+	VehicleState const& leaningLeft = at60.States.at(300);
+	VehicleState const& braked = at60.States.at(Steps);
+	CHECK(opened.ForwardSpeed > 5.0f);
+	CHECK(opened.ForwardSpeed < 12.0f);
+	CHECK(leaningRight.LeanAngle > 0.1f);
+	CHECK(leaningRight.LeanAngle < 0.5f);
+	CHECK(leaningLeft.LeanAngle < -0.03f);
+	CHECK(braked.ForwardSpeed < leaningLeft.ForwardSpeed);
+	CHECK(at60.States.at(150).Gear == 2);
+	CHECK(at60.States.at(240).Gear == 3);
+	CHECK(braked.Gear == 2);
+}
+
+TEST_CASE("ScenePhysics: a snapshot taken in the middle of a ride and restored reproduces every later step of the ride")
+{
+	Testing::AssetManagerScope const assets;
+	Testing::PhysicsSystemScope const physics;
+	AssetHandle const definition = AddDataAsset(MakeManualBike(), "Bike.svehicle");
+	Scene scene("Snapshot");
+	MakeGround(scene);
+	MakeRiddenBike(scene, definition, true, RigidBodyInterpolation::Interpolate);
+	scene.OnRuntimeStart(PhysicsOnly());
+	REQUIRE(scene.GetPhysicsScene() != nullptr);
+	Rider rider{UUID(BikeId), {SnapshotRideInputs, SnapshotRideShift}, std::nullopt};
+	auto const frame = [&scene, &rider](bool drive)
+	{
+		if (drive)
+		{
+			rider.BeforeFrame(scene);
+		}
+		uint64_t const before = scene.GetFixedStepCount();
+		scene.OnUpdateRuntime(Timestep(Frame144));
+		REQUIRE(scene.GetFixedStepCount() <= before + 1);
+	};
+	// At 144 frames a second, so that the bike and its wheels are drawn between steps when it is saved.
+	while (scene.GetFixedStepCount() < 200)
+	{
+		frame(true);
+	}
+	// Saved after this frame's inputs and the shift requested for step 200, before the frame runs: the latest inputs and the
+	// pending shift are in it.
+	rider.BeforeFrame(scene);
+	Result<ScenePhysicsSnapshot> saved = scene.SavePhysicsState();
+	REQUIRE(saved.IsOk());
+	ScenePhysicsSnapshot const snapshot = saved.TakeValue();
+	VehicleState const reading = StateOf(scene, BikeId);
+	uint64_t const savedHash = scene.ComputePhysicsStateHash();
+	TransformComponent const bikeDrawn = TransformOf(scene, BikeId);
+	TransformComponent const frontDrawn = TransformOf(scene, FrontWheelId);
+	TransformComponent const rearDrawn = TransformOf(scene, RearWheelId);
+	// What the snapshot holds is in play: leaning, both brakes on, the clutch closing after a shift, a shift pending.
+	CHECK(reading.AppliedInputs.FrontBrake > 0.0f);
+	CHECK(reading.AppliedInputs.RearBrake > 0.0f);
+	CHECK(reading.AppliedInputs.Lean > 0.0f);
+	CHECK(reading.IsShifting);
+	CHECK(reading.ClutchFriction > 0.0f);
+	CHECK(reading.ClutchFriction < 1.0f);
+	CHECK(std::abs(reading.LeanAngle) > 0.02f);
+
+	// The original ride on to step 320: each step's hash.
+	std::map<uint64_t, uint64_t> original;
+	bool first = true;
+	while (scene.GetFixedStepCount() < 320)
+	{
+		frame(!first);
+		first = false;
+		original[scene.GetFixedStepCount()] = scene.ComputePhysicsStateHash();
+	}
+
+	// Back to step 200: what a script reads right after the restore is what it read when the snapshot was taken, and the
+	// bike and its wheels are drawn where they were.
+	Result<void> const restored = scene.RestorePhysicsState(snapshot);
+	REQUIRE_MESSAGE(restored.IsOk(), (restored ? std::string() : restored.GetError()));
+	CHECK(scene.GetFixedStepCount() == 200);
+	CHECK(SameReading(StateOf(scene, BikeId), reading));
+	CHECK(scene.ComputePhysicsStateHash() == savedHash);
+	CHECK(SamePose(TransformOf(scene, BikeId), bikeDrawn));
+	CHECK(SamePose(TransformOf(scene, FrontWheelId), frontDrawn));
+	CHECK(SamePose(TransformOf(scene, RearWheelId), rearDrawn));
+
+	// The restored inputs and pending shift drive the steps until the count moves on; from there the ride's own.
+	rider.Shifted = 200;
+	size_t replayed = 0;
+	bool same = true;
+	while (scene.GetFixedStepCount() < 320)
+	{
+		frame(scene.GetFixedStepCount() > 200);
+		uint64_t const step = scene.GetFixedStepCount();
+		REQUIRE(original.contains(step));
+		same = same && scene.ComputePhysicsStateHash() == original.at(step);
+		replayed++;
+	}
+	CHECK(same);
+	CHECK(replayed >= 120);
+	scene.OnRuntimeStop();
+}
+
+TEST_CASE("ScenePhysics: a snapshot is refused, changing nothing, once a vehicle was made, made again or removed; an edit of its "
+          "values keeps it")
+{
+	Testing::AssetManagerScope const assets;
+	Testing::PhysicsSystemScope const physics;
+	Vehicle values = MakeManualBike();
+	AssetHandle const definition = AddDataAsset(values, "Bike.svehicle");
+	Scene scene("Refusals");
+	MakeGround(scene);
+	MakeRiddenBike(scene, definition, true, RigidBodyInterpolation::Interpolate);
+	// A second chassis without a Vehicle yet.
+	Entity other = scene.CreateEntityWithUUID(UUID(300), "Other");
+	other.GetComponent<TransformComponent>().Translation = {5.0f, 0.05f, 0.0f};
+	RigidBodyComponent& body = other.AddComponent<RigidBodyComponent>();
+	body.Type = RigidBodyType::Dynamic;
+	body.Mass = 250.0f;
+	BoxColliderComponent& collider = other.AddComponent<BoxColliderComponent>();
+	collider.HalfExtents = {0.25f, 0.5f, 0.6f};
+	collider.Offset = {0.0f, 0.75f, 0.0f};
+	scene.OnRuntimeStart(PhysicsOnly());
+	PhysicsScene& world = *scene.GetPhysicsScene();
+	world.SetVehicleInputs(UUID(BikeId), MakeInputs(0.4f, 0.0f, 0.0f, 0.2f));
+	Run(scene, 30);
+
+	auto const refused = [&scene](ScenePhysicsSnapshot const& snapshot)
+	{
+		uint64_t const hash = scene.ComputePhysicsStateHash();
+		uint64_t const step = scene.GetFixedStepCount();
+		TransformComponent const wheel = TransformOf(scene, FrontWheelId);
+		Result<void> const result = scene.RestorePhysicsState(snapshot);
+		CHECK_FALSE(result.IsOk());
+		CHECK(scene.ComputePhysicsStateHash() == hash);
+		CHECK(scene.GetFixedStepCount() == step);
+		CHECK(SamePose(TransformOf(scene, FrontWheelId), wheel));
+		return result ? std::string() : result.GetError();
+	};
+
+	// A vehicle made: the older snapshot is of another structure.
+	Result<ScenePhysicsSnapshot> beforeMade = scene.SavePhysicsState();
+	REQUIRE(beforeMade.IsOk());
+	uint64_t structure = world.GetStructureVersion();
+	other.AddComponent<VehicleComponent>().Definition = definition;
+	scene.ApplyPhysicsChanges();
+	REQUIRE(world.HasVehicle(UUID(300)));
+	CHECK(world.GetStructureVersion() != structure);
+	CHECK(refused(beforeMade.GetValue()) == "bodies, characters or vehicles were added or removed since the snapshot");
+	Run(scene, 10);
+
+	// Removed.
+	Result<ScenePhysicsSnapshot> beforeRemoved = scene.SavePhysicsState();
+	REQUIRE(beforeRemoved.IsOk());
+	structure = world.GetStructureVersion();
+	other.RemoveComponent<VehicleComponent>();
+	scene.ApplyPhysicsChanges();
+	REQUIRE_FALSE(world.HasVehicle(UUID(300)));
+	CHECK(world.GetStructureVersion() != structure);
+	CHECK_FALSE(refused(beforeRemoved.GetValue()).empty());
+	Run(scene, 10);
+
+	// Its values edited in place: the snapshot still restores, and the steps run on from it.
+	Result<ScenePhysicsSnapshot> beforeEdit = scene.SavePhysicsState();
+	REQUIRE(beforeEdit.IsOk());
+	uint64_t const editedFrom = scene.GetFixedStepCount();
+	structure = world.GetStructureVersion();
+	values.Wheels[0].FrontBrakeTorque = 300.0f;
+	Edit(definition, values);
+	Run(scene, 5);
+	CHECK(world.GetStructureVersion() == structure);
+	Result<void> const kept = scene.RestorePhysicsState(beforeEdit.GetValue());
+	CHECK_MESSAGE(kept.IsOk(), (kept ? std::string() : kept.GetError()));
+	CHECK(scene.GetFixedStepCount() == editedFrom);
+
+	// Made again (its chassis's axes edited, or its collider replaced): refused.
+	Result<ScenePhysicsSnapshot> beforeAxes = scene.SavePhysicsState();
+	REQUIRE(beforeAxes.IsOk());
+	values.Forward = glm::vec3(0.0f, 0.01f, -1.0f);
+	Edit(definition, values);
+	Run(scene, 1);
+	CHECK_FALSE(refused(beforeAxes.GetValue()).empty());
+	Result<ScenePhysicsSnapshot> beforeCollider = scene.SavePhysicsState();
+	REQUIRE(beforeCollider.IsOk());
+	Entity bike = scene.GetEntityByUUID(UUID(BikeId));
+	BoxColliderComponent wider = bike.GetComponent<BoxColliderComponent>();
+	wider.HalfExtents.x = 0.3f;
+	bike.AddOrReplaceComponent<BoxColliderComponent>(wider);
+	scene.ApplyPhysicsChanges();
+	CHECK_FALSE(refused(beforeCollider.GetValue()).empty());
+	scene.OnRuntimeStop();
+}
+
+TEST_CASE("ScenePhysics: two bikes ride alike whatever the order their entities were made in")
+{
+	Testing::AssetManagerScope const assets;
+	Testing::PhysicsSystemScope const physics;
+	AssetHandle const definition = AddDataAsset(MakeManualBike(), "Bike.svehicle");
+	auto const ride = [definition](bool reversed)
+	{
+		Scene scene("Two Bikes");
+		std::vector<uint64_t> const order = reversed ? std::vector<uint64_t>{300, 200} : std::vector<uint64_t>{200, 300};
+		for (uint64_t const id : order)
+		{
+			MakeBike(scene, id, id == 200 ? 0.0f : 4.0f, definition);
+		}
+		MakeGround(scene);
+		scene.OnRuntimeStart(PhysicsOnly());
+		REQUIRE(scene.GetPhysicsScene() != nullptr);
+		std::array<Rider, 2> riders = {Rider{UUID(200), {ExitRideInputs, ExitRideShift}, std::nullopt},
+		                               Rider{UUID(300), {SnapshotRideInputs, SnapshotRideShift}, std::nullopt}};
+		std::vector<uint64_t> hashes;
+		for (int frame = 0; frame < 240; frame++)
+		{
+			for (Rider& rider : riders)
+			{
+				rider.BeforeFrame(scene);
+			}
+			scene.OnUpdateRuntime(Timestep(Step));
+			hashes.push_back(scene.ComputePhysicsStateHash());
+		}
+		scene.OnRuntimeStop();
+		return hashes;
+	};
+	std::vector<uint64_t> const first = ride(false);
+	std::vector<uint64_t> const second = ride(true);
+	REQUIRE(first.size() == 240);
+	CHECK(first == second);
+}
+
+namespace
+{
+	// A definition's wheel as the scene draws it: its attachment, and its directions normalized.
+	VehicleWheelDesc MakeWheelGeometry(VehicleWheelDefinition const& wheel)
+	{
+		VehicleWheelDesc geometry;
+		geometry.Position = wheel.Position;
+		geometry.SuspensionDirection = glm::normalize(wheel.SuspensionDirection);
+		geometry.SteeringAxis = glm::normalize(wheel.SteeringAxis);
+		return geometry;
+	}
+
+	glm::mat4 WithoutScale(glm::mat4 const& world)
+	{
+		glm::vec3 translation;
+		glm::quat rotation;
+		glm::vec3 scale;
+		REQUIRE(Math::DecomposeTransform(world, translation, rotation, scale));
+		return Math::ComposeTransform(translation, rotation, glm::vec3(1.0f));
+	}
+
+	// The angle a wheel that does not steer has turned around its axle, from its transform in its chassis's space: the wheel
+	// model's up (its Y) is (0, cos, -sin) of the angle for a chassis whose up is +Y and whose front is -Z
+	// (ComposeVehicleWheelTransform).
+	float GetAxleAngle(glm::mat4 const& inChassis)
+	{
+		return std::atan2(-inChassis[1].z, inChassis[1].y);
+	}
+
+	// An angle within (-pi, pi].
+	float WrapAngle(float angle)
+	{
+		float const turn = glm::two_pi<float>();
+		return angle - turn * std::round(angle / turn);
+	}
+
+	bool IsNear(glm::vec3 const& a, glm::vec3 const& b, float tolerance)
+	{
+		return glm::all(glm::lessThanEqual(glm::abs(a - b), glm::vec3(tolerance)));
+	}
+}
+
+TEST_CASE("ScenePhysics: a bike's wheels are drawn at their transforms between their last two steps, turning forward however far a "
+          "step turns them, and the hash never sees them")
+{
+	Testing::AssetManagerScope const assets;
+	Testing::PhysicsSystemScope const physics;
+	// Steps of a twentieth of a second, so that a wheel rolling at 25 m/s turns more than half a turn in each; a lean spring
+	// that settles in such a step.
+	constexpr float FixedStep = 0.05f;
+	Vehicle values;
+	values.Lean.SpringDamping = 300.0f;
+	AssetHandle const definition = AddDataAsset(values, "Bike.svehicle");
+	SceneRuntimeSettings settings = PhysicsOnly();
+	settings.FixedTimestep = FixedStep;
+	auto const build = [definition](Scene& scene, bool wheels)
+	{
+		MakeGround(scene);
+		Entity bike = MakeRiddenBike(scene, definition, wheels, RigidBodyInterpolation::Interpolate);
+		bike.GetComponent<RigidBodyComponent>().InitialLinearVelocity = {0.0f, 0.0f, -25.0f};
+	};
+	Scene scene("Wheels");
+	build(scene, true);
+	// The same scene without the wheels' entities.
+	Scene bare("No Wheels");
+	build(bare, false);
+	scene.OnRuntimeStart(settings);
+	bare.OnRuntimeStart(settings);
+	REQUIRE(scene.GetPhysicsScene() != nullptr);
+	REQUIRE(bare.GetPhysicsScene() != nullptr);
+	scene.GetPhysicsScene()->SetVehicleInputs(UUID(BikeId), MakeInputs(0.0f, 0.0f, 0.0f, 0.15f));
+	bare.GetPhysicsScene()->SetVehicleInputs(UUID(BikeId), MakeInputs(0.0f, 0.0f, 0.0f, 0.15f));
+
+	std::array<VehicleWheelDesc, VehicleWheelCount> const geometry = {MakeWheelGeometry(values.Wheels[0]),
+	                                                                  MakeWheelGeometry(values.Wheels[1])};
+	glm::vec3 up = values.Up;
+	glm::vec3 forward = values.Forward;
+	REQUIRE(NormalizeVehicleAxes(up, forward));
+	// The wheels as each step left them, and the scene's accumulator as it keeps it, for the part of a step drawn.
+	std::vector<VehicleState> steps;
+	float accumulator = 0.0f;
+	bool sameHashes = true;
+	bool onTheirTransforms = true;
+	bool forwardOnly = true;
+	float largestAdvance = 0.0f;
+	float turned = 0.0f;
+	float rolled = 0.0f;
+	std::optional<float> lastAngle;
+	int drawnFrames = 0;
+	for (int frame = 0; frame < 432; frame++)
+	{
+		uint64_t const before = scene.GetFixedStepCount();
+		scene.OnUpdateRuntime(Timestep(Frame144));
+		bare.OnUpdateRuntime(Timestep(Frame144));
+		uint64_t const after = scene.GetFixedStepCount();
+		REQUIRE(after <= before + 1);
+		accumulator += Frame144;
+		while (accumulator >= FixedStep * (1.0f - 1e-4f))
+		{
+			accumulator = std::max(accumulator - FixedStep, 0.0f);
+		}
+		if (after != before)
+		{
+			steps.push_back(StateOf(scene, BikeId));
+		}
+		sameHashes = sameHashes && scene.ComputePhysicsStateHash() == bare.ComputePhysicsStateHash();
+		if (steps.size() < 2)
+		{
+			continue;
+		}
+		drawnFrames++;
+		float const alpha = std::clamp(accumulator / FixedStep, 0.0f, 1.0f);
+		glm::mat4 const chassis = WithoutScale(scene.GetWorldTransform(scene.GetEntityByUUID(UUID(BikeId))));
+		VehicleState const& from = steps[steps.size() - 2];
+		VehicleState const& to = steps.back();
+		for (size_t index = 0; index < VehicleWheelCount; index++)
+		{
+			uint64_t const id = index == 0 ? FrontWheelId : RearWheelId;
+			glm::mat4 const inChassis = glm::inverse(chassis) * scene.GetWorldTransform(scene.GetEntityByUUID(UUID(id)));
+			// Where the suspension and the steering put it, the part of the way from the step before to the last one the
+			// frame draws: its centre and its axle.
+			VehicleWheelState const& start = from.Wheels[index];
+			VehicleWheelState const& end = to.Wheels[index];
+			glm::mat4 const expected =
+				ComposeVehicleWheelTransform(geometry[index], up, forward, glm::mix(start.SuspensionLength, end.SuspensionLength, alpha),
+			                                 glm::mix(start.SteerAngle, end.SteerAngle, alpha), 0.0f);
+			onTheirTransforms = onTheirTransforms && IsNear(glm::vec3(inChassis[3]), glm::vec3(expected[3]), 1e-4f) &&
+			                    IsNear(glm::vec3(inChassis[0]), glm::vec3(expected[0]), 1e-4f);
+		}
+		// The rear wheel, which does not steer, turns the way it spins in every frame, by what its spin makes up.
+		VehicleWheelState const& rear = to.Wheels[1];
+		largestAdvance = std::max(largestAdvance, std::abs(rear.AngularVelocity) * FixedStep);
+		float const angle = GetAxleAngle(glm::inverse(chassis) * scene.GetWorldTransform(scene.GetEntityByUUID(UUID(RearWheelId))));
+		if (lastAngle)
+		{
+			float const delta = WrapAngle(angle - *lastAngle);
+			forwardOnly = forwardOnly && (rear.AngularVelocity <= 1.0f || delta > 0.0f);
+			turned += delta;
+			rolled += rear.AngularVelocity * Frame144;
+		}
+		lastAngle = angle;
+	}
+	REQUIRE(drawnFrames > 400);
+	// The premise: a step turns the rear wheel more than half a turn.
+	REQUIRE(largestAdvance > glm::pi<float>());
+	CHECK(sameHashes);
+	CHECK(onTheirTransforms);
+	CHECK(forwardOnly);
+	// As far as its spin turned it over the frames, within a step's change of spin.
+	CHECK(turned == doctest::Approx(rolled).epsilon(0.05));
+	scene.OnRuntimeStop();
+	bare.OnRuntimeStop();
+}
+
+TEST_CASE("ScenePhysics: OnFixedUpdate finds a bike's wheels exactly where their last step left them, however they were drawn")
+{
+	Testing::AssetManagerScope const assets;
+	Testing::PhysicsSystemScope const physics;
+	Testing::ScriptEngineScope const scripting;
+	AssetHandle const definition = AddDataAsset(Vehicle{}, "Bike.svehicle");
+	// A bike drawn between steps, whose front wheel's script notes where it is in each fixed update, beside the same bike
+	// drawn at its steps.
+	Scene drawn("Drawn");
+	MakeGround(drawn);
+	MakeRiddenBike(drawn, definition, true, RigidBodyInterpolation::Interpolate);
+	Entity probe = drawn.GetEntityByUUID(UUID(FrontWheelId));
+	probe.AddComponent<ScriptComponent>().ClassName = "Strada.Tests.FixedStepMover";
+	Scene stepped("Stepped");
+	MakeGround(stepped);
+	MakeRiddenBike(stepped, definition, true, RigidBodyInterpolation::None);
+	SceneRuntimeSettings withScripts;
+	withScripts.PlayAudio = false;
+	drawn.OnRuntimeStart(withScripts);
+	stepped.OnRuntimeStart(PhysicsOnly());
+	REQUIRE(drawn.GetPhysicsScene() != nullptr);
+	REQUIRE(stepped.GetPhysicsScene() != nullptr);
+	for (Scene* scene : {&drawn, &stepped})
+	{
+		scene->GetPhysicsScene()->SetVehicleInputs(UUID(BikeId), MakeInputs(0.5f, 0.0f, 0.0f, -0.3f));
+	}
+
+	// The stepped bike's front wheel after each frame is where the last step left it.
+	glm::vec3 stepPose = TransformOf(stepped, FrontWheelId).Translation;
+	bool readTheSteps = true;
+	int checkedReads = 0;
+	int drawnApart = 0;
+	for (int frame = 0; frame < 288; frame++)
+	{
+		uint64_t const before = drawn.GetFixedStepCount();
+		drawn.OnUpdateRuntime(Timestep(Frame144));
+		stepped.OnUpdateRuntime(Timestep(Frame144));
+		uint64_t const after = drawn.GetFixedStepCount();
+		REQUIRE(stepped.GetFixedStepCount() == after);
+		REQUIRE(after <= before + 1);
+		if (after == before + 1)
+		{
+			Result<ScriptFieldMap> const fields = drawn.ReadScriptFields(probe);
+			REQUIRE(fields.IsOk());
+			readTheSteps = readTheSteps && fields.GetValue().at("FixedRead").GetVector3() == stepPose;
+			checkedReads++;
+		}
+		CHECK(drawn.ComputePhysicsStateHash() == stepped.ComputePhysicsStateHash());
+		glm::vec3 const now = TransformOf(stepped, FrontWheelId).Translation;
+		drawnApart += TransformOf(drawn, FrontWheelId).Translation != now ? 1 : 0;
+		stepPose = now;
+	}
+	CHECK(readTheSteps);
+	CHECK(checkedReads >= 119);
+	// The drawn wheel was between its steps in most frames.
+	CHECK(drawnApart > 100);
+	drawn.OnRuntimeStop();
+	stepped.OnRuntimeStop();
+}
+
+TEST_CASE("ScenePhysics: a VehicleWheel draws the wheel it names, in any letter case, of the nearest Vehicle above it, keeping its "
+          "own scale, and says once why it draws none")
+{
+	Testing::AssetManagerScope const assets;
+	Testing::PhysicsSystemScope const physics;
+	AssetHandle const definition = AddDataAsset(Vehicle{}, "Bike.svehicle");
+	Scene scene("Wheel Names");
+	MakeGround(scene);
+	// Drawn at its steps, so that each frame shows the wheels where Jolt's wheel transforms put them.
+	Entity bike = MakeRiddenBike(scene, definition, true, RigidBodyInterpolation::None);
+	// The fork turned and scaled; the front wheel below it named in capitals, with a scale of its own.
+	Entity forkEntity = scene.GetEntityByUUID(UUID(203));
+	TransformComponent& fork = forkEntity.GetComponent<TransformComponent>();
+	fork.Rotation = glm::angleAxis(0.3f, glm::vec3(0.0f, 1.0f, 0.0f));
+	fork.Scale = glm::vec3(2.0f);
+	Entity front = scene.GetEntityByUUID(UUID(FrontWheelId));
+	front.GetComponent<VehicleWheelComponent>().Wheel = "FRONT";
+	front.GetComponent<TransformComponent>().Scale = glm::vec3(1.5f);
+	// No Vehicle above; a name the definition does not have; a collider of its own (a trigger, which carries nothing).
+	Entity lost = scene.CreateEntity("Lost Wheel");
+	lost.GetComponent<TransformComponent>().Translation = {9.0f, 1.0f, 0.0f};
+	lost.AddComponent<VehicleWheelComponent>().Wheel = "Front";
+	Entity odd = scene.CreateEntity("Odd Wheel", bike);
+	odd.AddComponent<VehicleWheelComponent>().Wheel = "Middle";
+	Entity solid = scene.CreateEntity("Solid Wheel", bike);
+	solid.GetComponent<TransformComponent>().Translation = {0.0f, 0.3f, 0.7f};
+	solid.AddComponent<VehicleWheelComponent>().Wheel = "Rear";
+	BoxColliderComponent& trigger = solid.AddComponent<BoxColliderComponent>();
+	trigger.HalfExtents = glm::vec3(0.1f);
+	trigger.IsTrigger = true;
+	TransformComponent const lostStart = lost.GetComponent<TransformComponent>();
+	TransformComponent const oddStart = odd.GetComponent<TransformComponent>();
+	TransformComponent const solidStart = solid.GetComponent<TransformComponent>();
+
+	uint64_t const logStart = Log::GetNextEntryIndex();
+	scene.OnRuntimeStart(PhysicsOnly());
+	PhysicsScene& world = *scene.GetPhysicsScene();
+	world.SetVehicleInputs(UUID(BikeId), MakeInputs(0.4f, 0.0f, 0.0f, 0.3f));
+	bool placed = true;
+	for (int frame = 0; frame < 90; frame++)
+	{
+		Run(scene, 1);
+		glm::mat4 const chassis = WithoutScale(scene.GetWorldTransform(bike));
+		for (size_t index = 0; index < VehicleWheelCount; index++)
+		{
+			std::optional<glm::mat4> const wheel = world.GetVehicleWheelTransform(UUID(BikeId), index);
+			REQUIRE(wheel);
+			glm::mat4 const expected = chassis * *wheel;
+			glm::mat4 const shown =
+				WithoutScale(scene.GetWorldTransform(scene.GetEntityByUUID(UUID(index == 0 ? FrontWheelId : RearWheelId))));
+			for (int column = 0; column < 4; column++)
+			{
+				placed = placed && IsNear(glm::vec3(shown[column]), glm::vec3(expected[column]), 2e-4f);
+			}
+		}
+	}
+	CHECK(placed);
+	// Its own scale stays, under the fork's.
+	CHECK(front.GetComponent<TransformComponent>().Scale == glm::vec3(1.5f));
+	glm::vec3 translation;
+	glm::quat rotation;
+	glm::vec3 scale;
+	REQUIRE(Math::DecomposeTransform(scene.GetWorldTransform(front), translation, rotation, scale));
+	CHECK(IsNear(scale, glm::vec3(3.0f), 1e-4f));
+	// The others are left as they were, each reason said once.
+	CHECK(SamePose(lost.GetComponent<TransformComponent>(), lostStart));
+	CHECK(SamePose(odd.GetComponent<TransformComponent>(), oddStart));
+	CHECK(SamePose(solid.GetComponent<TransformComponent>(), solidStart));
+	CHECK(CountLogged(logStart, {"Physics: the VehicleWheel of 'Lost Wheel' draws no wheel: no entity above it has a Vehicle"}) == 1);
+	CHECK(CountLogged(logStart, {"Physics: the VehicleWheel of 'Odd Wheel' draws no wheel: the definition of the Vehicle of 'Bike 200' "
+	                             "has no wheel named 'Middle'"}) == 1);
+	CHECK(CountLogged(logStart, {"Physics: the VehicleWheel of 'Solid Wheel' draws no wheel: its entity has a body or a character"}) == 1);
+	CHECK(CountLogged(logStart, {"'Front Wheel'"}) == 0);
+	CHECK(CountLogged(logStart, {"'Rear Wheel'"}) == 0);
+
+	// Named again for a wheel it has, it is drawn from the next frame on.
+	odd.GetComponent<VehicleWheelComponent>().Wheel = "front";
+	Run(scene, 2);
+	CHECK_FALSE(SamePose(odd.GetComponent<TransformComponent>(), oddStart));
+	scene.OnRuntimeStop();
+}
+
+TEST_CASE("ScenePhysics: vehicle wheel benchmark" * doctest::skip(!Platform::ReadEnvironmentVariable("STRADA_VEHICLE_BENCHMARK")))
+{
+	// A measurement, never asserted on timings: run with STRADA_VEHICLE_BENCHMARK=1 in a Release build. Eight bikes riding
+	// at 144 frames a second, with and without the entities of their wheels: what drawing the wheels costs, in the zones
+	// that record (Scene.SyncFromPhysics, once a step, read per call), draw (Scene.Interpolate) and return
+	// (Scene.ReturnToSteps) them (once a frame), a vehicle a call.
+	constexpr int Bikes = 8;
+	constexpr int WarmUpFrames = 144;
+	constexpr int Frames = 720;
+	Testing::AssetManagerScope const assets;
+	Testing::PhysicsSystemScope const physics;
+	Testing::ProfilerScope const profiler;
+	AssetHandle const definition = AddDataAsset(Vehicle{}, "Bike.svehicle");
+	std::array<std::string_view, 3> const zones = {"Scene.SyncFromPhysics", "Scene.Interpolate", "Scene.ReturnToSteps"};
+	// Twice: a round that reads slower than the one before it tells a machine that changed its clocks, not a cost.
+	for (int round = 1; round <= 2; round++)
+	{
+		std::array<std::array<double, 3>, 2> perCall{};
+		for (size_t withWheels = 0; withWheels < 2; withWheels++)
+		{
+			Scene scene("Benchmark");
+			MakeGround(scene);
+			for (int bike = 0; bike < Bikes; bike++)
+			{
+				uint64_t const id = 1000 + static_cast<uint64_t>(bike) * 10;
+				Entity chassis = MakeBike(scene, id, static_cast<float>(bike) * 4.0f, definition);
+				if (withWheels == 1)
+				{
+					MakeChild(scene, id + 1, "Front Wheel", chassis).AddComponent<VehicleWheelComponent>().Wheel = "Front";
+					MakeChild(scene, id + 2, "Rear Wheel", chassis).AddComponent<VehicleWheelComponent>().Wheel = "Rear";
+				}
+			}
+			scene.OnRuntimeStart(PhysicsOnly());
+			REQUIRE(scene.GetPhysicsScene() != nullptr);
+			for (int bike = 0; bike < Bikes; bike++)
+			{
+				scene.GetPhysicsScene()->SetVehicleInputs(UUID(1000 + static_cast<uint64_t>(bike) * 10),
+				                                          MakeInputs(0.4f, 0.0f, 0.0f, bike % 2 == 0 ? 0.2f : -0.2f));
+			}
+			Run(scene, WarmUpFrames, Frame144);
+			REQUIRE(Profiler::Start().IsOk());
+			for (int frame = 0; frame < Frames; frame++)
+			{
+				Profiler::BeginFrame();
+				scene.OnUpdateRuntime(Timestep(Frame144));
+				Profiler::EndFrame();
+			}
+			Profiler::Stop();
+			ProfilerMedians const medians = ComputeProfilerMedians(Profiler::GetRecording());
+			for (ProfilerZoneMedian const& zone : medians.Zones)
+			{
+				for (size_t index = 0; index < zones.size(); index++)
+				{
+					if (zone.Name == zones[index])
+					{
+						perCall[withWheels][index] = zone.MillisecondsPerCall * 1000.0;
+					}
+				}
+			}
+			scene.OnRuntimeStop();
+		}
+		for (size_t index = 0; index < zones.size(); index++)
+		{
+			MESSAGE("Round " << round << ": " << zones[index] << " " << perCall[0][index] << " us a call without the wheels' entities, "
+			                 << perCall[1][index] << " us with them: " << (perCall[1][index] - perCall[0][index]) / Bikes
+			                 << " us a vehicle a call");
+		}
+	}
 }

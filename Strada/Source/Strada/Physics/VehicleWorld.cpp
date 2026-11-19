@@ -1,6 +1,7 @@
 #include "stpch.h"
 #include "Strada/Physics/VehicleWorld.h"
 
+#include "Strada/Core/Assert.h"
 #include "Strada/Core/Profiler.h"
 #include "Strada/Math/Curve.h"
 #include "Strada/Physics/JoltContext.h"
@@ -16,6 +17,7 @@
 #include <Jolt/Physics/Collision/Shape/CylinderShape.h>
 #include <Jolt/Physics/Collision/ShapeCast.h>
 #include <Jolt/Physics/PhysicsSystem.h>
+#include <Jolt/Physics/StateRecorder.h>
 #include <Jolt/Physics/Vehicle/MotorcycleController.h>
 #include <Jolt/Physics/Vehicle/VehicleCollisionTester.h>
 #include <Jolt/Physics/Vehicle/VehicleConstraint.h>
@@ -26,7 +28,11 @@
 #include <glm/gtc/quaternion.hpp>
 
 #include <algorithm>
+#include <array>
 #include <cmath>
+#include <cstddef>
+#include <cstdint>
+#include <span>
 #include <string>
 #include <string_view>
 #include <type_traits>
@@ -434,6 +440,77 @@ namespace Strada
 		{
 			return std::isfinite(value) ? std::clamp(value, 0.0f, 1.0f) : 0.0f;
 		}
+
+		// A state recorder over a buffer of its own, for the few bytes a part of Jolt's state takes (the gearbox's, which
+		// the hash reads as Jolt saves it, since its members are private): no allocation. Writing past its end fails it.
+		class SmallStateRecorder final : public JPH::StateRecorder
+		{
+		public:
+			void WriteBytes(void const* data, size_t count) override
+			{
+				if (m_Failed || count > m_Bytes.size() - m_Size)
+				{
+					m_Failed = true;
+					return;
+				}
+				std::copy_n(static_cast<uint8_t const*>(data), count, m_Bytes.begin() + static_cast<std::ptrdiff_t>(m_Size));
+				m_Size += count;
+			}
+
+			void ReadBytes(void*, size_t) override { m_Failed = true; }
+			bool IsEOF() const override { return true; }
+			bool IsFailed() const override { return m_Failed; }
+
+			std::span<uint8_t const> GetBytes() const { return std::span<uint8_t const>(m_Bytes.data(), m_Size); }
+
+		private:
+			// VehicleTransmission::SaveState writes 20 (VehicleTransmission.cpp:141-148 of the pinned Jolt).
+			std::array<uint8_t, 64> m_Bytes{};
+			size_t m_Size = 0;
+			bool m_Failed = false;
+		};
+
+		// A state recorder is a stream both ways, each with its own IsFailed (the same state in Jolt's recorders).
+		bool HasFailed(JPH::StateRecorder const& recorder)
+		{
+			return static_cast<JPH::StreamIn const&>(recorder).IsFailed();
+		}
+
+		void WriteInputs(JPH::StateRecorder& recorder, VehicleInputs const& inputs)
+		{
+			recorder.Write(inputs.Throttle);
+			recorder.Write(inputs.FrontBrake);
+			recorder.Write(inputs.RearBrake);
+			recorder.Write(inputs.Lean);
+		}
+
+		void ReadInputs(JPH::StateRecorder& recorder, VehicleInputs& inputs)
+		{
+			recorder.Read(inputs.Throttle);
+			recorder.Read(inputs.FrontBrake);
+			recorder.Read(inputs.RearBrake);
+			recorder.Read(inputs.Lean);
+		}
+
+		// What Strada's part of a snapshot holds for one vehicle (VehicleWorld::SaveState), read in full before any of it
+		// applies.
+		struct SavedVehicle
+		{
+			uint64_t Entity = 0;
+			VehicleInputs Inputs;
+			VehicleInputs AppliedInputs;
+			int32_t PendingShift = 0;
+			uint8_t Mode = 0;
+			VehicleShiftState Shift;
+			float LeanSpringIntegral = 0.0f;
+			std::array<float, VehicleWheelCount> SteerAngles{};
+			std::array<float, VehicleWheelCount> LongitudinalSlips{};
+			std::array<float, VehicleWheelCount> LateralSlips{};
+			std::array<uint64_t, VehicleWheelCount> ContactEntities{};
+			std::array<uint64_t, VehicleWheelCount> Materials{};
+			std::array<float, VehicleWheelCount> TyreGrips{};
+			std::array<float, VehicleWheelCount> RollingResistances{};
+		};
 	}
 
 	bool VehicleWheelTester::Collide(JPH::PhysicsSystem& system, JPH::VehicleConstraint const& vehicle, JPH::uint wheelIndex,
@@ -1068,5 +1145,163 @@ namespace Strada
 		shift.SwitchTimeLeft = std::clamp(shift.SwitchTimeLeft, 0.0f, record.Desc.SwitchTime);
 		shift.ClutchReleaseTimeLeft = std::clamp(shift.ClutchReleaseTimeLeft, 0.0f, record.Desc.ClutchReleaseTime);
 		controller.GetEngine().SetCurrentRPM(controller.GetEngine().GetCurrentRPM());
+	}
+
+	void VehicleWorld::SaveState(JPH::StateRecorder& recorder) const
+	{
+		recorder.Write(static_cast<uint64_t>(m_Vehicles.size()));
+		for (auto const& [entity, record] : m_Vehicles)
+		{
+			recorder.Write(entity.GetValue());
+			WriteInputs(recorder, record.Inputs);
+			WriteInputs(recorder, record.AppliedInputs);
+			recorder.Write(record.PendingShift);
+			recorder.Write(static_cast<uint8_t>(record.Desc.TransmissionMode));
+			recorder.Write(record.Shift.Gear);
+			recorder.Write(record.Shift.SwitchTimeLeft);
+			recorder.Write(record.Shift.ClutchReleaseTimeLeft);
+			recorder.Write(record.Controller->GetLeanSpringIntegral());
+			for (size_t index = 0; index < VehicleWheelCount; index++)
+			{
+				auto const* wheel = static_cast<JPH::WheelWV const*>(record.Constraint->GetWheel(static_cast<JPH::uint>(index)));
+				VehicleWheelSurface const& surface = record.Surfaces[index];
+				recorder.Write(wheel->GetSteerAngle());
+				recorder.Write(wheel->mLongitudinalSlip);
+				recorder.Write(wheel->mLateralSlip);
+				recorder.Write(surface.ContactEntity.GetValue());
+				recorder.Write(surface.Material.GetUUID().GetValue());
+				recorder.Write(surface.TyreGrip);
+				recorder.Write(surface.RollingResistance);
+			}
+		}
+	}
+
+	bool VehicleWorld::RestoreState(JPH::StateRecorder& recorder)
+	{
+		// Read in full first: a stream that fails, or holds other vehicles, changes nothing.
+		uint64_t count = 0;
+		recorder.Read(count);
+		if (HasFailed(recorder) || count != m_Vehicles.size())
+		{
+			return false;
+		}
+		std::vector<SavedVehicle> saved(m_Vehicles.size());
+		auto vehicle = m_Vehicles.begin();
+		for (SavedVehicle& values : saved)
+		{
+			recorder.Read(values.Entity);
+			ReadInputs(recorder, values.Inputs);
+			ReadInputs(recorder, values.AppliedInputs);
+			recorder.Read(values.PendingShift);
+			recorder.Read(values.Mode);
+			recorder.Read(values.Shift.Gear);
+			recorder.Read(values.Shift.SwitchTimeLeft);
+			recorder.Read(values.Shift.ClutchReleaseTimeLeft);
+			recorder.Read(values.LeanSpringIntegral);
+			for (size_t index = 0; index < VehicleWheelCount; index++)
+			{
+				recorder.Read(values.SteerAngles[index]);
+				recorder.Read(values.LongitudinalSlips[index]);
+				recorder.Read(values.LateralSlips[index]);
+				recorder.Read(values.ContactEntities[index]);
+				recorder.Read(values.Materials[index]);
+				recorder.Read(values.TyreGrips[index]);
+				recorder.Read(values.RollingResistances[index]);
+			}
+			if (HasFailed(recorder) || values.Entity != vehicle->first.GetValue())
+			{
+				return false;
+			}
+			++vehicle;
+		}
+		vehicle = m_Vehicles.begin();
+		for (SavedVehicle const& values : saved)
+		{
+			VehicleRecord& record = vehicle->second;
+			++vehicle;
+			record.Inputs = values.Inputs;
+			record.AppliedInputs = values.AppliedInputs;
+			record.Controller->SetLeanSpringIntegral(values.LeanSpringIntegral);
+			if (values.Mode == static_cast<uint8_t>(record.Desc.TransmissionMode))
+			{
+				record.PendingShift = values.PendingShift;
+				record.Shift = values.Shift;
+			}
+			else
+			{
+				// The mode was edited in place since the snapshot: the gearbox is handed over as SetVehicleSettings hands it
+				// (Manual takes the gear Jolt's state was restored to; Automatic goes on from it), its requests dropped.
+				record.PendingShift = 0;
+				record.Shift = VehicleShiftState();
+				if (record.Desc.TransmissionMode == VehicleTransmissionMode::Manual)
+				{
+					record.Shift.Gear = std::max(record.Controller->GetTransmission().GetCurrentGear(), 0);
+				}
+			}
+			for (size_t index = 0; index < VehicleWheelCount; index++)
+			{
+				auto* wheel = static_cast<JPH::WheelWV*>(record.Constraint->GetWheel(static_cast<JPH::uint>(index)));
+				wheel->SetSteerAngle(values.SteerAngles[index]);
+				wheel->mLongitudinalSlip = values.LongitudinalSlips[index];
+				wheel->mLateralSlip = values.LateralSlips[index];
+				VehicleWheelSurface& surface = record.Surfaces[index];
+				surface.ContactEntity = UUID(values.ContactEntities[index]);
+				surface.Material = AssetHandle(UUID(values.Materials[index]));
+				surface.TyreGrip = values.TyreGrips[index];
+				surface.RollingResistance = values.RollingResistances[index];
+			}
+		}
+		return true;
+	}
+
+	void VehicleWorld::AddToHash(HashBuilder& hash) const
+	{
+		// A world without vehicles hashes exactly as it did before vehicles existed.
+		if (m_Vehicles.empty())
+		{
+			return;
+		}
+		JPH::BodyLockInterfaceLocking const& bodies = m_System.GetBodyLockInterface();
+		hash.AddUInt64(m_Vehicles.size());
+		for (auto const& [entity, record] : m_Vehicles)
+		{
+			StradaMotorcycleController const& controller = *record.Controller;
+			hash.AddUInt64(entity.GetValue());
+			// The inputs as the last step applied them, in Jolt's order.
+			hash.AddFloat(controller.GetForwardInput());
+			hash.AddFloat(controller.GetRightInput());
+			hash.AddFloat(controller.GetBrakeInput());
+			hash.AddFloat(controller.GetHandBrakeInput());
+			hash.AddFloat(controller.GetEngine().GetCurrentRPM());
+			// The gear, the clutch and the three timers, as Jolt saves them.
+			SmallStateRecorder transmission;
+			controller.GetTransmission().SaveState(transmission);
+			ST_CORE_ASSERT(!transmission.IsFailed(), "A gearbox's state outgrew its recorder");
+			hash.AddBytes(transmission.GetBytes());
+			hash.AddFloat(controller.GetPreviousDeltaTime());
+			JPH::Vec3 const lean = controller.GetTargetLean();
+			hash.AddFloat(lean.GetX());
+			hash.AddFloat(lean.GetY());
+			hash.AddFloat(lean.GetZ());
+			hash.AddInt32(record.Shift.Gear);
+			hash.AddFloat(record.Shift.SwitchTimeLeft);
+			hash.AddFloat(record.Shift.ClutchReleaseTimeLeft);
+			for (size_t index = 0; index < VehicleWheelCount; index++)
+			{
+				JPH::Wheel const* wheel = record.Constraint->GetWheel(static_cast<JPH::uint>(index));
+				hash.AddFloat(wheel->GetAngularVelocity());
+				hash.AddFloat(wheel->GetRotationAngle());
+				hash.AddFloat(wheel->GetSteerAngle());
+				hash.AddFloat(wheel->GetSuspensionLength());
+				// The entity under it, read from its body as a character's ground is; 0 without contact.
+				UUID ground = UUID::Invalid();
+				if (wheel->HasContact())
+				{
+					JPH::BodyLockRead const lock(bodies, wheel->GetContactBodyID());
+					ground = lock.Succeeded() ? UUID(lock.GetBody().GetUserData()) : UUID::Invalid();
+				}
+				hash.AddUInt64(ground.GetValue());
+			}
+		}
 	}
 }

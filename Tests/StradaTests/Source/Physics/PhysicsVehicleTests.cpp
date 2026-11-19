@@ -770,11 +770,133 @@ TEST_CASE("PhysicsScene: a vehicle's gear stays within the gears an edit leaves,
 	world->Step(Step);
 	int32_t const gear = StateOf(*world, BikeId).Gear;
 	CHECK(gear >= 3);
+	PhysicsSnapshot const automaticSnapshot = world->SaveState();
 	RequireOk(world->SetVehicleSettings(BikeId, fewer));
 	CHECK(StateOf(*world, BikeId).Gear == gear);
 	world->SetVehicleInputs(BikeId, {});
 	Simulate(*world, 60);
 	CHECK(StateOf(*world, BikeId).Gear == gear);
+
+	// A snapshot of the automatic gearbox restored into the manual one hands the gear over as an edit does: the manual
+	// gearbox takes the gear Jolt's state was restored to and keeps it, rather than the neutral its own state held then.
+	world->RequestVehicleShift(BikeId, -1);
+	world->Step(Step);
+	REQUIRE(StateOf(*world, BikeId).Gear == gear - 1);
+	RequireOk(world->RestoreState(automaticSnapshot));
+	CHECK(StateOf(*world, BikeId).Gear == gear);
+	Simulate(*world, 10);
+	CHECK(StateOf(*world, BikeId).Gear == gear);
+}
+
+TEST_CASE("PhysicsScene: a world without vehicles hashes as before vehicles existed, and one with a vehicle hashes its state")
+{
+	Testing::PhysicsSystemScope physics;
+	// A vehicle made and removed before any step leaves a world that hashes as one that never had it, step after step.
+	Scope<PhysicsScene> world = MakeRide(VehicleTransmissionMode::Automatic);
+	Scope<PhysicsScene> twin = CreateWorld();
+	RequireOk(twin->AddBody(MakeGround(GroundId)));
+	RequireOk(twin->AddBody(MakeChassis(BikeId, {0.0f, 0.1f, 0.0f})));
+	CHECK(world->ComputeStateHash() != twin->ComputeStateHash());
+	world->RemoveVehicle(BikeId);
+	REQUIRE(world->GetVehicleCount() == 0);
+	bool same = true;
+	for (int step = 0; step < 60; step++)
+	{
+		same = same && world->ComputeStateHash() == twin->ComputeStateHash();
+		world->Step(Step);
+		twin->Step(Step);
+	}
+	CHECK(same);
+
+	// With a vehicle: the inputs a step applied are in the hash, the latest ones not until a step applies them.
+	Scope<PhysicsScene> first = MakeRide(VehicleTransmissionMode::Manual);
+	Scope<PhysicsScene> second = MakeRide(VehicleTransmissionMode::Manual);
+	Simulate(*first, 30);
+	Simulate(*second, 30);
+	REQUIRE(first->ComputeStateHash() == second->ComputeStateHash());
+	second->SetVehicleInputs(BikeId, MakeInputs(0.0f, 0.0f, 0.0f, 0.5f));
+	CHECK(first->ComputeStateHash() == second->ComputeStateHash());
+	first->Step(Step);
+	second->Step(Step);
+	CHECK(first->ComputeStateHash() != second->ComputeStateHash());
+
+	// So is a manual gearbox's gear, and a shift only once a step makes it.
+	Scope<PhysicsScene> third = MakeRide(VehicleTransmissionMode::Manual);
+	Scope<PhysicsScene> fourth = MakeRide(VehicleTransmissionMode::Manual);
+	Simulate(*third, 30);
+	Simulate(*fourth, 30);
+	fourth->RequestVehicleShift(BikeId, 1);
+	CHECK(third->ComputeStateHash() == fourth->ComputeStateHash());
+	third->Step(Step);
+	fourth->Step(Step);
+	REQUIRE(StateOf(*fourth, BikeId).Gear == 1);
+	CHECK(third->ComputeStateHash() != fourth->ComputeStateHash());
+}
+
+TEST_CASE("PhysicsScene: a saved state brings a riding vehicle back as it was read, and the steps from there run as they did")
+{
+	Testing::PhysicsSystemScope physics;
+	Scope<PhysicsScene> world = MakeRide(VehicleTransmissionMode::Manual);
+	// Shifts up at steps 40, 100 and 230, the ride's inputs by its step count, leaning left from step 220 and right from 290.
+	auto const drive = [&world](int step)
+	{
+		VehicleInputs inputs = RideInputs(step, 0.4f);
+		inputs.Lean = step < 220 ? inputs.Lean : (step < 290 ? -0.3f : 0.2f);
+		world->SetVehicleInputs(BikeId, inputs);
+		if (step == 40 || step == 100 || step == 230)
+		{
+			world->RequestVehicleShift(BikeId, 1);
+		}
+	};
+	for (int step = 0; step < 250; step++)
+	{
+		drive(step);
+		world->Step(Step);
+	}
+	// Saved with the next step's inputs set and a shift down pending: leaning, braking, the clutch open after the shift at
+	// 230.
+	drive(250);
+	world->RequestVehicleShift(BikeId, -1);
+	PhysicsSnapshot const snapshot = world->SaveState();
+	VehicleState const reading = StateOf(*world, BikeId);
+	uint64_t const hash = world->ComputeStateHash();
+	REQUIRE(reading.IsShifting);
+	REQUIRE(reading.AppliedInputs.FrontBrake > 0.0f);
+	REQUIRE(reading.AppliedInputs.Lean < 0.0f);
+	std::vector<uint64_t> original;
+	for (int step = 251; step <= 330; step++)
+	{
+		world->Step(Step);
+		original.push_back(world->ComputeStateHash());
+		drive(step);
+	}
+
+	RequireOk(world->RestoreState(snapshot));
+	VehicleState const restored = StateOf(*world, BikeId);
+	CHECK(world->ComputeStateHash() == hash);
+	CHECK(restored.Inputs == reading.Inputs);
+	CHECK(restored.AppliedInputs == reading.AppliedInputs);
+	CHECK(restored.EngineSpeed == reading.EngineSpeed);
+	CHECK(restored.Gear == reading.Gear);
+	CHECK(restored.ClutchFriction == reading.ClutchFriction);
+	CHECK(restored.TargetLeanAngle == reading.TargetLeanAngle);
+	for (size_t index = 0; index < VehicleWheelCount; index++)
+	{
+		CAPTURE(index);
+		CHECK(restored.Wheels[index].SteerAngle == reading.Wheels[index].SteerAngle);
+		CHECK(restored.Wheels[index].LongitudinalSlip == reading.Wheels[index].LongitudinalSlip);
+		CHECK(restored.Wheels[index].LateralSlip == reading.Wheels[index].LateralSlip);
+		CHECK(restored.Wheels[index].ContactEntity == reading.Wheels[index].ContactEntity);
+		CHECK(restored.Wheels[index].AngularVelocity == reading.Wheels[index].AngularVelocity);
+	}
+	std::vector<uint64_t> replayed;
+	for (int step = 251; step <= 330; step++)
+	{
+		world->Step(Step);
+		replayed.push_back(world->ComputeStateHash());
+		drive(step);
+	}
+	CHECK(replayed == original);
 }
 
 TEST_CASE("PhysicsScene: an automatic gearbox shifts up above its shift-up speed and down below its shift-down speed")
@@ -1045,6 +1167,8 @@ TEST_CASE("PhysicsScene: vehicle benchmark" * doctest::skip(!Platform::ReadEnvir
 	for (int round = 1; round <= 2; round++)
 	{
 		std::array<double, 2> perStep{};
+		std::array<double, 2> hashCost{};
+		std::array<double, 2> saveCost{};
 		double vehiclesZone = 0.0;
 		for (size_t withVehicles = 0; withVehicles < 2; withVehicles++)
 		{
@@ -1083,6 +1207,27 @@ TEST_CASE("PhysicsScene: vehicle benchmark" * doctest::skip(!Platform::ReadEnvir
 			Profiler::Stop();
 			std::sort(durations.begin(), durations.end());
 			perStep[withVehicles] = durations[durations.size() / 2];
+			// The state hash and a snapshot of the world as the ride left it: their medians, the vehicles' share of each.
+			std::vector<double> hashes;
+			std::vector<double> saves;
+			uint64_t const expected = world->ComputeStateHash();
+			bool sameHash = true;
+			for (int call = 0; call < 200; call++)
+			{
+				auto const hashStart = Clock::now();
+				sameHash = sameHash && world->ComputeStateHash() == expected;
+				auto const hashEnd = Clock::now();
+				PhysicsSnapshot const snapshot = world->SaveState();
+				auto const saveEnd = Clock::now();
+				REQUIRE(snapshot.GetSize() > 0);
+				hashes.push_back(std::chrono::duration<double, std::micro>(hashEnd - hashStart).count());
+				saves.push_back(std::chrono::duration<double, std::micro>(saveEnd - hashEnd).count());
+			}
+			CHECK(sameHash);
+			std::sort(hashes.begin(), hashes.end());
+			std::sort(saves.begin(), saves.end());
+			hashCost[withVehicles] = hashes[hashes.size() / 2];
+			saveCost[withVehicles] = saves[saves.size() / 2];
 			if (withVehicles == 1)
 			{
 				ProfilerMedians const medians = ComputeProfilerMedians(Profiler::GetRecording());
@@ -1097,6 +1242,9 @@ TEST_CASE("PhysicsScene: vehicle benchmark" * doctest::skip(!Platform::ReadEnvir
 		}
 		MESSAGE("Round " << round << ": a step of " << Bikes << " chassis without vehicles " << perStep[0] << " us, with vehicles "
 		                 << perStep[1] << " us: " << (perStep[1] - perStep[0]) / Bikes << " us a vehicle a step; Physics.Vehicles "
-		                 << vehiclesZone << " us a call: " << vehiclesZone / Bikes << " us a vehicle (target 50 us)");
+		                 << vehiclesZone << " us a call: " << vehiclesZone / Bikes << " us a vehicle (target 50 us); the state hash "
+		                 << hashCost[0] << " and " << hashCost[1] << " us: " << (hashCost[1] - hashCost[0]) / Bikes
+		                 << " us a vehicle; a snapshot " << saveCost[0] << " and " << saveCost[1]
+		                 << " us: " << (saveCost[1] - saveCost[0]) / Bikes << " us a vehicle");
 	}
 }
