@@ -573,8 +573,8 @@ every configuration, Dist included (it has no macros); only the editor starts it
   and put bulk data in files:
   - `telemetry.start`: starts a recording with the settings given (`maxChannels`, `maxSteps`, `historySessions`,
     `historyBytes`, `recordsPerThread`, each within the bounds above), restarting one in progress; the first row is
-    the playing scene's next fixed step. Answers the status (recording, by whom, the sessions held, the bytes, the
-    drops) and `restarted`.
+    the playing scene's next fixed step; with `panel` true it also opens the Telemetry panel and brings it forward.
+    Answers the status (recording, by whom, the sessions held, the bytes, the drops), `restarted` and `shown`.
   - `telemetry.stop`: ends the recording; the sessions stay. Answers the status and `stopped`.
   - `telemetry.channels`: the sessions held (each one's number, whether it is live, its first step, rows, step length,
     channels, marks and laps), and for one session (`session`, by default the newest) its channels (name, values
@@ -594,28 +594,46 @@ every configuration, Dist included (it has no macros); only the editor starts it
     An existing file is replaced only with `overwrite`, and only when it is a regular file whose first line is an
     export's header (it begins `"Step","Time"`), so that no other file is lost to a mistyped path. Answers the path, the
     bytes, the rows and the channels.
-- **The Telemetry panel** (`TelemetryPanel`; docked below the scene view beside the Profiler, closed by default as the
-  Profiler is, since it records while open; the View menu; `viewport.screenshot`'s window `Telemetry`; adding it moves
-  `DockspaceName` to v12). What it shows and needs:
-  - a session (by default the newest, followed while it is live) and its channels, of which those chosen are plotted,
-    each in a lane of its own with its own value range, drawn with ImGui's draw lists as the Profiler panel draws its
-    strip (no plotting library): at most two points per pixel column of a lane (the smallest and largest value of the
-    rows it covers), so that drawing a long session costs the lane's width; the reduction is made again only when the
-    shown rows or the lane's width change;
-  - the rows plotted against time or against a distance channel: by default against `Ride.Distance` when the session
-    has it (metres along the lap, recorded each step by Moto's ride graph), otherwise against time;
-  - a lap (by default the lap in progress while live, `FindTelemetryLapInProgress`, else the last lap) overlaid on
-    another, by default the best lap of the shown session, or, while that one has finished none, the best of the
-    newest kept session that has; any lap of any kept session can be chosen. By time, both start at their lap's first
-    row; by distance, each row is drawn at its distance, and rows whose distance lies outside the lap's own run (a
-    first row that still carries the previous lap's distance, a last one that already wrapped) are left out at either
-    end alike. Without laps the panel plots the session (live: its last 30 seconds);
-  - live while a scene plays: it reads the live session's rows each frame (main thread), and drawing changes nothing;
-  - its draw record (`TelemetryPanel::DrawRecord`: the lanes with their channels, points and value ranges, the axis,
-    the laps shown) is what the headless tests read;
-  - for a capture, `viewport.screenshot` refuses a window behind another tab, and no command brings a docked tab to the
-    front: the panel's tab is selected in the saved layout between editor sessions (the dock node's `Selected` in
-    `imgui.ini`), as the Mixer's and the Input Actions panel's were.
+- **The Telemetry panel** (`TelemetryPanel`, `Editor/Panels/`; docked below the scene view beside the Profiler, closed
+  by default as the Profiler is, since it records while open; the View menu; `viewport.screenshot`'s window `Telemetry`;
+  adding it moved `DockspaceName` to v12). What it plots is worked out without ImGui in `Editor/TelemetryPlot.h`, which
+  the tests drive directly:
+  - a session (by default the newest, followed while it is live) and its channels, listed with their last values, an
+    engine channel `<Subsystem>.<entity ID>.<Quantity>` under its entity's name when the playing or edited scene has the
+    entity (`DescribeTelemetryChannel`; `ParseTelemetryChannelEntity` is the one parser, which `telemetry.channels`'
+    `entity` uses too). Those chosen (by default the first `TelemetryPanel::DefaultLanes`, four, but the axis's distance
+    channel; at most `MaxLanes`, eight) are plotted each in a lane of its own with its own value range, drawn with
+    ImGui's draw lists as the Profiler panel draws its strip (no plotting library);
+  - each lane's series is reduced to at most two points per pixel column (`ReduceTelemetrySeries`: the smallest and
+    largest value of the rows the column covers, in the order they came), so that drawing a long session costs the
+    lane's width; it is reduced again only when what it is reduced from changes (the session, the channel, the rows
+    placed, the axis's range or the lane's width), and a live session's growing rows are such a change. The line runs
+    from value to value over rows that have none, so a channel recorded on some steps only reads as a line;
+  - the rows plotted against time from the span's first row, or against a distance channel: by default
+    `Ride.Distance` when the session has it (metres along the lap, recorded each step by Moto's ride graph), otherwise
+    time; any channel of the session can be chosen. By distance each row is placed at its distance
+    (`PlaceTelemetryRows`), rows without one are left out, and so are rows outside the span's own run at either end
+    alike: leading rows above the row after them (they still carry the previous lap's distance) and trailing rows below
+    the row before them (they have wrapped already); a row placed before the one above it begins a new segment;
+  - a lap (`FindDefaultTelemetryLap`: by default the lap in progress while the session is live, else its last lap;
+    without laps the session itself, live its last 30 seconds) overlaid on another (`FindDefaultTelemetryReference`:
+    by default the best of the session's finished laps other than the shown one, or, when it has none, the best lap
+    of the newest other session held that has one); any lap of any kept session can be chosen, or none. A lap's rows
+    are those of `TelemetryCsvWriter::ForLap` (from its mark to the row before the next), the lap in progress's to the
+    session's last row. By time both laps start at 0 s; by distance both are drawn where their rows lie;
+  - live while a scene plays: it reads the live session each frame (main thread), within the draw, where the
+    reference `Telemetry::GetSessions` gives stays valid; Pause and Record (`EditorTelemetry::Stop` and `Resume`) run
+    after the window ends, since they change the sessions. Drawing changes nothing; Export CSV... writes the shown
+    session with `TelemetryCsvWriter::Save`;
+  - its draw record (`TelemetryPanel::DrawRecord`: the session, the channels with their check boxes, the axis and its
+    range, the spans shown and overlaid with the rows each placed, and per lane its value range and per series its
+    rows, points, segments and first and last point on screen) is what the headless tests read
+    (`Tests/StradaEditorTests/Source/TelemetryPanelTests.cpp`);
+  - for a capture: `viewport.screenshot` refuses a window behind another tab, and the panel is closed by default, so
+    the imgui.ini route of the Mixer's and the Input Actions panel's captures (their tabs selected in the saved
+    layout) cannot open it. `telemetry.start` with `panel` true opens it: a window that joins a dock node comes to
+    the front of its tab bar (imgui.cpp:19831-19832, a tab added to a node is selected) and the editor focuses it
+    after the panels are drawn, as `profiler.open` focuses the Profiler; headless there is no panel, and `shown` says so.
 - **Scripting.** `Strada.Telemetry` (static): `Record(string channel, float value)`, `Mark(string label)` and
   `MarkStep(string label, ulong step)`, impure nodes, and `IsRecording`, a pure node (§10.4). Any thread may call them.
   A null argument throws; while nothing records they return after one native call. Bindings
@@ -4449,7 +4467,8 @@ once. Without .NET a document still loads, saves and shows in the editor; analys
 ## 11. Editor (`StradaEditor`)
 
 - ImGui with docking and multi-viewports; panels: Scene Hierarchy, Inspector, Content Browser, Scene View, Game View,
-  Renderer Info, Console, Scene Settings, Project Settings, Input Actions, Mixer; a menu bar and a toolbar with the play
+  Renderer Info, Console, Scene Settings, Project Settings, Input Actions, Mixer, Profiler, Telemetry (the last two
+  closed until opened, since each records while open); a menu bar and a toolbar with the play
   controls (Play/Stop, Pause, Step and Simulate buttons with drawn icons). The menu bar is `EditorTitleBar`: ImGui's
   main menu bar, and on Windows, where the editor's window leaves its title bar to the application (§6.1), also that
   title bar: higher, with the Strada icon before the menus and the window's title, the status and drawn minimize,

@@ -412,6 +412,28 @@ what it needs.
 **Try it:** on a ball with a graph, in `FixedUpdate`, sphere-cast down from just below the ball, and add an upward force
 that grows as the hit's `Distance` falls below 1: the ball hovers.
 
+### Telemetry
+
+A graph records what its game does, step by step, for the editor's [Telemetry panel](Editor.md#telemetry) and for
+agents (`telemetry.read`, [Automation.md](Automation.md#telemetry)):
+
+- **Record** (`Call:Strada.Telemetry.Record(string,float)`) gives the channel `Channel` its `Value` for the current
+  fixed step. Record in `Event.FixedUpdate`, where a value lands on its own step's row at any frame rate; one recorded
+  in `Event.Update` goes to the next step's row. Name a lap's distance `Ride.Distance` (metres along the lap): the panel
+  plots laps against it.
+- **Mark** (`Call:Strada.Telemetry.Mark(string)`) marks the current step with a `Label`; a lap runs from a mark `Lap 1`
+  to the next `Lap 2`, and `Lap end` ends a lap in progress without making one (a race abandoned).
+- **Mark Step** (`Call:Strada.Telemetry.MarkStep(string,ulong)`) marks a given step: in a contact event's flow, which
+  runs after the frame's steps, `Strada.Collision`'s `Step` is the step the contact happened in, so a line crossed
+  through a trigger is marked where it was crossed whatever the frame rate.
+- `IsRecording` is a pure getter: whether anything records (the editor while its Telemetry panel is open or an agent's
+  recording runs; an exported game never does). Record, Mark and Mark Step do nothing while it is false.
+
+Names are 1 to 64 bytes; a name the recorder refuses is dropped, and warned about once.
+
+**Try it:** in a rolling ball's `FixedUpdate`, record the length of its velocity as `Ball.Speed`, open View > Telemetry
+and play: the lane draws itself as the ball rolls.
+
 ## Graphs that talk to graphs
 
 A VisualScript component runs one graph. To give an entity several behaviors, put each on a child entity with a

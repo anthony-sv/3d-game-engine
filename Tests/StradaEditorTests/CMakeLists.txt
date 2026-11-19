@@ -54,6 +54,7 @@ add_executable(StradaEditorTests
     Source/StartScreenPanelTests.cpp
     Source/TcpTestClient.cpp
     Source/TcpTestClient.h
+    Source/TelemetryPanelTests.cpp
     Source/UIEditingTests.cpp
     Source/ViewportTests.cpp
     Source/VisualScriptArrangeTests.cpp

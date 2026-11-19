@@ -140,6 +140,8 @@ set(STRADA_EDITOR_CORE_SOURCES
     Source/Editor/Panels/SceneHierarchyPanel.h
     Source/Editor/Panels/SceneSettingsPanel.cpp
     Source/Editor/Panels/SceneSettingsPanel.h
+    Source/Editor/Panels/TelemetryPanel.cpp
+    Source/Editor/Panels/TelemetryPanel.h
     Source/Editor/Panels/ViewportPanel.cpp
     Source/Editor/Panels/ViewportPanel.h
     Source/Editor/Panels/VisualScriptDebuggerPanel.cpp
@@ -168,6 +170,8 @@ set(STRADA_EDITOR_CORE_SOURCES
     Source/Editor/StartScreen/StartScreenPanel.h
     Source/Editor/StartScreen/StartScreenThumbnails.cpp
     Source/Editor/StartScreen/StartScreenThumbnails.h
+    Source/Editor/TelemetryPlot.cpp
+    Source/Editor/TelemetryPlot.h
     Source/Editor/UI/CurveAssetEditor.cpp
     Source/Editor/UI/CurveAssetEditor.h
     Source/Editor/UI/CurveEditing.cpp

@@ -4,6 +4,7 @@
 #include "Editor/Automation/ProfilerCommands.h"
 #include "Editor/EditorContext.h"
 #include "Editor/EditorTelemetry.h"
+#include "Editor/TelemetryPlot.h"
 
 #include "Strada/Core/FileSystem.h"
 #include "Strada/Core/Telemetry.h"
@@ -13,19 +14,18 @@
 #include "Strada/Serialization/TelemetryCsv.h"
 
 #include <algorithm>
-#include <charconv>
 #include <cmath>
 #include <cstdint>
 #include <deque>
 #include <filesystem>
 #include <fstream>
+#include <functional>
 #include <limits>
 #include <optional>
 #include <set>
 #include <span>
 #include <string>
 #include <string_view>
-#include <system_error>
 #include <utility>
 #include <vector>
 
@@ -33,9 +33,6 @@ namespace Strada
 {
 	namespace
 	{
-		// The longest decimal UUID of an engine channel's name (<Subsystem>.<entity ID>.<Quantity>).
-		constexpr size_t MaxEntityDigits = 20;
-
 		CommandError MakeParameterError(std::string_view parameter, std::string const& message)
 		{
 			CommandError error = MakeCommandError(AutomationErrorCode::InvalidParams, "{}: {}", parameter, message);
@@ -339,43 +336,10 @@ namespace Strada
 			                     {"maximumStep", GetStep(session, summary.MaximumRow)}});
 		}
 
-		// The entity an engine channel names (<Subsystem>.<entity ID>.<Quantity>), when its name has that shape.
-		std::optional<UUID> ParseChannelEntity(std::string_view name)
-		{
-			size_t const first = name.find('.');
-			if (first == std::string_view::npos || first == 0)
-			{
-				return std::nullopt;
-			}
-			size_t const second = name.find('.', first + 1);
-			if (second == std::string_view::npos || second + 1 >= name.size())
-			{
-				return std::nullopt;
-			}
-			std::string_view const digits = name.substr(first + 1, second - first - 1);
-			bool const decimal = !digits.empty() && digits.size() <= MaxEntityDigits &&
-			                     std::all_of(digits.begin(), digits.end(),
-			                                 [](char character)
-			                                 {
-												 return character >= '0' && character <= '9';
-											 });
-			if (!decimal)
-			{
-				return std::nullopt;
-			}
-			uint64_t value = 0;
-			std::from_chars_result const parsed = std::from_chars(digits.data(), digits.data() + digits.size(), value);
-			if (parsed.ec != std::errc() || parsed.ptr != digits.data() + digits.size() || value == 0)
-			{
-				return std::nullopt;
-			}
-			return UUID(value);
-		}
-
 		// { id, name } of the entity an engine channel names, when the playing (or edited) scene has it; null otherwise.
 		Json DescribeChannelEntity(std::string_view name, EditorContext& context)
 		{
-			std::optional<UUID> const id = ParseChannelEntity(name);
+			std::optional<UUID> const id = ParseTelemetryChannelEntity(name);
 			if (!id)
 			{
 				return Json();
@@ -480,7 +444,7 @@ namespace Strada
 			    .Maximum(std::numeric_limits<uint32_t>::max());
 		}
 
-		Result<void> RegisterStart(CommandRegistry& registry, EditorTelemetry& telemetry)
+		Result<void> RegisterStart(CommandRegistry& registry, EditorTelemetry& telemetry, std::function<void()> showPanel)
 		{
 			TelemetrySettings const defaults;
 			CommandDefinition start;
@@ -494,8 +458,10 @@ namespace Strada
 				"historyBytes). The recording runs until telemetry.stop, whether or not the Telemetry panel is open. Settings: "
 				"maxChannels (default {}) and maxSteps (default {}) per session, historySessions (default {}) and historyBytes "
 				"(default {}) kept over all sessions, recordsPerThread (default {}) a thread other than the main one may record "
-				"between two steps; past them values and marks are dropped and counted. Returns the status (as telemetry.stop) "
-				"and restarted. Not an undo step. Unavailable when telemetry is not initialized.",
+				"between two steps; past them values and marks are dropped and counted. panel true also opens the Telemetry panel "
+				"and brings it forward, where it shows the newest session. Returns the status (as telemetry.stop), restarted and "
+				"shown (whether a Telemetry panel was opened: false without panel, and headless). Not an undo step. Unavailable "
+				"when telemetry is not initialized.",
 				defaults.MaxChannels, defaults.MaxSteps, defaults.HistorySessions, defaults.HistoryBytes, defaults.RecordsPerThread);
 			start.Parameters =
 				SchemaBuilder::Object()
@@ -520,8 +486,9 @@ namespace Strada
 			                      .Minimum(Telemetry::MinRecordsPerThread)
 			                      .Maximum(Telemetry::MaxRecordsPerThread)
 			                      .Default(defaults.RecordsPerThread))
+					.Property("panel", SchemaBuilder::Boolean("Also open the Telemetry panel and bring it forward (default false)"))
 					.Build();
-			start.Handler = [&telemetry, defaults](Json const& params) -> CommandResult
+			start.Handler = [&telemetry, defaults, showPanel = std::move(showPanel)](Json const& params) -> CommandResult
 			{
 				if (std::optional<CommandError> unavailable = CheckRecorder())
 				{
@@ -538,8 +505,15 @@ namespace Strada
 				{
 					return MakeCommandError(AutomationErrorCode::InvalidOperation, "{}", started.GetError());
 				}
+				auto const panel = params.find("panel");
+				bool const shown = panel != params.end() && panel->get<bool>() && showPanel;
+				if (shown)
+				{
+					showPanel();
+				}
 				Json status = DescribeStatus(telemetry);
 				status["restarted"] = restarted;
+				status["shown"] = shown;
 				return status;
 			};
 			return registry.Register(std::move(start));
@@ -847,9 +821,10 @@ namespace Strada
 		}
 	}
 
-	Result<void> RegisterTelemetryCommands(CommandRegistry& registry, EditorTelemetry& telemetry, EditorContext& context)
+	Result<void> RegisterTelemetryCommands(CommandRegistry& registry, EditorTelemetry& telemetry, EditorContext& context,
+	                                       std::function<void()> showPanel)
 	{
-		Result<void> registered = RegisterStart(registry, telemetry);
+		Result<void> registered = RegisterStart(registry, telemetry, std::move(showPanel));
 		registered = registered ? RegisterStop(registry, telemetry) : registered;
 		registered = registered ? RegisterChannels(registry, context) : registered;
 		registered = registered ? RegisterRead(registry) : registered;

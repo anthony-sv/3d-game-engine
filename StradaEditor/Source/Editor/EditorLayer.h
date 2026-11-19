@@ -30,6 +30,7 @@
 #include "Editor/Panels/RendererInfoPanel.h"
 #include "Editor/Panels/SceneHierarchyPanel.h"
 #include "Editor/Panels/SceneSettingsPanel.h"
+#include "Editor/Panels/TelemetryPanel.h"
 #include "Editor/Panels/ViewportPanel.h"
 #include "Editor/Panels/VisualScriptDebuggerPanel.h"
 #include "Editor/PlayMode.h"
@@ -259,9 +260,10 @@ namespace Strada
 		// shows; the profiler commands reach it headless too.
 		EditorProfiler m_Profiler;
 		ProfilerPanel m_ProfilerPanel;
-		// Who records telemetry (a telemetry.start recording until telemetry.stop); the telemetry commands reach it headless
-		// too.
+		// Who records telemetry (the Telemetry panel while it is open, a telemetry.start recording until telemetry.stop); the
+		// telemetry commands reach it headless too.
 		EditorTelemetry m_Telemetry;
+		TelemetryPanel m_TelemetryPanel;
 		SceneHierarchyPanel m_HierarchyPanel;
 		InspectorPanel m_InspectorPanel;
 		SceneSettingsPanel m_SceneSettingsPanel;
@@ -295,6 +297,8 @@ namespace Strada
 		bool m_ShowMixer = true;
 		// Closed until asked for: the profiler records while the panel is open.
 		bool m_ShowProfiler = false;
+		// Closed until asked for: telemetry records while the panel is open.
+		bool m_ShowTelemetry = false;
 		bool m_ShowImGuiDemo = false;
 		// Brings the Input Actions panel to the front once it is drawn (an asset opened from the content browser).
 		bool m_FocusInputActions = false;
@@ -310,6 +314,8 @@ namespace Strada
 		bool m_FocusConsole = false;
 		// Bring the Profiler panel to the front after the panels are drawn (profiler.open).
 		bool m_FocusProfiler = false;
+		// Bring the Telemetry panel to the front after the panels are drawn (telemetry.start's panel).
+		bool m_FocusTelemetry = false;
 		// The window that has the keyboard, kept while a menu, a popup or a side bar has it instead (FindKeyboardWindow): the
 		// Edit menu leaves out the texts of the chords it claims. Updated at the start of each frame; ImGui frees no window
 		// before its context is destroyed, so the pointer stays valid across frames.
