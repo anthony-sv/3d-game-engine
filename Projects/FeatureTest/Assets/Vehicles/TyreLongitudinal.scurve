@@ -1,0 +1,39 @@
+{
+	"Strada": {
+		"Version": 1,
+		"Type": "Curve"
+	},
+	"Curve": {
+		"PreExtrapolation": "Hold",
+		"PostExtrapolation": "Hold",
+		"Keys": [
+			{
+				"Time": 0.0,
+				"Value": 0.0,
+				"Interpolation": "Linear",
+				"HasIn": false,
+				"In": 0.0,
+				"HasOut": false,
+				"Out": 0.0
+			},
+			{
+				"Time": 0.05999999865889549,
+				"Value": 1.2000000476837158,
+				"Interpolation": "Linear",
+				"HasIn": false,
+				"In": 0.0,
+				"HasOut": false,
+				"Out": 0.0
+			},
+			{
+				"Time": 0.20000000298023224,
+				"Value": 1.0,
+				"Interpolation": "Linear",
+				"HasIn": false,
+				"In": 0.0,
+				"HasOut": false,
+				"Out": 0.0
+			}
+		]
+	}
+}

@@ -81,6 +81,9 @@ internal sealed class McpServer
 		"project_settings' Mixer names) are made, read and changed with mixer_create, mixer_get and mixer_set, and input actions (.sinput data " +
 		"assets: named actions with their bindings, dead zones and response curves, which scripts and graphs read by name; " +
 		"project_settings' InputActions names the game's) with input_actions_create, input_actions_get and input_actions_set. " +
+		"Vehicle definitions (.svehicle data assets: a motorcycle's two wheels with their suspension, brakes and tyre curves, " +
+		"its engine, gearbox, final drive and lean, which a Vehicle component on a dynamic RigidBody with a collider names) " +
+		"are made, read and changed with vehicle_create, vehicle_get and vehicle_set, also while the game plays. " +
 		"input_set presses and steers the game's input actions by name (actions) and plays it on injected gamepads (gamepads) " +
 		"as well as with keys and the mouse. " +
 		"viewport_statistics says what the scene view drew in its last frame (draw calls, mesh batches, instances). " +

@@ -623,6 +623,7 @@ The "+" button and the context menus create, in the displayed folder:
 | Input Actions | `New Input Actions.sinput`, input actions without an action ([Input actions](#input-actions)) |
 | Mixer | `New Mixer.smixer`, Master alone ([Mixers](#mixers)) |
 | Physics Material | `New Physics Material.sphysmat`, a material that behaves like a collider without one ([Physics materials](#physics-materials)) |
+| Vehicle | `New Vehicle.svehicle`, a motorcycle's definition: a front and a rear wheel, an engine, a gearbox and its lean |
 | C# Script... | The New Script dialog ([Creating C# scripts](#creating-c-scripts)) |
 
 A taken name gets a number (`New Material 1.smat`). The new item is selected with its name ready to edit. Materials,
@@ -696,6 +697,7 @@ The asset directory registers these file types:
 | Input actions | `.sinput` | "+" > Input Actions |
 | Mixer | `.smixer` | "+" > Mixer |
 | Physics material | `.sphysmat` | "+" > Physics Material |
+| Vehicle | `.svehicle` | "+" > Vehicle |
 
 Built-in assets need no files: the meshes Cube, Sphere, Plane, Cylinder, Capsule, Cone and Quad, the DefaultMaterial,
 the textures White, Black, FlatNormal and Particle, the DefaultFont and the procedural DefaultSky. Pickers list them as

@@ -16,6 +16,7 @@
 namespace Strada
 {
 	class MeshSource;
+	struct Curve;
 
 	// Physics layers a project can define (RigidBodyComponent::Layer indexes them).
 	inline constexpr size_t MaxPhysicsLayers = 16;
@@ -645,6 +646,20 @@ namespace Strada
 	// A vehicle's values from its definition (Strada/Asset/Vehicle.h): the angles in radians, Wheels[0] the definition's
 	// first wheel (the front) and Wheels[1] its second (the rear; a wheel the definition lacks keeps VehicleWheelDesc's
 	// defaults), and every curve empty, which is Jolt's default: the caller samples the definition's curve assets into
-	// LongitudinalFriction, LateralFriction and NormalizedTorque. Pure; any thread.
+	// LongitudinalFriction, LateralFriction and NormalizedTorque (SampleVehicleCurve). Pure; any thread.
 	VehicleDesc MakeVehicleDesc(UUID entity, Vehicle const& definition);
+
+	// The largest value a sampled curve's point keeps (SampleVehicleCurve): a friction coefficient or a fraction of the
+	// engine's largest torque far beyond any tyre's or engine's, which keeps Jolt's impulses finite.
+	inline constexpr float MaxVehicleCurveValue = 100.0f;
+
+	// A curve asset's keys as a VehicleCurve, Jolt's piecewise linear curve (Docs/Architecture.md §8, "Vehicles"): a point
+	// at each key, and 15 points evenly between each two keys of different times (Curve::Evaluate there), so that a cubic
+	// segment is followed closely; keys at one time (a jump) keep both values at that time. Each point's x is its key time
+	// times inputScale (the engine's torque curve, over revolutions per minute, is read by Jolt over the speed divided by
+	// MaxRPM: 1 / MaxRPM), and its y the curve's value within 0 to MaxVehicleCurveValue (a negative friction or torque is
+	// none). A curve of one key is that value everywhere, as Jolt's curve keeps its end values; a curve of no key is 0
+	// everywhere (one point), as Curve::Evaluate gives. At most MaxVehicleCurvePoints points, which a curve of at most
+	// MaxCurveKeys keys never reaches. The curve's extrapolation does not apply. Pure; any thread.
+	VehicleCurve SampleVehicleCurve(Curve const& curve, float inputScale = 1.0f);
 }

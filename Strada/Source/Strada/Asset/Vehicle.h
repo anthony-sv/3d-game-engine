@@ -8,6 +8,7 @@
 #include <cstddef>
 #include <cstdint>
 #include <string>
+#include <string_view>
 #include <vector>
 
 // The vehicle definition (Docs/Architecture.md §8, "Vehicles"): a motorcycle's two wheels, its engine, its gearbox, its
@@ -50,8 +51,9 @@ namespace Strada
 		float SuspensionMaxLength = 0.5f;
 		// How far the spring is already compressed at SuspensionMaxLength (at least 0).
 		float SuspensionPreload = 0.0f;
-		// The spring's frequency (hertz, above 0) and damping ratio (at least 0).
-		float SuspensionFrequency = 1.5f;
+		// The spring's frequency (hertz, above 0) and damping ratio (at least 0). A new definition's 2.5 holds a 250 kg chassis
+		// off its stops (the 1.5 of Jolt's motorcycle sample's front spring lets it sit on its shortest length).
+		float SuspensionFrequency = 2.5f;
 		float SuspensionDamping = 0.5f;
 		// The axis the wheel steers around, pointing up (normalized; not zero): for a fork, against SuspensionDirection.
 		glm::vec3 SteeringAxis = glm::vec3(0.0f, 0.866025f, 0.5f);
@@ -142,7 +144,6 @@ namespace Strada
 		rear.Name = "Rear";
 		rear.Position = glm::vec3(0.0f, 0.71f, 0.75f);
 		rear.SuspensionDirection = glm::vec3(0.0f, -1.0f, 0.0f);
-		rear.SuspensionFrequency = 2.0f;
 		rear.SteeringAxis = glm::vec3(0.0f, 1.0f, 0.0f);
 		rear.MaxSteerAngle = 0.0f;
 		rear.FrontBrakeTorque = 0.0f;
@@ -168,11 +169,18 @@ namespace Strada
 		bool operator==(Vehicle const&) const = default;
 	};
 
-	// What the field tables cannot state (the data asset's Validate): exactly two wheels; their names unique ignoring letter
-	// case; the front steering (MaxSteerAngle above 0) and the rear not; directions that are not zero, Up and Forward not
-	// parallel; MinRPM below MaxRPM; ShiftDownRPM below ShiftUpRPM, and in Automatic mode ShiftUpRPM below the engine's
-	// MaxRPM. Refuses and never repairs; each error names its field ("Wheels[1].MaxSteerAngle: the rear wheel does not
-	// steer"). It reads the definition alone: a curve reference of another type, or of no asset, is not refused (a vehicle
-	// made from the definition counts it as unset and says so once). Pure; any thread.
+	// Whether two wheel names are the same in any letter case (ASCII), as a VehicleWheel component and the definition's
+	// uniqueness compare them. Pure; any thread.
+	[[nodiscard]] bool IsSameVehicleWheelName(std::string_view first, std::string_view second);
+
+	// What the field tables cannot state (the data asset's Validate): exactly two wheels; their names of 1 to
+	// MaxVehicleWheelNameLength bytes and unique ignoring letter case; each suspension's longest length at least its shortest;
+	// the front steering (MaxSteerAngle above 0) and the rear not (0); directions that are not zero, Up and Forward not
+	// parallel (as the physics world takes them, NormalizeVehicleAxes); MinRPM below MaxRPM; at least one gear;
+	// ShiftDownRPM below ShiftUpRPM, and in Automatic mode ShiftUpRPM below the engine's MaxRPM. So a definition that
+	// validates is one PhysicsScene::AddVehicle takes. Refuses and never repairs; each error names its field
+	// ("Wheels[1].MaxSteerAngle: the rear wheel does not steer, ..."). It reads the definition alone: a curve reference of
+	// another type, or of no asset, is not refused (a vehicle made from the definition counts it as unset and says so once).
+	// Pure; any thread.
 	[[nodiscard]] Result<void> ValidateVehicle(Vehicle const& vehicle);
 }

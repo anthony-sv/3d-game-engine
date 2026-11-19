@@ -66,9 +66,9 @@ public sealed class EditorIntegrationTests
 			Assert.Contains(tools, tool => tool!["name"]!.GetValue<string>() == "physics_query");
 			// The mix's meters.
 			Assert.Contains(tools, tool => tool!["name"]!.GetValue<string>() == "audio_meters");
-			// The engine's data asset types' tools, generated from their registrations: curves, input actions, mixers and physics
-			// materials.
-			foreach (string dataTool in new[] { "curve_create", "curve_get", "curve_set", "input_actions_create", "input_actions_get", "input_actions_set", "mixer_create", "mixer_get", "mixer_set", "physics_material_create", "physics_material_get", "physics_material_set" })
+			// The engine's data asset types' tools, generated from their registrations: curves, input actions, mixers, physics
+			// materials and vehicles.
+			foreach (string dataTool in new[] { "curve_create", "curve_get", "curve_set", "input_actions_create", "input_actions_get", "input_actions_set", "mixer_create", "mixer_get", "mixer_set", "physics_material_create", "physics_material_get", "physics_material_set", "vehicle_create", "vehicle_get", "vehicle_set" })
 			{
 				Assert.Contains(tools, tool => tool!["name"]!.GetValue<string>() == dataTool);
 			}

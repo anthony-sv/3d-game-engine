@@ -211,7 +211,8 @@ Profiler panel, the `profiler.*` commands and `StradaRuntime --profile` read its
     `Scene.UpdatePhysics`, `Scene.ReturnToSteps` before the frame's steps and `Scene.Interpolate` after them (§8); in
     each fixed step `Scene.FixedUpdateScripts`, `Scene.SyncToPhysics`, `Physics.Step` and `Scene.SyncFromPhysics`;
     `Scene.SyncPhysicsMaterials` only in the frames after a data asset changed, where the bodies take the new values of
-    their physics materials, and `Scene.SyncVehicles` there too, where the vehicles take their definitions' (§8);
+    their physics materials, and `Scene.SyncVehicles` there too, where the vehicles take their definitions', and in the
+    frames where a `Vehicle` component or a chassis's body changed, where the scene makes or updates the vehicles (§8);
     `Physics.Vehicles` inside `Physics.Step`, once per collision step on the thread that runs Jolt's step listeners
     (§8, "Vehicles");
   - each C# script's update and fixed update under `Script.<class>`, and each graph invoke (every event) under
@@ -1690,7 +1691,9 @@ at least 0; `MinLength <= MaxLength`; `MinRPM < MaxRPM`; 1 to 16 gear ratios, fi
 curve fields (`LongitudinalFriction` over the slip ratio, `LateralFriction` over the slip angle in degrees, `Torque` over
 the engine's speed as a fraction of `MaxTorque`) reference `Curve` assets, 0 or a reference that is no loadable curve for
 Jolt's default. There are no fields only a car uses (anti-roll bars, a differential between wheels, a handbrake, a
-reverse gear). A new definition (`{}`) is a bike with the proportions of Jolt's motorcycle sample, its front along -Z.
+reverse gear). A new definition (`{}`) is a bike with the proportions of Jolt's motorcycle sample, its front along -Z, on
+springs of 2.5 Hz that hold a 250 kg chassis off their stops (the sample's 1.5 Hz front spring lets it sit on its shortest
+length).
 
 ```json
 {
@@ -1698,11 +1701,11 @@ reverse gear). A new definition (`{}`) is a bike with the proportions of Jolt's 
 	"Vehicle": {
 		"Wheels": [
 			{ "Name": "Front", "Position": [0.0, 0.66, -0.55], "SuspensionDirection": [0.0, -0.866, -0.5], "SuspensionMinLength": 0.3,
-			  "SuspensionMaxLength": 0.5, "SuspensionPreload": 0.0, "SuspensionFrequency": 1.5, "SuspensionDamping": 0.5,
+			  "SuspensionMaxLength": 0.5, "SuspensionPreload": 0.0, "SuspensionFrequency": 2.5, "SuspensionDamping": 0.5,
 			  "SteeringAxis": [0.0, 0.866, 0.5], "MaxSteerAngle": 30.0, "Radius": 0.31, "Width": 0.12, "Inertia": 0.9,
 			  "AngularDamping": 0.2, "FrontBrakeTorque": 1500.0, "RearBrakeTorque": 0.0, "LongitudinalFriction": "0", "LateralFriction": "0" },
 			{ "Name": "Rear", "Position": [0.0, 0.71, 0.75], "SuspensionDirection": [0.0, -1.0, 0.0], "SuspensionMinLength": 0.3,
-			  "SuspensionMaxLength": 0.5, "SuspensionPreload": 0.0, "SuspensionFrequency": 2.0, "SuspensionDamping": 0.5,
+			  "SuspensionMaxLength": 0.5, "SuspensionPreload": 0.0, "SuspensionFrequency": 2.5, "SuspensionDamping": 0.5,
 			  "SteeringAxis": [0.0, 1.0, 0.0], "MaxSteerAngle": 0.0, "Radius": 0.31, "Width": 0.19, "Inertia": 1.2,
 			  "AngularDamping": 0.2, "FrontBrakeTorque": 0.0, "RearBrakeTorque": 600.0, "LongitudinalFriction": "0", "LateralFriction": "0" }
 		],
@@ -2999,8 +3002,9 @@ wheel all of its torque).
   before the joints in `RebuildChangedBodies`, in UUID order, when the scene starts, when a `Vehicle` component changes
   and when its definition starts or stops applying (a reference that is no loadable `Vehicle` counts as unset, and so does
   a curve reference that is no loadable `Curve`: the field tables accept any asset reference, as they do for physics
-  materials; an entity with a `Vehicle` but no dynamic body or no definition is no vehicle; each is said once, when the
-  vehicle is made); the world makes it again with its body. An edit of the definition, or of a curve it names, while the
+  materials; an entity with a `Vehicle` but no dynamic body or no definition is no vehicle; each reason is said once, when
+  the vehicle is made or found not to be one, and not again while it stays the reason); the world makes it again with its
+  body, which the scene leaves alone, and a component that names another definition makes it again too. An edit of the definition, or of a curve it names, while the
   scene plays reaches the vehicle before the next step without making it again (`PhysicsScene::SetVehicleSettings`, in the
   frames after the data asset registry's epoch moved, zone `Scene.SyncVehicles`): every value applies in place (the wheel
   settings are the engine's own objects, which Jolt reads at every step; the engine's, the gearbox's and the final
@@ -3010,8 +3014,10 @@ wheel all of its torque).
   `Forward`, which Jolt's constraint takes when it is made, so an
   edit of those makes the vehicle again and moves the structure version. **Curves** are references to `.scurve` assets,
   sampled into Jolt's piecewise linear curves (`LinearCurve`) when the vehicle is made or a curve changes: at each key, and
-  at 15 points between each two keys of different times (a jump keeps both values at its time), at most 16,384 points;
-  before the first and past the last key Jolt's curve keeps the end values (`LinearCurve.cpp:25-39`), so a curve's
+  at 15 points between each two keys of different times (`Curve::Evaluate` there; a jump keeps both values at its time),
+  at most 16,384 points (`SampleVehicleCurve`), each value kept within 0 and 100 (a friction or a torque below 0 is none,
+  and Jolt's impulses stay finite); a curve of one key is its value everywhere, and a curve of no key 0 everywhere, as it
+  evaluates; before the first and past the last key Jolt's curve keeps the end values (`LinearCurve.cpp:25-39`), so a curve's
   extrapolation does not apply. A missing curve is Jolt's default for that input: longitudinal friction (0, 0), (0.06,
   1.2), (0.2, 1.0) over the slip ratio and lateral friction (0, 0), (3, 1.2), (20, 1.0) over the slip angle in degrees
   (`WheeledVehicleController.cpp:44-56`), and the engine's torque 0.8, 1.0 and 0.8 of its largest at 0, 0.66 and 1 times
@@ -3048,7 +3054,7 @@ wheel all of its torque).
   step left them; the vehicles add nothing after it.
 - **Profiler zones** (§4.4): `Physics.Vehicles` around the world's step listener, once per collision step on the thread
   that runs it; the inputs and shifts reach the controllers inside `Physics.Step`; `Scene.SyncVehicles` only in the frames
-  after a data asset changed; the wheels are recorded inside `Scene.SyncFromPhysics`, drawn inside `Scene.Interpolate` and
+  after a data asset changed or a vehicle's component or body changed; the wheels are recorded inside `Scene.SyncFromPhysics`, drawn inside `Scene.Interpolate` and
   returned inside `Scene.ReturnToSteps`.
 - **Budget.** The vehicle constraint within 50 µs per vehicle per step in Release on the reference machine (Roadmap.md's
   targets), read by a benchmark behind `STRADA_VEHICLE_BENCHMARK=1`.

@@ -2,12 +2,16 @@
 #include "Strada/Scene/Scene.h"
 
 #include "Strada/Asset/AssetManager.h"
+#include "Strada/Asset/CurveAsset.h"
 #include "Strada/Asset/DataAsset.h"
 #include "Strada/Asset/MeshSource.h"
 #include "Strada/Asset/PhysicsMaterial.h"
 #include "Strada/Asset/PhysicsMaterialAsset.h"
+#include "Strada/Asset/Vehicle.h"
+#include "Strada/Asset/VehicleAsset.h"
 #include "Strada/Core/Hash.h"
 #include "Strada/Core/Profiler.h"
+#include "Strada/Math/Curve.h"
 #include "Strada/Math/Math.h"
 #include "Strada/Physics/PhysicsScene.h"
 #include "Strada/Scene/Components.h"
@@ -16,6 +20,7 @@
 #include <algorithm>
 #include <cmath>
 #include <optional>
+#include <string>
 #include <tuple>
 #include <type_traits>
 #include <utility>
@@ -185,18 +190,94 @@ namespace Strada
 			return desc;
 		}
 
-		// The physics material a collider names, when it is a registered physics material that loads; null otherwise (a
-		// reference to anything else counts as unset: no handle, an unknown one, an asset of another type, a file that does
-		// not load).
-		Ref<TypedDataAsset<PhysicsMaterial>> FindPhysicsMaterial(AssetHandle handle)
+		// The data asset of type TData a reference names, when it is registered as one and loads; null otherwise (a reference
+		// to anything else counts as unset: no handle, an unknown one, an asset of another type, a file that does not load).
+		template<typename TData>
+		Ref<TypedDataAsset<TData>> FindDataAsset(AssetHandle handle)
 		{
-			AssetType const type = TypedDataAsset<PhysicsMaterial>::GetStaticType();
+			AssetType const type = TypedDataAsset<TData>::GetStaticType();
 			if (!handle.IsValid() || !AssetManager::IsInitialized() || type == AssetType::None ||
 			    AssetManager::GetAssetType(handle) != type)
 			{
 				return nullptr;
 			}
-			return AssetManager::GetAsset<TypedDataAsset<PhysicsMaterial>>(handle);
+			return AssetManager::GetAsset<TypedDataAsset<TData>>(handle);
+		}
+
+		// The physics material a collider names (FindDataAsset).
+		Ref<TypedDataAsset<PhysicsMaterial>> FindPhysicsMaterial(AssetHandle handle)
+		{
+			return FindDataAsset<PhysicsMaterial>(handle);
+		}
+
+		// An asset reference as messages name it.
+		std::string DescribeReference(AssetHandle handle)
+		{
+			return AssetManager::IsInitialized() ? AssetManager::GetReference(handle) : handle.ToString();
+		}
+
+		// What a vehicle is made from: its definition and the curve assets the definition names, in the order of
+		// Scene::VehicleSyncState::Curves (each wheel's longitudinal and lateral friction, then the engine's torque), each
+		// null when it does not apply. No curve without a definition.
+		struct VehicleSources
+		{
+			Ref<TypedDataAsset<Vehicle>> Definition;
+			std::vector<AssetHandle> CurveHandles;
+			std::vector<Ref<TypedDataAsset<Curve>>> Curves;
+		};
+
+		VehicleSources ReadVehicleSources(AssetHandle definition)
+		{
+			VehicleSources sources;
+			sources.Definition = FindDataAsset<Vehicle>(definition);
+			if (sources.Definition)
+			{
+				Vehicle const& values = sources.Definition->GetData();
+				for (VehicleWheelDefinition const& wheel : values.Wheels)
+				{
+					sources.CurveHandles.push_back(wheel.LongitudinalFriction);
+					sources.CurveHandles.push_back(wheel.LateralFriction);
+				}
+				sources.CurveHandles.push_back(values.Engine.Torque);
+				for (AssetHandle const curve : sources.CurveHandles)
+				{
+					sources.Curves.push_back(FindDataAsset<Curve>(curve));
+				}
+			}
+			return sources;
+		}
+
+		// The values of a vehicle made from its definition and its curves (VehicleSources, with a definition), each curve
+		// sampled (SampleVehicleCurve; none, or a reference that is no Curve that loads, is Jolt's default). `notes` receives
+		// the references that count as unset.
+		VehicleDesc MakeVehicleValues(UUID entity, VehicleSources const& sources, std::vector<std::string>& notes)
+		{
+			Vehicle const& definition = sources.Definition->GetData();
+			VehicleDesc desc = MakeVehicleDesc(entity, definition);
+			auto const sample = [&sources, &notes](size_t index, std::string const& field, float inputScale)
+			{
+				if (sources.Curves[index])
+				{
+					return SampleVehicleCurve(sources.Curves[index]->GetData(), inputScale);
+				}
+				if (sources.CurveHandles[index].IsValid())
+				{
+					notes.push_back(fmt::format("takes the default for its {}: {} is no Curve that loads", field,
+					                            DescribeReference(sources.CurveHandles[index])));
+				}
+				return VehicleCurve();
+			};
+			// A definition that validates has exactly its two wheels.
+			for (size_t wheel = 0; wheel < std::min(definition.Wheels.size(), VehicleWheelCount); wheel++)
+			{
+				std::string const prefix = "Wheels[" + std::to_string(wheel) + "].";
+				desc.Wheels[wheel].LongitudinalFriction = sample(2 * wheel, prefix + "LongitudinalFriction", 1.0f);
+				desc.Wheels[wheel].LateralFriction = sample(2 * wheel + 1, prefix + "LateralFriction", 1.0f);
+			}
+			// Jolt reads the engine's curve over the engine's speed divided by its largest (VehicleEngine.h:63 of the pinned
+			// Jolt); MaxRPM is at least 1.
+			desc.NormalizedTorque = sample(sources.Curves.size() - 1, "Engine.Torque", 1.0f / definition.Engine.MaxRPM);
+			return desc;
 		}
 
 		// A collider's surface: its material's values and modes when it names one that applies, else its own Friction and
@@ -482,6 +563,10 @@ namespace Strada
 		{
 			m_ChangedCharacters.insert(handle);
 		}
+		for (entt::entity const handle : m_Registry.view<VehicleComponent>())
+		{
+			m_ChangedVehicles.insert(handle);
+		}
 		m_JointsChanged = true;
 		RebuildChangedBodies();
 		ConnectPhysicsSignals(true);
@@ -508,6 +593,9 @@ namespace Strada
 		m_CharacterOrder.clear();
 		m_CharacterOrderChanged = false;
 		m_ChangedCharacters.clear();
+		m_Vehicles.clear();
+		m_ChangedVehicles.clear();
+		m_VehicleEpoch = 0;
 		m_JointsChanged = false;
 		m_ContactEvents.clear();
 		m_PhysicsAccumulator = 0.0f;
@@ -584,6 +672,21 @@ namespace Strada
 		{
 			meshUpdated.disconnect<&Scene::OnMeshComponentChanged>(*this);
 		}
+
+		auto const watchVehicles = [this, connect](auto sink)
+		{
+			if (connect)
+			{
+				sink.template connect<&Scene::OnVehicleComponentChanged>(*this);
+			}
+			else
+			{
+				sink.template disconnect<&Scene::OnVehicleComponentChanged>(*this);
+			}
+		};
+		watchVehicles(m_Registry.on_construct<VehicleComponent>());
+		watchVehicles(m_Registry.on_update<VehicleComponent>());
+		watchVehicles(m_Registry.on_destroy<VehicleComponent>());
 	}
 
 	void Scene::OnPhysicsComponentChanged(entt::registry&, entt::entity handle)
@@ -606,6 +709,11 @@ namespace Strada
 		// A character replaces the entity's body: the body is removed (or made again) too.
 		m_ChangedCharacters.insert(handle);
 		m_ChangedBodies.insert(handle);
+	}
+
+	void Scene::OnVehicleComponentChanged(entt::registry&, entt::entity handle)
+	{
+		m_ChangedVehicles.insert(handle);
 	}
 
 	void Scene::OnMeshComponentChanged(entt::registry& registry, entt::entity handle)
@@ -673,13 +781,15 @@ namespace Strada
 
 	bool Scene::HasPendingPhysicsChanges() const
 	{
-		return !m_ChangedBodies.empty() || !m_ChangedCharacters.empty() || m_JointsChanged;
+		return !m_ChangedBodies.empty() || !m_ChangedCharacters.empty() || !m_ChangedVehicles.empty() || m_JointsChanged;
 	}
 
 	void Scene::RebuildChangedBodies()
 	{
-		// First, so that the bodies rebuilt below and those kept have the same values of every material.
+		// First, so that the bodies rebuilt below and those kept have the same values of every material, and the vehicles
+		// those of their definitions.
 		SyncPhysicsMaterials();
+		SyncVehicles();
 		// In UUID order: Jolt numbers bodies in the order they are made and simulates them in that order.
 		if (!m_ChangedBodies.empty())
 		{
@@ -691,6 +801,12 @@ namespace Strada
 				{
 					m_JointsChanged = true;
 				}
+				// A chassis's vehicle goes with its body: the world carries it over to a rebuilt dynamic body and drops it
+				// otherwise, and UpdateVehicle sees which.
+				if (m_Vehicles.contains(handle) || (m_Registry.valid(handle) && m_Registry.all_of<VehicleComponent>(handle)))
+				{
+					m_ChangedVehicles.insert(handle);
+				}
 			}
 		}
 		if (!m_ChangedCharacters.empty())
@@ -699,6 +815,16 @@ namespace Strada
 			for (entt::entity const handle : changed)
 			{
 				UpdateCharacter(handle);
+			}
+		}
+		// After the bodies they ride on; the world adds their constraints again in UUID order, before the joints.
+		if (!m_ChangedVehicles.empty())
+		{
+			ST_PROFILE_SCOPE("Scene.SyncVehicles");
+			std::vector<entt::entity> const changed = SortByUUID(m_Registry, std::exchange(m_ChangedVehicles, {}), m_Vehicles);
+			for (entt::entity const handle : changed)
+			{
+				UpdateVehicle(handle);
 			}
 		}
 		if (std::exchange(m_JointsChanged, false))
@@ -767,6 +893,137 @@ namespace Strada
 			{
 				m_ChangedBodies.insert(handle);
 			}
+		}
+	}
+
+	void Scene::SyncVehicles()
+	{
+		uint64_t const epoch = DataAssetRegistry::GetEpoch();
+		if (!m_Physics || epoch == m_VehicleEpoch)
+		{
+			return;
+		}
+		m_VehicleEpoch = epoch;
+		if (m_Vehicles.empty())
+		{
+			return;
+		}
+		ST_PROFILE_SCOPE("Scene.SyncVehicles");
+		// In UUID order, whatever the map's (the changes reach the world in that order anyway: UpdateVehicle's are sorted).
+		std::vector<entt::entity> order;
+		SortKeysByUUID(m_Vehicles, order);
+		for (entt::entity const handle : order)
+		{
+			VehicleSyncState const& state = m_Vehicles.at(handle);
+			VehicleSources const sources = ReadVehicleSources(state.Definition);
+			bool changed = (sources.Definition ? sources.Definition->GetVersion() : 0) != state.DefinitionVersion;
+			for (size_t index = 0; index < VehicleCurveCount && !changed; index++)
+			{
+				AssetHandle const curve = index < sources.CurveHandles.size() ? sources.CurveHandles[index] : AssetHandle();
+				uint64_t const version = index < sources.Curves.size() && sources.Curves[index] ? sources.Curves[index]->GetVersion() : 0;
+				changed = curve != state.Curves[index] || version != state.CurveVersions[index];
+			}
+			if (changed)
+			{
+				m_ChangedVehicles.insert(handle);
+			}
+		}
+	}
+
+	void Scene::UpdateVehicle(entt::entity handle)
+	{
+		auto const existing = m_Vehicles.find(handle);
+		bool const alive = m_Registry.valid(handle) && m_Registry.all_of<IDComponent>(handle);
+		VehicleComponent const* component = alive ? m_Registry.try_get<VehicleComponent>(handle) : nullptr;
+		if (component == nullptr)
+		{
+			// Destroyed entity, or removed component (the world removed a destroyed entity's vehicle with its body).
+			if (existing != m_Vehicles.end())
+			{
+				m_Physics->RemoveVehicle(existing->second.Entity);
+				m_Vehicles.erase(existing);
+			}
+			return;
+		}
+
+		Entity const entity(handle, this);
+		UUID const id = entity.GetUUID();
+		VehicleSyncState& state = m_Vehicles[handle];
+		bool const sameDefinition = state.Definition == component->Definition;
+		state.Entity = id;
+		state.Definition = component->Definition;
+		VehicleSources const sources = ReadVehicleSources(component->Definition);
+		state.DefinitionVersion = sources.Definition ? sources.Definition->GetVersion() : 0;
+		for (size_t index = 0; index < VehicleCurveCount; index++)
+		{
+			state.Curves[index] = index < sources.CurveHandles.size() ? sources.CurveHandles[index] : AssetHandle();
+			state.CurveVersions[index] = index < sources.Curves.size() && sources.Curves[index] ? sources.Curves[index]->GetVersion() : 0;
+		}
+
+		std::string problem;
+		std::vector<std::string> notes;
+		RigidBodyComponent const* body = m_Registry.try_get<RigidBodyComponent>(handle);
+		if (!sources.Definition)
+		{
+			problem = component->Definition.IsValid() ? fmt::format("makes no vehicle: its Definition {} is no Vehicle that loads",
+			                                                        DescribeReference(component->Definition))
+			                                          : std::string("makes no vehicle: it names no Definition");
+		}
+		else if (body == nullptr || body->Type != RigidBodyType::Dynamic || !m_Bodies.contains(handle) || !m_Physics->HasBody(id))
+		{
+			problem = "makes no vehicle: its entity has no dynamic RigidBody with a collider";
+		}
+		else
+		{
+			VehicleDesc const desc = MakeVehicleValues(id, sources, notes);
+			bool const present = state.Made && m_Physics->HasVehicle(id);
+			if (present && desc == state.Desc)
+			{
+				// The world carried it over to the entity's rebuilt body, or nothing it reads changed.
+			}
+			else if (present && sameDefinition && desc.Up == state.Desc.Up && desc.Forward == state.Desc.Forward)
+			{
+				// An edit of the definition or of a curve: the new values from the next step on, the ride and the structure
+				// kept.
+				if (Result<void> changed = m_Physics->SetVehicleSettings(id, desc); changed)
+				{
+					state.Desc = desc;
+				}
+				else
+				{
+					notes.push_back(fmt::format("keeps its values, as the new ones are refused: {}", changed.GetError()));
+				}
+			}
+			else if (Result<void> made = m_Physics->AddVehicle(desc); made)
+			{
+				state.Made = true;
+				state.Desc = desc;
+			}
+			else
+			{
+				problem = fmt::format("makes no vehicle: {}", made.GetError());
+			}
+		}
+		if (!problem.empty())
+		{
+			// Like every refusal, it leaves the entity without a vehicle.
+			m_Physics->RemoveVehicle(id);
+			state.Made = false;
+			state.Desc = {};
+		}
+		std::string said = problem;
+		for (std::string const& note : notes)
+		{
+			said += (said.empty() ? "" : "; ") + note;
+		}
+		// Said once: a body rebuilt every step, or a component set again to the same value, says nothing new.
+		if (said != state.Said)
+		{
+			if (!said.empty())
+			{
+				ST_CORE_WARN("Physics: the Vehicle of '{}' {}", entity.GetName(), said);
+			}
+			state.Said = std::move(said);
 		}
 	}
 

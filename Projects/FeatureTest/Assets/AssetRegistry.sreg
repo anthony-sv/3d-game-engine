@@ -73,6 +73,31 @@
 			"Handle": "10281408888408808806",
 			"Type": "VisualScript",
 			"Path": "Scripts/MathLibrary.sgraph"
+		},
+		{
+			"Handle": "16927299108182019562",
+			"Type": "Vehicle",
+			"Path": "Vehicles/Bike.svehicle"
+		},
+		{
+			"Handle": "7057878592477262684",
+			"Type": "Curve",
+			"Path": "Vehicles/EngineTorque.scurve"
+		},
+		{
+			"Handle": "6555722309289367045",
+			"Type": "Curve",
+			"Path": "Vehicles/TyreLateral.scurve"
+		},
+		{
+			"Handle": "1590546320973539121",
+			"Type": "Curve",
+			"Path": "Vehicles/TyreLongitudinal.scurve"
+		},
+		{
+			"Handle": "11349471369924306742",
+			"Type": "Vehicle",
+			"Path": "Vehicles/ZUp.svehicle"
 		}
 	]
 }

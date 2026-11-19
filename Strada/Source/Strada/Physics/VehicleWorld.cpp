@@ -2,6 +2,7 @@
 #include "Strada/Physics/VehicleWorld.h"
 
 #include "Strada/Core/Profiler.h"
+#include "Strada/Math/Curve.h"
 #include "Strada/Physics/JoltContext.h"
 
 #include <Jolt/Physics/Body/Body.h>
@@ -558,6 +559,45 @@ namespace Strada
 		desc.LeanSmoothingFactor = definition.Lean.SmoothingFactor;
 		desc.LeanSteeringLimit = definition.Lean.SteeringLimit;
 		return desc;
+	}
+
+	VehicleCurve SampleVehicleCurve(Curve const& curve, float inputScale)
+	{
+		// Points between two keys of different times: a cubic segment is followed within a small part of its bend, and a
+		// curve of MaxCurveKeys keys stays below MaxVehicleCurvePoints.
+		constexpr int PointsBetweenKeys = 15;
+		auto const point = [inputScale](double time, float value)
+		{
+			float const kept = std::isfinite(value) ? std::clamp(value, 0.0f, MaxVehicleCurveValue) : 0.0f;
+			return glm::vec2(static_cast<float>(time * inputScale), kept);
+		};
+		VehicleCurve points;
+		if (curve.Keys.empty())
+		{
+			points.push_back(point(0.0, curve.Evaluate(0.0)));
+			return points;
+		}
+		for (size_t index = 0; index < curve.Keys.size() && points.size() < MaxVehicleCurvePoints; index++)
+		{
+			CurveKey const& key = curve.Keys[index];
+			points.push_back(point(key.Time, key.Value));
+			if (index + 1 == curve.Keys.size())
+			{
+				break;
+			}
+			double const start = key.Time;
+			double const end = curve.Keys[index + 1].Time;
+			if (!(end > start))
+			{
+				continue;
+			}
+			for (int between = 1; between <= PointsBetweenKeys && points.size() < MaxVehicleCurvePoints; between++)
+			{
+				double const time = start + (end - start) * between / (PointsBetweenKeys + 1);
+				points.push_back(point(time, curve.Evaluate(time)));
+			}
+		}
+		return points;
 	}
 
 	VehicleWorld::VehicleWorld(JPH::PhysicsSystem& system, std::vector<ColliderMaterial> const& materials)

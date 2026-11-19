@@ -19,6 +19,8 @@
 #include <glm/glm.hpp>
 
 #include <algorithm>
+#include <array>
+#include <cstddef>
 #include <cstdint>
 #include <functional>
 #include <limits>
@@ -583,7 +585,8 @@ namespace Strada
 		// One fixed step: OnFixedUpdate, the physics changes it made, the syncs to physics, the physics step and the syncs back;
 		// then it is counted (and the hash recorded after SceneRuntimeSettings::PhysicsHashStep).
 		void RunFixedStep(float step);
-		// Syncs the physics materials (SyncPhysicsMaterials), then rebuilds the bodies, characters and joints that changed.
+		// Syncs the physics materials (SyncPhysicsMaterials) and the vehicles' definitions (SyncVehicles), then rebuilds the
+		// bodies, characters, vehicles and joints that changed, in that order (Docs/Architecture.md §8, "Vehicles").
 		void RebuildChangedBodies();
 		// When the data asset registry's epoch moved: gives the bodies the values of every physics material their colliders
 		// use whose version changed (PhysicsScene::SetMaterialValues, no body rebuilt), and marks for rebuilding the bodies
@@ -636,6 +639,17 @@ namespace Strada
 		void InterpolateCharacterTransforms(float alpha);
 		void OnCharacterComponentChanged(entt::registry& registry, entt::entity handle);
 		void OnCharacterComponentAddedOrRemoved(entt::registry& registry, entt::entity handle);
+		// Makes, changes or removes the vehicle of an entity after its Vehicle component, its body, its definition or a curve
+		// the definition names changed: made again (PhysicsScene::AddVehicle, the structure version moves) when it is new, its
+		// component names another definition or its definition's Up or Forward changed; given the new values in place
+		// (PhysicsScene::SetVehicleSettings) when only values changed; left alone when the world already carried it over to a
+		// rebuilt body. An entity whose Vehicle cannot make one (no definition that loads, no dynamic body, values the world
+		// refuses) is no vehicle, said once for each reason.
+		void UpdateVehicle(entt::entity handle);
+		// When the data asset registry's epoch moved: marks for UpdateVehicle the vehicles whose definition or curves changed
+		// version (an edit, a reload, a file that starts or stops loading), in the order of their UUIDs.
+		void SyncVehicles();
+		void OnVehicleComponentChanged(entt::registry& registry, entt::entity handle);
 
 		// Audio runtime (SceneAudio.cpp).
 		struct AudioSourceState;
@@ -921,6 +935,29 @@ namespace Strada
 		std::unordered_map<entt::entity, CharacterSyncState> m_Characters;
 		// Entities whose CharacterController changed while running; their characters are updated before the next step.
 		std::unordered_set<entt::entity> m_ChangedCharacters;
+		// The curve assets a vehicle's definition names: each wheel's longitudinal and lateral friction, then the engine's
+		// torque.
+		static constexpr size_t VehicleCurveCount = 2 * VehicleWheelCount + 1;
+		// What the scene asked of the world for an entity's Vehicle: the definition its component named and the version it
+		// read (0: none applied), the curves the definition named and theirs, the values the world was given while it has the
+		// vehicle (Made), and what was last said about it, so that each reason is said once.
+		struct VehicleSyncState
+		{
+			UUID Entity = UUID::Invalid();
+			AssetHandle Definition;
+			uint64_t DefinitionVersion = 0;
+			std::array<AssetHandle, VehicleCurveCount> Curves{};
+			std::array<uint64_t, VehicleCurveCount> CurveVersions{};
+			bool Made = false;
+			VehicleDesc Desc;
+			std::string Said;
+		};
+		std::unordered_map<entt::entity, VehicleSyncState> m_Vehicles;
+		// Entities whose Vehicle, body, definition or curves changed while running; their vehicles are updated before the next
+		// step, after the bodies and characters.
+		std::unordered_set<entt::entity> m_ChangedVehicles;
+		// The data asset registry's epoch when the vehicles' definitions were last compared.
+		uint64_t m_VehicleEpoch = 0;
 		std::vector<ContactEvent> m_ContactEvents;
 
 		// While running: the actions' state, set at runtime start (no edge for what is already held) and cleared at stop,

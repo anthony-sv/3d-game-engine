@@ -617,8 +617,6 @@ namespace Strada
 				.Doc("Physics layer index as configured in the project settings."));
 	};
 
-	// The vehicle components are registered with their runtime (AllComponents), not before: a registered component must be in
-	// the FeatureTest project's scenes and in Docs/Components.md.
 	template<>
 	struct ComponentTraits<VehicleComponent>
 	{
@@ -1088,7 +1086,8 @@ namespace Strada
 		ComponentList<IDComponent, TagComponent, TransformComponent, RelationshipComponent, CameraComponent, MeshComponent,
 	                  DirectionalLightComponent, PointLightComponent, SpotLightComponent, SkyLightComponent, RigidBodyComponent,
 	                  BoxColliderComponent, SphereColliderComponent, CapsuleColliderComponent, MeshColliderComponent, JointComponent,
-	                  CharacterControllerComponent, AudioSourceComponent, AudioListenerComponent, ScriptComponent, VisualScriptComponent,
-	                  TextComponent, SpriteRendererComponent, ParticleSystemComponent, PostProcessComponent, UICanvasComponent,
-	                  UIRectComponent, UIImageComponent, UITextComponent, UIButtonComponent, ReverbZoneComponent, PrefabComponent>;
+	                  CharacterControllerComponent, VehicleComponent, VehicleWheelComponent, AudioSourceComponent, AudioListenerComponent,
+	                  ScriptComponent, VisualScriptComponent, TextComponent, SpriteRendererComponent, ParticleSystemComponent,
+	                  PostProcessComponent, UICanvasComponent, UIRectComponent, UIImageComponent, UITextComponent, UIButtonComponent,
+	                  ReverbZoneComponent, PrefabComponent>;
 }
