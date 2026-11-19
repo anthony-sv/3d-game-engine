@@ -480,10 +480,15 @@ every configuration, Dist included (it has no macros); only the editor starts it
   wait for the writers of the old one, collect or discard what they wrote, and free every buffer for the next session's
   threads. So a thread that ended without `Telemetry::EndThread` (a retired pool thread, a game's own thread) holds its
   buffer only until its session ends, and the open panel's recording, which spans every play of an editor session,
-  never runs out of buffers. `EndThread` gives a buffer back sooner: the next collection frees it. `Start` gives four
-  slots their rings and each `EndStep` tops the free ones up to four on the main thread, so no recording thread
-  allocates a ring. A thread that finds no free slot drops its records, counted. Telemetry never records on the audio
-  device's callback, so it needs no caller-held thread state.
+  never runs out of buffers. `EndThread` gives a buffer back sooner: the next collection frees it. `Start` gives one
+  slot per hardware thread and four more their rings, as the profiler does, and each `EndStep` tops the free ones up to
+  four on the main thread, so no recording thread allocates a ring. A session that begins while recording goes on
+  passes the free slots to the new generation before publishing it (making fresh ones until four are free), so a
+  thread that records on while the main thread collects and frees the ended session's slots finds one at once. A
+  thread that finds no free slot drops its records, counted, and the warning names the cause: all 64 slots held, more
+  threads beginning to record between two steps than slots were free, or more threads moving on to a beginning
+  session than slots were free for it. Telemetry never records on the audio device's callback, so it needs no
+  caller-held thread state.
 - **Collection.** At the end of each fixed step, on the main thread, `EndStep` folds every ring into the pending row, in
   each ring's order and the slots' order, then commits the row: each channel's value (the last one for it: per thread
   the last written; between threads, or between a thread and the main thread, one of them, which is unspecified) and

@@ -28,7 +28,9 @@ namespace Strada
 	{
 		constexpr uint32_t NoSlot = std::numeric_limits<uint32_t>::max();
 		constexpr uint32_t NoChannel = std::numeric_limits<uint32_t>::max();
-		// Free buffers kept ready for threads that have not recorded yet in the session; each collection tops them up.
+		// Free buffers kept ready for threads that have not recorded yet in the session: each collection tops them up, and
+		// a session beginning keeps at least this many free for its threads. Start gives one buffer to each hardware thread
+		// beside them, as the profiler does.
 		constexpr uint32_t SpareSlots = 4;
 		constexpr size_t CacheLineBytes = 64;
 		constexpr float NoValue = std::numeric_limits<float>::quiet_NaN();
@@ -132,13 +134,29 @@ namespace Strada
 
 		static_assert(std::is_trivially_destructible_v<TelemetryThreadState>);
 
+		// Why a thread found no free slot.
+		enum class NoSlotCause : uint8_t
+		{
+			// Every one of Telemetry::MaxThreads slots is provisioned and none is free.
+			AllHeld = 0,
+			// More threads began recording since the last collection than slots were free.
+			NotReady,
+			// A session was beginning: more threads moved on to it than slots were free for it.
+			SessionBeginning
+		};
+
+		constexpr size_t NoSlotCauses = static_cast<size_t>(NoSlotCause::SessionBeginning) + 1;
+
 		alignas(CacheLineBytes) constinit TelemetrySlot s_Slots[Telemetry::MaxThreads];
 		// The generation in progress: Start, Stop and every session's beginning and end advance it.
 		constinit std::atomic<uint32_t> s_Generation{0};
 		constinit std::atomic<uint32_t> s_InitNumber{0};
-		// Records dropped by threads that found no free slot, counted in the next collected row.
-		constinit std::atomic<uint32_t> s_UnattributedValues{0};
-		constinit std::atomic<uint32_t> s_UnattributedMarks{0};
+		// Set by the main thread while a session begins (BeginGeneration to the end of ResetSlots), so that a thread finding
+		// no free slot then says why.
+		constinit std::atomic<bool> s_BeginningSession{false};
+		// Records dropped by threads that found no free slot, by cause, counted in the next collected row.
+		constinit std::array<std::atomic<uint32_t>, NoSlotCauses> s_UnattributedValues{};
+		constinit std::array<std::atomic<uint32_t>, NoSlotCauses> s_UnattributedMarks{};
 		constinit thread_local TelemetryThreadState s_ThreadState;
 
 		struct StringHash
@@ -161,10 +179,20 @@ namespace Strada
 			Marks,
 			MarkStep,
 			FullBuffer,
-			NoBuffer
+			// A thread found no free buffer: NoBuffer, NoBufferReady and NoBufferForSession are NoSlotCause's causes, in its
+			// order.
+			NoBuffer,
+			NoBufferReady,
+			NoBufferForSession
 		};
 
-		constexpr size_t DropKinds = static_cast<size_t>(DropKind::NoBuffer) + 1;
+		constexpr size_t DropKinds = static_cast<size_t>(DropKind::NoBufferForSession) + 1;
+		static_assert(static_cast<size_t>(DropKind::NoBufferForSession) - static_cast<size_t>(DropKind::NoBuffer) + 1 == NoSlotCauses);
+
+		DropKind GetNoSlotDropKind(size_t cause)
+		{
+			return static_cast<DropKind>(static_cast<size_t>(DropKind::NoBuffer) + cause);
+		}
 
 		// A channel's value of the pending row, and where the live session keeps the channel.
 		struct PendingCell
@@ -313,8 +341,19 @@ namespace Strada
 					             settings.RecordsPerThread);
 					break;
 				case DropKind::NoBuffer:
-					ST_CORE_WARN("Telemetry: a thread found no free buffer ({} threads record at most at once); its records were dropped",
+					ST_CORE_WARN("Telemetry: a thread found no free buffer: all {} are held by threads recording in the session (a "
+					             "thread keeps its buffer until the session ends or it calls EndThread); its records were dropped",
 					             Telemetry::MaxThreads);
+					break;
+				case DropKind::NoBufferReady:
+					ST_CORE_WARN("Telemetry: a thread found no free buffer ready: more threads began recording between two steps "
+					             "than buffers were free (each step's collection makes up to {} free again); its records were dropped",
+					             SpareSlots);
+					break;
+				case DropKind::NoBufferForSession:
+					ST_CORE_WARN("Telemetry: a thread found no free buffer while a session began: more threads moved on to the new "
+					             "session than buffers were free for it while the ended session's were collected and freed; its "
+					             "records were dropped");
 					break;
 			}
 		}
@@ -359,9 +398,15 @@ namespace Strada
 			return std::bit_ceil(capacity);
 		}
 
-		// Gives a slot a ring and publishes it as free in the generation. Main thread; no producer reaches the slot's
-		// fields, since none can claim it before the publication.
-		void ProvisionSlot(TelemetryData& data, uint32_t slotIndex)
+		// Start's slots: one per hardware thread and SpareSlots, as the profiler provisions its own (Profiler::Start).
+		uint32_t GetStartSlots()
+		{
+			return std::min(Telemetry::MaxThreads, std::max(std::thread::hardware_concurrency(), 1u) + SpareSlots);
+		}
+
+		// Gives a slot a ring and publishes it as free in a generation. Main thread; no producer reaches the slot's fields,
+		// since none can claim it before the publication.
+		void ProvisionSlot(TelemetryData& data, uint32_t slotIndex, uint32_t generation)
 		{
 			uint32_t const ringSize = GetRingSize(data.Settings.RecordsPerThread);
 			data.Rings[slotIndex] = std::make_unique<TelemetryRecord[]>(ringSize);
@@ -373,7 +418,7 @@ namespace Strada
 			slot.Tail.store(0, std::memory_order_relaxed);
 			slot.DroppedValues.store(0, std::memory_order_relaxed);
 			slot.DroppedMarks.store(0, std::memory_order_relaxed);
-			slot.Owner.store(PackOwner(data.Generation, SlotState::Free), std::memory_order_release);
+			slot.Owner.store(PackOwner(generation, SlotState::Free), std::memory_order_release);
 		}
 
 		// Keeps SpareSlots free slots ready, up to Telemetry::MaxThreads provisioned ones.
@@ -390,7 +435,7 @@ namespace Strada
 			}
 			while (freeSlots < SpareSlots && data.ProvisionedSlots < Telemetry::MaxThreads)
 			{
-				ProvisionSlot(data, data.ProvisionedSlots++);
+				ProvisionSlot(data, data.ProvisionedSlots++, data.Generation);
 				++freeSlots;
 			}
 		}
@@ -431,7 +476,8 @@ namespace Strada
 			}
 		}
 
-		// Ends the generation in progress and waits for its writers; returns the ended one. Main thread.
+		// Ends the generation in progress as the recording ends (Stop) and waits for its writers; returns the ended one. Main
+		// thread.
 		uint32_t AdvanceGeneration(TelemetryData& data)
 		{
 			uint32_t const ended = data.Generation;
@@ -440,13 +486,68 @@ namespace Strada
 			return ended;
 		}
 
-		// Every provisioned slot free again in the generation in progress, its records discarded. Main thread, after
-		// AdvanceGeneration: threads holding a slot of the ended generation claim one again.
+		// Ends the generation in progress as a session begins while recording goes on, and waits for its writers; returns the
+		// ended one. Main thread; ResetSlots and EndBeginningSession follow. Before the next generation is published, every
+		// free slot passes to it (by a compare-exchange, since a thread may be claiming the same slot for the ended one), and
+		// fresh slots are provisioned for it until SpareSlots are free: threads that held a slot of the ended generation, and
+		// threads new to the session, then find one at once instead of waiting for ResetSlots. discardDrops: the counts of
+		// records threads dropped for want of a slot are discarded with what the ended generation recorded (EndSession), not
+		// collected into the next row.
+		uint32_t BeginGeneration(TelemetryData& data, bool discardDrops)
+		{
+			s_BeginningSession.store(true, std::memory_order_seq_cst);
+			uint32_t const ended = data.Generation;
+			uint32_t const next = ended + 1;
+			uint64_t const endedFree = PackOwner(ended, SlotState::Free);
+			uint64_t const nextFree = PackOwner(next, SlotState::Free);
+			uint32_t freeSlots = 0;
+			for (uint32_t slotIndex = 0; slotIndex < data.ProvisionedSlots; ++slotIndex)
+			{
+				uint64_t expected = endedFree;
+				if (s_Slots[slotIndex].Owner.compare_exchange_strong(expected, nextFree, std::memory_order_acq_rel,
+				                                                     std::memory_order_relaxed))
+				{
+					++freeSlots;
+				}
+			}
+			while (freeSlots < SpareSlots && data.ProvisionedSlots < Telemetry::MaxThreads)
+			{
+				ProvisionSlot(data, data.ProvisionedSlots++, next);
+				++freeSlots;
+			}
+			if (discardDrops)
+			{
+				for (size_t cause = 0; cause < NoSlotCauses; ++cause)
+				{
+					s_UnattributedValues[cause].store(0, std::memory_order_relaxed);
+					s_UnattributedMarks[cause].store(0, std::memory_order_relaxed);
+				}
+			}
+			// Only the main thread advances the generation, so data.Generation + 1 is the one it publishes.
+			data.Generation = next;
+			s_Generation.store(next, std::memory_order_seq_cst);
+			WaitForWriters();
+			return ended;
+		}
+
+		void EndBeginningSession()
+		{
+			s_BeginningSession.store(false, std::memory_order_seq_cst);
+		}
+
+		// Every provisioned slot of an earlier generation free again in the generation in progress, its records discarded.
+		// Main thread, after AdvanceGeneration or BeginGeneration: threads holding a slot of the ended generation claim one
+		// again. A slot already of the generation in progress (BeginGeneration passed or provisioned it) is left alone: a
+		// thread may own it and be writing into its ring.
 		void ResetSlots(TelemetryData& data)
 		{
 			for (uint32_t slotIndex = 0; slotIndex < data.ProvisionedSlots; ++slotIndex)
 			{
 				TelemetrySlot& slot = s_Slots[slotIndex];
+				if (GetOwnerGeneration(slot.Owner.load(std::memory_order_acquire)) == data.Generation)
+				{
+					continue;
+				}
 				slot.Head.store(0, std::memory_order_relaxed);
 				slot.Tail.store(0, std::memory_order_relaxed);
 				slot.DroppedValues.store(0, std::memory_order_relaxed);
@@ -472,8 +573,24 @@ namespace Strada
 				data.Rings[slotIndex].reset();
 			}
 			data.ProvisionedSlots = 0;
-			s_UnattributedValues.store(0, std::memory_order_relaxed);
-			s_UnattributedMarks.store(0, std::memory_order_relaxed);
+			for (size_t cause = 0; cause < NoSlotCauses; ++cause)
+			{
+				s_UnattributedValues[cause].store(0, std::memory_order_relaxed);
+				s_UnattributedMarks[cause].store(0, std::memory_order_relaxed);
+			}
+		}
+
+		// Why the calling thread found no free slot of the generation in progress. Any thread.
+		NoSlotCause GetNoSlotCause()
+		{
+			if (s_BeginningSession.load(std::memory_order_seq_cst))
+			{
+				return NoSlotCause::SessionBeginning;
+			}
+			// Slots are provisioned in order, so the last one is provisioned only when all are.
+			bool const allProvisioned =
+				GetOwnerState(s_Slots[Telemetry::MaxThreads - 1].Owner.load(std::memory_order_relaxed)) != SlotState::Unprovisioned;
+			return allProvisioned ? NoSlotCause::AllHeld : NoSlotCause::NotReady;
 		}
 
 		// A thread's record, written into its ring. Any thread but the main one.
@@ -489,10 +606,11 @@ namespace Strada
 					thread.Slot = NoSlot;
 					if (!ClaimSlot(thread, generation))
 					{
-						if (s_Generation.load(std::memory_order_relaxed) == generation)
+						if (s_Generation.load(std::memory_order_seq_cst) == generation)
 						{
-							(kind == RecordKind::Value ? s_UnattributedValues : s_UnattributedMarks)
-								.fetch_add(1, std::memory_order_relaxed);
+							size_t const cause = static_cast<size_t>(GetNoSlotCause());
+							(kind == RecordKind::Value ? s_UnattributedValues : s_UnattributedMarks)[cause].fetch_add(
+								1, std::memory_order_relaxed);
 							return;
 						}
 						continue;
@@ -675,15 +793,18 @@ namespace Strada
 					slot.Owner.store(PackOwner(generation, SlotState::Free), std::memory_order_release);
 				}
 			}
-			uint32_t const values = s_UnattributedValues.exchange(0, std::memory_order_relaxed);
-			uint32_t const marks = s_UnattributedMarks.exchange(0, std::memory_order_relaxed);
-			if (values > 0)
+			for (size_t cause = 0; cause < NoSlotCauses; ++cause)
 			{
-				NoteDrop(data.Drops, DropKind::NoBuffer, false, {}, false, values);
-			}
-			if (marks > 0)
-			{
-				NoteDrop(data.Drops, DropKind::NoBuffer, true, {}, false, marks);
+				uint32_t const values = s_UnattributedValues[cause].exchange(0, std::memory_order_relaxed);
+				uint32_t const marks = s_UnattributedMarks[cause].exchange(0, std::memory_order_relaxed);
+				if (values > 0)
+				{
+					NoteDrop(data.Drops, GetNoSlotDropKind(cause), false, {}, false, values);
+				}
+				if (marks > 0)
+				{
+					NoteDrop(data.Drops, GetNoSlotDropKind(cause), true, {}, false, marks);
+				}
 			}
 		}
 
@@ -1224,13 +1345,17 @@ namespace Strada
 
 		// Only the main thread advances the generation, so it can read and publish it in two steps.
 		data.Generation = s_Generation.load(std::memory_order_relaxed) + 1;
-		for (uint32_t slotIndex = 0; slotIndex < SpareSlots; ++slotIndex)
+		uint32_t const startSlots = GetStartSlots();
+		for (uint32_t slotIndex = 0; slotIndex < startSlots; ++slotIndex)
 		{
-			ProvisionSlot(data, slotIndex);
+			ProvisionSlot(data, slotIndex, data.Generation);
 		}
-		data.ProvisionedSlots = SpareSlots;
-		s_UnattributedValues.store(0, std::memory_order_relaxed);
-		s_UnattributedMarks.store(0, std::memory_order_relaxed);
+		data.ProvisionedSlots = startSlots;
+		for (size_t cause = 0; cause < NoSlotCauses; ++cause)
+		{
+			s_UnattributedValues[cause].store(0, std::memory_order_relaxed);
+			s_UnattributedMarks[cause].store(0, std::memory_order_relaxed);
+		}
 		s_Generation.store(data.Generation, std::memory_order_seq_cst);
 		s_Recording.store(true, std::memory_order_seq_cst);
 		data.Recording = true;
@@ -1278,10 +1403,13 @@ namespace Strada
 		if (begins)
 		{
 			// What the threads wrote so far belongs to this row, the new session's first; then every buffer is freed for the
-			// new session's threads, so that buffers of threads that ended without EndThread serve again.
-			uint32_t const ended = AdvanceGeneration(data);
+			// new session's threads, so that buffers of threads that ended without EndThread serve again. The free buffers
+			// pass to the new session first (BeginGeneration), so threads recording on meanwhile find one; a thread finds
+			// none only when more threads move on than SpareSlots and the buffers free then, and drops, counted.
+			uint32_t const ended = BeginGeneration(data, false);
 			DrainSlots(data, ended);
 			ResetSlots(data);
+			EndBeginningSession();
 			EndLiveSession(data);
 			BeginSession(data, step);
 			KeepTouchedCells(data);
@@ -1302,10 +1430,9 @@ namespace Strada
 			return;
 		}
 		TelemetryData& data = *s_Data;
-		AdvanceGeneration(data);
+		BeginGeneration(data, true);
 		ResetSlots(data);
-		s_UnattributedValues.store(0, std::memory_order_relaxed);
-		s_UnattributedMarks.store(0, std::memory_order_relaxed);
+		EndBeginningSession();
 		DropPendingStepMarks(data);
 		FlushDrops(data, *GetLiveSession(data));
 		ClearPending(data, false);

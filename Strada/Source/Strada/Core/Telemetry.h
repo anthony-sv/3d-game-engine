@@ -195,8 +195,11 @@ namespace Strada
 	{
 	public:
 		// Buffers for the threads but the main one that record during one session; a thread finding none free drops its
-		// records, counted. A thread keeps its buffer until its session ends (EndSession, Stop, a step that begins
-		// another session: every buffer is then freed for the next session's threads) or it calls EndThread.
+		// records, counted (the warning says why: all of them held, more threads beginning to record between two steps
+		// than were free, or more moving on to a session as it began). A thread keeps its buffer until its session ends
+		// (EndSession, Stop, a step that begins another session: every buffer is then freed for the next session's
+		// threads) or it calls EndThread. Start makes one buffer per hardware thread and four more, each collection makes
+		// up to four free again, and a session beginning keeps at least four free for its threads.
 		static constexpr uint32_t MaxThreads = 64;
 		static constexpr uint32_t MinChannels = 64;
 		static constexpr uint32_t MaxChannelsLimit = 4096;
@@ -240,7 +243,10 @@ namespace Strada
 		// collection into the step's row of the live session, after beginning a new session when none is live or the
 		// step is not the next one of the live session's scene (another scene, a scene started again, a snapshot
 		// restored, another step length): a channel recorded several times keeps its last value (per thread; between
-		// threads unspecified), and every mark. Within a session, rows are consecutive steps. Called by
+		// threads unspecified), and every mark. Within a session, rows are consecutive steps. A step that begins a
+		// session collects what the threads wrote so far into its first row and frees every buffer; the free ones pass to
+		// the new session first, so a thread recording meanwhile drops (counted) only when more threads move on to the new
+		// session at that moment than buffers are free for it (MaxThreads' comment). Called by
 		// Scene::SampleTelemetry once per fixed step, after the scene's own channels are recorded; does nothing when not
 		// recording.
 		static void EndStep(TelemetryStep const& step);

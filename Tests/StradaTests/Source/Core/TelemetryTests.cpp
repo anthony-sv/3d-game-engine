@@ -5,6 +5,7 @@
 
 #include <doctest/doctest.h>
 
+#include <algorithm>
 #include <atomic>
 #include <cmath>
 #include <condition_variable>
@@ -80,6 +81,13 @@ namespace
 	{
 		std::thread thread(std::forward<TFunction>(function));
 		thread.join();
+	}
+
+	// The buffers Start makes (Docs/Architecture.md §4.5): one per hardware thread and four more, at most
+	// Telemetry::MaxThreads.
+	uint32_t GetStartBuffers()
+	{
+		return std::min(Telemetry::MaxThreads, std::max(std::thread::hardware_concurrency(), 1u) + 4);
 	}
 }
 
@@ -887,7 +895,120 @@ TEST_CASE("Telemetry: every session frees the buffers of the threads that record
 		CHECK(channel->Count == ThreadsPerSession);
 	}
 	CHECK(Telemetry::GetStatus().DroppedValues == 0);
-	CHECK(Telemetry::GetStatus().Buffers <= ThreadsPerSession + 4);
+	CHECK(Telemetry::GetStatus().Buffers <= std::max(GetStartBuffers(), uint32_t{ThreadsPerSession} + 4));
+}
+
+TEST_CASE("Telemetry: as many threads as Start made buffers record in the first step, and one more drops for want of one ready")
+{
+	TelemetryScope const telemetry;
+	REQUIRE(Telemetry::Start().IsOk());
+	uint32_t const ready = Telemetry::GetStatus().Buffers;
+	CHECK(ready == GetStartBuffers());
+	// More than the four a step's collection makes free: the threads of a parallel loop in a session's first step.
+	REQUIRE(ready > 4);
+	uint64_t const logStart = Log::GetNextEntryIndex();
+	// The threads end without EndThread, so each holds its buffer until the session ends.
+	for (uint32_t index = 0; index < ready; ++index)
+	{
+		RunOnThread(
+			[index]
+			{
+				Telemetry::Record("Thread." + std::to_string(index), 1.0f);
+			});
+	}
+	bool const allMade = ready == Telemetry::MaxThreads;
+	RunOnThread(
+		[]
+		{
+			Telemetry::Record("One more", 1.0f);
+		});
+	Telemetry::EndStep(MakeTelemetryStep(1));
+	TelemetrySession const& session = GetNewestTelemetrySession();
+	for (uint32_t index = 0; index < ready; ++index)
+	{
+		CHECK(FindTelemetryChannel(session, "Thread." + std::to_string(index)) != nullptr);
+	}
+	CHECK(FindTelemetryChannel(session, "One more") == nullptr);
+	CHECK(session.DroppedValues == 1);
+	std::vector<std::string> const warnings = GetTelemetryWarnings(logStart);
+	REQUIRE(warnings.size() == 1);
+	// Only a machine of 60 hardware threads or more has every buffer made at Start.
+	CHECK(warnings[0].find(allMade ? "all 64 are held" : "no free buffer ready") != std::string::npos);
+
+	// The collection made buffers free again: a thread that begins now records.
+	if (!allMade)
+	{
+		RunOnThread(
+			[]
+			{
+				Telemetry::Record("After the step", 2.0f);
+			});
+		Telemetry::EndStep(MakeTelemetryStep(2));
+		CHECK(FindTelemetryChannel(GetNewestTelemetrySession(), "After the step") != nullptr);
+		CHECK(GetNewestTelemetrySession().DroppedValues == 1);
+	}
+}
+
+TEST_CASE("Telemetry: a session that begins frees the buffers its threads held, and makes none while four were free")
+{
+	TelemetryScope const telemetry;
+	REQUIRE(Telemetry::Start().IsOk());
+	uint32_t const ready = Telemetry::GetStatus().Buffers;
+	uint64_t const logStart = Log::GetNextEntryIndex();
+	// Threads that hold every buffer but four through the first session, then record again in the next.
+	uint32_t const holders = ready - 4;
+	std::mutex mutex;
+	std::condition_variable changed;
+	int phase = 0;
+	std::atomic<uint32_t> recorded{0};
+	std::vector<std::thread> threads;
+	for (uint32_t index = 0; index < holders; ++index)
+	{
+		threads.emplace_back(
+			[&, index]
+			{
+				std::string const name = "Holder." + std::to_string(index);
+				Telemetry::Record(name, 1.0f);
+				recorded.fetch_add(1, std::memory_order_release);
+				std::unique_lock guard(mutex);
+				changed.wait(guard,
+			                 [&phase]
+			                 {
+								 return phase == 1;
+							 });
+				guard.unlock();
+				Telemetry::Record(name, 2.0f);
+			});
+	}
+	while (recorded.load(std::memory_order_acquire) < holders)
+	{
+		std::this_thread::yield();
+	}
+	Telemetry::EndStep(MakeTelemetryStep(1));
+	CHECK(Telemetry::GetStatus().Buffers == ready);
+	// Another scene's step begins a session: four buffers were free and pass on, the held ones are freed.
+	Telemetry::EndStep(MakeTelemetryStep(1, 2));
+	CHECK(Telemetry::GetStatus().Buffers == ready);
+	{
+		std::scoped_lock const lock(mutex);
+		phase = 1;
+	}
+	changed.notify_all();
+	for (std::thread& thread : threads)
+	{
+		thread.join();
+	}
+	Telemetry::EndStep(MakeTelemetryStep(2, 2));
+	TelemetrySession const& session = GetNewestTelemetrySession();
+	CHECK(session.Source == 2);
+	CHECK(session.DroppedValues == 0);
+	for (uint32_t index = 0; index < holders; ++index)
+	{
+		TelemetryChannel const* const channel = FindTelemetryChannel(session, "Holder." + std::to_string(index));
+		REQUIRE(channel != nullptr);
+		CHECK(channel->Last == 2.0f);
+	}
+	CHECK(GetTelemetryWarnings(logStart).empty());
 }
 
 TEST_CASE("Telemetry: Start, Stop, EndSession, Init and Shutdown race threads that record")
@@ -971,7 +1092,7 @@ TEST_CASE("Telemetry: an idle recorder holds no buffers, and what is recorded wh
 	CHECK(Telemetry::GetStatus().Buffers == 0);
 
 	REQUIRE(Telemetry::Start().IsOk());
-	CHECK(Telemetry::GetStatus().Buffers == 4);
+	CHECK(Telemetry::GetStatus().Buffers == GetStartBuffers());
 	Telemetry::EndStep(MakeTelemetryStep(1));
 	Telemetry::Stop();
 	CHECK(Telemetry::GetStatus().Buffers == 0);
