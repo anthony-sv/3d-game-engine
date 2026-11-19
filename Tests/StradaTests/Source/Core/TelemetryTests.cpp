@@ -425,41 +425,54 @@ TEST_CASE("Telemetry: a session's channels are bounded by its own names, never b
 			Telemetry::Record(prefix + std::to_string(channel), 1.0f);
 		}
 	};
-	// A first scene records 40 channels; another scene's first step records 40 others before EndStep finds that the
-	// session changes, and a thread records one more of them: together they pass MaxChannels, each session alone does not.
+	// A first scene records its 64 channels, as many as a session holds; another scene's first step records 64 others
+	// before EndStep finds that the session changes, a thread one of them: together they pass MaxChannels twice.
+	constexpr uint32_t Channels = Telemetry::MinChannels;
 	for (uint64_t step = 1; step <= 2; ++step)
 	{
-		recordChannels("First.", 40);
+		recordChannels("First.", Channels);
 		Telemetry::EndStep(MakeTelemetryStep(step, 1));
 	}
-	recordChannels("Second.", 39);
+	recordChannels("Second.", Channels - 1);
 	RunOnThread(
 		[]
 		{
-			Telemetry::Record("Second.39", 1.0f);
+			Telemetry::Record("Second.63", 1.0f);
 		});
 	Telemetry::EndStep(MakeTelemetryStep(1, 2));
-	recordChannels("Second.", 40);
+	recordChannels("Second.", Channels);
 	Telemetry::EndStep(MakeTelemetryStep(2, 2));
 
 	std::deque<TelemetrySession> const& sessions = Telemetry::GetSessions();
 	REQUIRE(sessions.size() == 2);
 	for (TelemetrySession const& session : sessions)
 	{
-		CHECK(session.Channels.size() == 40);
+		CHECK(session.Channels.size() == Channels);
 		CHECK(session.DroppedValues == 0);
 		CHECK(session.Rows == 2);
 	}
-	CHECK(FindTelemetryChannel(sessions.back(), "Second.39")->Count == 2);
+	CHECK(FindTelemetryChannel(sessions.back(), "Second.63")->Count == 2);
 	CHECK(GetTelemetryWarnings(logStart).empty());
 
-	// A row past MaxChannels of its own still drops what is past them, and the session names the bound.
-	recordChannels("Second.", Telemetry::MinChannels + 3);
-	Telemetry::EndStep(MakeTelemetryStep(3, 2));
-	CHECK(sessions.back().Channels.size() == Telemetry::MinChannels);
-	CHECK(sessions.back().DroppedValues == 3);
+	// A name new to the full session, recorded before its channels, is the one dropped: the channels record on, and the
+	// warning names the new name and the bound.
+	for (uint64_t step = 3; step <= 4; ++step)
+	{
+		Telemetry::Record("Extra", 1.0f);
+		recordChannels("Second.", Channels);
+		Telemetry::EndStep(MakeTelemetryStep(step, 2));
+	}
+	TelemetrySession const& second = sessions.back();
+	CHECK(second.Channels.size() == Channels);
+	CHECK(FindTelemetryChannel(second, "Extra") == nullptr);
+	CHECK(second.DroppedValues == 2);
+	for (TelemetryChannel const& column : second.Channels)
+	{
+		CHECK(column.Count == 4);
+	}
 	std::vector<std::string> const warnings = GetTelemetryWarnings(logStart);
 	REQUIRE(warnings.size() == 1);
+	CHECK(warnings[0].find("'Extra'") != std::string::npos);
 	CHECK(warnings[0].find("at most 64 channels") != std::string::npos);
 }
 

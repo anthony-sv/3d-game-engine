@@ -649,8 +649,8 @@ namespace Strada
 
 		// --- The pending row. ---
 
-		// Only the pending row's cells stay in the table of names; the names it holds besides go. At a session's beginning
-		// in EndStep (the names of the ended session), and when the table is full as a new name comes (SetPendingValue).
+		// At a session's beginning in EndStep: the pending row's cells stay, the names of the ended session go, so that the
+		// names held never outgrow what one session may hold.
 		void KeepTouchedCells(TelemetryData& data)
 		{
 			std::vector<PendingCell> kept;
@@ -667,6 +667,44 @@ namespace Strada
 			{
 				data.PendingTouched.push_back(index);
 			}
+		}
+
+		// The names the table of the pending row holds at most: twice MaxChannels, so that it holds every channel of the
+		// live session and as many names again for the row, which may be another scene's first (values for it come
+		// before EndStep finds that the session changes).
+		size_t GetPendingNameLimit(TelemetrySettings const& settings)
+		{
+			return size_t{2} * settings.MaxChannels;
+		}
+
+		// Drops from the table the names the pending row has not touched that are no channel of the live session (names
+		// the session refused, names of a session that ended), keeping the order in which the row touched its cells.
+		void EvictPendingNames(TelemetryData& data)
+		{
+			TelemetrySession const* const live = GetLiveSession(data);
+			uint32_t const liveId = live != nullptr ? live->Id : 0;
+			std::vector<uint32_t> newIndices(data.PendingCells.size(), NoChannel);
+			std::vector<PendingCell> kept;
+			kept.reserve(data.PendingCells.size());
+			data.PendingIndices.clear();
+			for (uint32_t index = 0; index < data.PendingCells.size(); ++index)
+			{
+				PendingCell& cell = data.PendingCells[index];
+				bool const touched = cell.Stamp == data.PendingStamp;
+				bool const liveChannel = liveId != 0 && cell.Session == liveId && cell.Channel != NoChannel;
+				if (!touched && !liveChannel)
+				{
+					continue;
+				}
+				newIndices[index] = static_cast<uint32_t>(kept.size());
+				data.PendingIndices.emplace(cell.Name, newIndices[index]);
+				kept.push_back(std::move(cell));
+			}
+			for (uint32_t& index : data.PendingTouched)
+			{
+				index = newIndices[index];
+			}
+			data.PendingCells = std::move(kept);
 		}
 
 		void SetPendingValue(TelemetryData& data, std::string_view name, float value, bool tooLong = false)
@@ -694,19 +732,17 @@ namespace Strada
 					NoteDrop(data.Drops, DropKind::Name, false, name);
 					return;
 				}
-				if (data.PendingCells.size() >= data.Settings.MaxChannels)
+				// The session bounds its channels as it commits the row (FindChannel); the table only bounds the names held.
+				// Full, it lets go of names that are neither the row's nor the live session's channels, never of a live
+				// channel, and only a table of such names and the row's alone refuses a new one.
+				if (data.PendingCells.size() >= GetPendingNameLimit(data.Settings))
 				{
-					// A row of one session holds at most MaxChannels channels, so a name past them is dropped here as the
-					// session would drop it. The table holds names the row has not touched besides (the live session's, and
-					// those of a session ending: values for another scene's first step come before EndStep finds that the
-					// session changes), and a new name is never refused for them: they go. The live session's own channels
-					// are found again by name when recorded (FindChannel); the session bounds its channels as it commits.
-					if (data.PendingTouched.size() >= data.Settings.MaxChannels)
+					EvictPendingNames(data);
+					if (data.PendingCells.size() >= GetPendingNameLimit(data.Settings))
 					{
 						NoteDrop(data.Drops, DropKind::Channels, false, name);
 						return;
 					}
-					KeepTouchedCells(data);
 				}
 				index = static_cast<uint32_t>(data.PendingCells.size());
 				data.PendingCells.push_back({std::string(name)});
