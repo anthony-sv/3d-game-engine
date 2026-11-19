@@ -498,6 +498,18 @@ graph_get {"graph":"asset://Scripts/Spinner.sgraph"}
   `profiler_capture {path: ".strada/Captures/<name>.json"}` keeps a capture, `profiler_open` shows one in the Profiler
   panel (`viewport_screenshot {window: "Profiler"}` shows it to the user), and `profiler_stop` ends the recording. The
   editor's own work is in its frames; `StradaRuntime --profile <file>` measures the game alone.
+- Check what the simulation does with telemetry. Scripts and graphs record numbers per fixed step
+  (`Telemetry.Record("Ride.Speed", speed)` in `OnFixedUpdate` / `Event.FixedUpdate`, where a value lands on its own
+  step's row at any frame rate) and mark steps (`Telemetry.Mark("Lap 2")`; a contact handler marks the step its contact
+  happened in with `Telemetry.MarkStep(label, Collision.Step)`); laps run from a mark `Lap <n>` to `Lap <n+1>`.
+  `telemetry_start`, play (`play_advance` frames), then `telemetry_channels` lists the sessions (one per play), their
+  channels, marks and laps; `telemetry_read {channels: [...], lap: "best"}` (or `from`/`to` steps) samples them with a
+  summary each (values, smallest, largest, mean, first, last); `telemetry_export {path: ".strada/Captures/<name>.csv"}`
+  writes CSV; `telemetry_stop` ends the recording. The game player records nothing. Read a ride this way after a change
+  (a lap's top speed, the step a gear changes at, the largest lean) and compare it with the lap before: `lap: "best"`
+  against the lap's label. Name a lap's distance `Ride.Distance` (metres along the lap): the Telemetry panel draws laps
+  against it. `telemetry_start {panel: true}` opens that panel for the user (the newest lap over the best one), and
+  `viewport_screenshot {window: "Telemetry"}` shows it.
 
 ## 9. Ship
 

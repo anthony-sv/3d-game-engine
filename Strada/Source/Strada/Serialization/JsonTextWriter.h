@@ -45,6 +45,10 @@ namespace Strada
 		// A whole value at the current depth, as nlohmann writes it there.
 		void Value(Json const& value);
 
+		// Appends what Double(value) writes, for text that is not JSON but writes its numbers as documents do (telemetry's
+		// CSV exports).
+		static void AppendDouble(std::string& text, double value);
+
 		// The bytes written so far, so that writers of bounded documents can stop at their bound.
 		size_t GetSize() const { return m_Text.size(); }
 

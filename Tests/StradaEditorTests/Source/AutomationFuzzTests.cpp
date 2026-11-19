@@ -1,6 +1,7 @@
 #include "Asset/TestDataAsset.h"
 #include "Audio/AudioTestUtilities.h"
 #include "Core/ProfilerTestUtilities.h"
+#include "Core/TelemetryTestUtilities.h"
 #include "EditorLocationsTestUtilities.h"
 #include "Fuzzing.h"
 #include "Physics/PhysicsTestUtilities.h"
@@ -13,10 +14,12 @@
 #include "Editor/Automation/ProjectContentCommands.h"
 #include "Editor/Automation/ScriptCommands.h"
 #include "Editor/Automation/StartCommands.h"
+#include "Editor/Automation/TelemetryCommands.h"
 #include "Editor/EditorCamera.h"
 #include "Editor/EditorOperations.h"
 #include "Editor/EditorProfiler.h"
 #include "Editor/EditorScripts.h"
+#include "Editor/EditorTelemetry.h"
 #include "Editor/ExampleCopyTask.h"
 #include "Editor/Panels/ContentBrowserPanel.h"
 #include "Editor/Panels/VisualScriptDebuggerPanel.h"
@@ -35,6 +38,7 @@
 #include "Strada/Core/Image.h"
 #include "Strada/Core/Input.h"
 #include "Strada/Core/Profiler.h"
+#include "Strada/Core/Telemetry.h"
 #include "Strada/Physics/PhysicsScene.h"
 #include "Strada/Physics/PhysicsTypes.h"
 #include "Strada/Scene/Components.h"
@@ -49,6 +53,7 @@
 #include <chrono>
 #include <cmath>
 #include <cstdint>
+#include <deque>
 #include <filesystem>
 #include <iterator>
 #include <limits>
@@ -463,6 +468,12 @@ namespace
 			{
 				return *id;
 			}
+			// telemetry.read's and telemetry.export's steps have no maximum, and the schema takes a number without a fraction
+			// beyond uint64_t: now and then one such.
+			if (m_Command.starts_with("telemetry.") && (property == "from" || property == "to") && m_Random.Pick(8) == 0)
+			{
+				return 1.0e30;
+			}
 			double const minimum = schema.value("minimum", -1000.0);
 			double maximum = schema.value("maximum", 1000.0);
 			if (property == "frames")
@@ -614,8 +625,9 @@ namespace
 		// command is sent a request that succeeds. graph.find gets a text alone (every script is searched, and one that does not
 		// load is reported, not refused), then the references of the state's script's first variable; graph.set the state's
 		// script's own document; graph.create, every data asset type's create and profiler.capture a file of a name not given
-		// before (the drawn names exist after their first success), a data asset with its type's defaults; audio.meters no
-		// parameters; project.copy-example
+		// before (the drawn names exist after their first success), a data asset with its type's defaults; audio.meters,
+		// telemetry.start, telemetry.stop and telemetry.channels no parameters; telemetry.read a channel of the newest session
+		// that has one, and telemetry.export that session to a fresh file; project.copy-example
 		// the available example into a fresh directory, unopened; graph.palette, whose goals are refusals, the two below;
 		// input.set an override of the project's first action, then a gamepad's button. A request that
 		// still fails (the state can be a few rounds old, the profiler can hold no frames yet) is followed by another at the command's next
@@ -662,9 +674,29 @@ namespace
 			{
 				return std::nullopt;
 			}
-			if (command == "audio.meters")
+			if (command == "audio.meters" || command == "telemetry.start" || command == "telemetry.stop" || command == "telemetry.channels")
 			{
 				return Json::object();
+			}
+			// telemetry.read a channel of the newest session that has one (the fixture seeds one), telemetry.export that
+			// session to a file of a name not given before.
+			if (command == "telemetry.read" || command == "telemetry.export")
+			{
+				std::deque<TelemetrySession> const& sessions = Telemetry::GetSessions();
+				auto const recorded = std::find_if(sessions.rbegin(), sessions.rend(),
+				                                   [](TelemetrySession const& session)
+				                                   {
+													   return !session.Channels.empty();
+												   });
+				if (recorded == sessions.rend())
+				{
+					return std::nullopt;
+				}
+				if (command == "telemetry.read")
+				{
+					return Json::object({{"session", recorded->Id}, {"channels", Json::array({recorded->Channels.front().Name})}});
+				}
+				return Json::object({{"session", recorded->Id}, {"path", "Captures/Sure" + std::to_string(m_SureFiles++) + ".csv"}});
 			}
 			if (command == "graph.set" && !m_State.Graph.empty())
 			{
@@ -1372,6 +1404,16 @@ namespace
 			{
 				return {m_State.Entities, invalidIds};
 			}
+			// telemetry.read's and telemetry.export's channels (the recorder's, the fixture's seeded session among them) and laps
+			// (the seeded session's, the best one, and ones no session has).
+			if (m_Command.starts_with("telemetry.") && property == "channels")
+			{
+				return {TelemetryChannelNames(), {"", "Missing", std::string(70, 'c'), "fuzz.speed"}};
+			}
+			if (m_Command.starts_with("telemetry.") && property == "lap")
+			{
+				return {{"best", "Lap 1"}, {"", "Lap 9", "Lap end", "best ", "Lap 01"}};
+			}
 			// project.copy-example's examples are the test content's (Tests/Data/FrontDoor/Content/Examples).
 			if (property == "example")
 			{
@@ -1539,6 +1581,12 @@ namespace
 			{
 				return {{"Captures/Fuzz.json", "Fuzz.json", "Captures/Seed.json", outsideCapture}, refusedCaptures};
 			}
+			if (m_Command == "telemetry.export")
+			{
+				std::vector<std::string> refusedExports = {"../Escape.csv", "../../Escape.csv", "Captures/../../Escape.csv",
+				                                           "Fuzz.txt",      "Captures",         ""};
+				return {{"Captures/Fuzz.csv", "Fuzz.csv", FileSystem::PathToUtf8(m_Outside / "Fuzz.csv")}, std::move(refusedExports)};
+			}
 			if (m_Command == "profiler.open")
 			{
 				std::vector<std::string> refusedOpens = refusedCaptures;
@@ -1561,6 +1609,20 @@ namespace
 				}
 			}
 			return {{}, refused};
+		}
+
+		// The names of the channels of the sessions the recorder holds, each once.
+		static std::vector<std::string> TelemetryChannelNames()
+		{
+			std::set<std::string> names;
+			for (TelemetrySession const& session : Telemetry::GetSessions())
+			{
+				for (TelemetryChannel const& channel : session.Channels)
+				{
+					names.insert(channel.Name);
+				}
+			}
+			return {names.begin(), names.end()};
 		}
 
 		template<typename T>
@@ -1606,6 +1668,8 @@ namespace
 	{
 		// The recorder, as the editor's application has it: Tick runs its frames.
 		Testing::ProfilerScope Recorder;
+		// Telemetry's recorder, as the application has it: playing scenes' steps record while a recording runs.
+		Testing::TelemetryScope TelemetryRecorder;
 		// The tests' data asset type, so its generated commands are fuzzed: registered before the commands, and unregistered
 		// after the asset directory closed.
 		Testing::TestDataTypeScope DataType;
@@ -1646,6 +1710,8 @@ namespace
 		StartScreenModel StartScreen{Locations};
 		// Who records, for the profiler commands; there is no panel to show captures in.
 		EditorProfiler ProfilerSession;
+		// Who records telemetry, for its commands.
+		EditorTelemetry TelemetryOwner;
 		CommandRegistry Registry;
 		bool QuitRequested = false;
 		// The entities of the running scene that held a character controller, and those that held a dynamic body, when a
@@ -1706,6 +1772,7 @@ namespace
 			REQUIRE(RegisterProjectContentCommands(Registry, Operations, Copies, Locations, {}).IsOk());
 			REQUIRE(RegisterStartCommands(Registry, StartScreen, {}).IsOk());
 			REQUIRE(RegisterProfilerCommands(Registry, ProfilerSession, Context, {}).IsOk());
+			REQUIRE(RegisterTelemetryCommands(Registry, TelemetryOwner, Context).IsOk());
 			DebugSession.SetViewSettings(&ViewSettings);
 			Play.SetObserver(&DebugSession);
 
@@ -1769,6 +1836,18 @@ namespace
 			capture.AddZone(0, "Fuzz.Seed", 0, 0, 1000000);
 			REQUIRE(ProfilerCaptureSerializer::Save(capture.Get(), ProjectDirectory / "Captures" / "Seed.json").IsOk());
 			Profiler::BeginFrame();
+			// A telemetry session of four steps with a channel and a lap, for telemetry.read and telemetry.export.
+			REQUIRE(Telemetry::Start().IsOk());
+			for (uint64_t step = 1; step <= 4; ++step)
+			{
+				Telemetry::Record("Fuzz.Speed", static_cast<float>(step));
+				if (step % 2 == 0)
+				{
+					Telemetry::Mark(step == 2 ? "Lap 1" : "Lap 2");
+				}
+				Telemetry::EndStep(Testing::MakeTelemetryStep(step));
+			}
+			Telemetry::Stop();
 		}
 
 		~FuzzFixture()
@@ -2497,6 +2576,13 @@ TEST_CASE("Automation: commands with any parameters answer once, keep the editor
 		CAPTURE(profilerCommand);
 		bool const records = profilerCommand == "profiler.start" || profilerCommand == "profiler.capture";
 		CHECK((outcomes[profilerCommand].first > 0 || (records && !Profiler::GetStatus().Available)));
+	}
+	// The telemetry commands record, list and stop; read and export reach their work by their sure requests (the seeded
+	// session), counted with every command above.
+	for (std::string const telemetryCommand : {"telemetry.start", "telemetry.stop", "telemetry.channels"})
+	{
+		CAPTURE(telemetryCommand);
+		CHECK(outcomes[telemetryCommand].first > 0);
 	}
 	CHECK(findSuccesses["query"] > 0);
 	CHECK(findSuccesses["references"] > 0);

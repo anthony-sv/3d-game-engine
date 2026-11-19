@@ -281,6 +281,18 @@ public sealed class NodeLibraryTests
 	}
 
 	[Fact]
+	public void TelemetrysQueryIsAPureGetterAndItsRecordsAreImpure()
+	{
+		// IsRecording is a property, pure as every getter is, so it needs no [PureNode] (the list above is of methods).
+		Assert.True(VisualScriptTesting.LibraryNode("Get:Strada.Telemetry.IsRecording").Pure);
+		foreach (string type in new[] { "Call:Strada.Telemetry.Record(string,float)", "Call:Strada.Telemetry.Mark(string)",
+			"Call:Strada.Telemetry.MarkStep(string,ulong)" })
+		{
+			Assert.False(VisualScriptTesting.LibraryNode(type).Pure, type);
+		}
+	}
+
+	[Fact]
 	public void EasingChoicesAreTheEasingsInOrder()
 	{
 		Assert.Equal(Enum.GetNames<Easing>(), BuiltinNodes.EasingNames);

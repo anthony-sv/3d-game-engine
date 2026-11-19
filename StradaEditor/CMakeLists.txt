@@ -45,6 +45,8 @@ set(STRADA_EDITOR_CORE_SOURCES
     Source/Editor/Automation/ScriptCommands.h
     Source/Editor/Automation/StartCommands.cpp
     Source/Editor/Automation/StartCommands.h
+    Source/Editor/Automation/TelemetryCommands.cpp
+    Source/Editor/Automation/TelemetryCommands.h
     Source/Editor/Commands/AssetCommands.cpp
     Source/Editor/Commands/AssetCommands.h
     Source/Editor/Commands/CommandHistory.cpp
@@ -88,6 +90,8 @@ set(STRADA_EDITOR_CORE_SOURCES
     Source/Editor/EditorScripts.h
     Source/Editor/EditorShortcuts.cpp
     Source/Editor/EditorShortcuts.h
+    Source/Editor/EditorTelemetry.cpp
+    Source/Editor/EditorTelemetry.h
     Source/Editor/EntityBounds.cpp
     Source/Editor/EntityBounds.h
     Source/Editor/EntityPresets.cpp
@@ -136,6 +140,8 @@ set(STRADA_EDITOR_CORE_SOURCES
     Source/Editor/Panels/SceneHierarchyPanel.h
     Source/Editor/Panels/SceneSettingsPanel.cpp
     Source/Editor/Panels/SceneSettingsPanel.h
+    Source/Editor/Panels/TelemetryPanel.cpp
+    Source/Editor/Panels/TelemetryPanel.h
     Source/Editor/Panels/ViewportPanel.cpp
     Source/Editor/Panels/ViewportPanel.h
     Source/Editor/Panels/VisualScriptDebuggerPanel.cpp
@@ -164,6 +170,8 @@ set(STRADA_EDITOR_CORE_SOURCES
     Source/Editor/StartScreen/StartScreenPanel.h
     Source/Editor/StartScreen/StartScreenThumbnails.cpp
     Source/Editor/StartScreen/StartScreenThumbnails.h
+    Source/Editor/TelemetryPlot.cpp
+    Source/Editor/TelemetryPlot.h
     Source/Editor/UI/CurveAssetEditor.cpp
     Source/Editor/UI/CurveAssetEditor.h
     Source/Editor/UI/CurveEditing.cpp

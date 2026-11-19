@@ -569,6 +569,12 @@ internal static unsafe class InternalCalls
 	internal static delegate* unmanaged<int*, byte*> Audio_GetCurrentSnapshot;
 	internal static delegate* unmanaged<byte*, int, float> Audio_GetBusPeak;
 
+	// Any thread; each does nothing while no recording runs.
+	internal static delegate* unmanaged<byte*, int, float, void> Telemetry_Record;
+	internal static delegate* unmanaged<byte*, int, void> Telemetry_Mark;
+	internal static delegate* unmanaged<byte*, int, ulong, void> Telemetry_MarkStep;
+	internal static delegate* unmanaged<byte> Telemetry_IsRecording;
+
 	internal static delegate* unmanaged<byte*, int, int> Assets_FindType;
 	internal static delegate* unmanaged<int, int*, byte*> Assets_GetTypeName;
 	internal static delegate* unmanaged<byte*, int, int, ulong> Assets_Load;

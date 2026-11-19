@@ -26,3 +26,6 @@
 *.spv binary
 *.ico binary
 *.icns binary
+
+# Telemetry exports end their lines with CR LF, which their expected files keep byte for byte.
+Tests/Data/Telemetry/*.csv -text

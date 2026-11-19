@@ -14,6 +14,7 @@
 #include "Strada/Core/Input.h"
 #include "Strada/Core/Platform.h"
 #include "Strada/Core/Profiler.h"
+#include "Strada/Core/Telemetry.h"
 #include "Strada/ImGui/ImGuiLayer.h"
 #include "Strada/RHI/GraphicsDevice.h"
 #include "Strada/RHI/ShaderLibrary.h"
@@ -109,8 +110,10 @@ namespace Strada
 	{
 		Platform::IgnoreBrokenPipeSignal();
 		ST_CORE_INFO("Initializing {}", m_Specification.Name);
-		// First, so that every other subsystem can record from its start.
+		// First, so that every other subsystem can record from its start; telemetry right after it (Docs/Architecture.md
+		// section 4.1).
 		Profiler::Init();
+		Telemetry::Init();
 
 		if (!m_Specification.WorkingDirectory.empty())
 		{
@@ -282,6 +285,10 @@ namespace Strada
 		Input::Reset();
 		m_Window.reset();
 		// Last: the other subsystems' threads (Jolt's workers, the audio threads) have ended.
+		if (Telemetry::IsInitialized())
+		{
+			Telemetry::Shutdown();
+		}
 		if (Profiler::IsInitialized())
 		{
 			Profiler::Shutdown();

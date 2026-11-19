@@ -45,7 +45,8 @@ namespace Strada
 		Graph,
 		Profiler,
 		InputActions,
-		Mixer
+		Mixer,
+		Telemetry
 	};
 
 	// viewport.screenshot's name of a window ("SceneView"), and the window of a name; nothing for other names.

@@ -945,6 +945,17 @@ script that threw. Players built in the Dist configuration log only warnings and
 Two of the API's names exist in .NET as well: with `using System;` (or `using System.Diagnostics;`), write
 `Strada.Random` (or `Strada.Debug`), or leave that `using` out.
 
+`Telemetry` records what the simulation does, step by step, for the editor to plot, read and export (its
+[Telemetry panel](Editor.md#telemetry) and the `telemetry` commands, [Automation](Automation.md#telemetry)): `Telemetry.Record("Ride.Speed", speed)`
+gives a channel its value for the current fixed step, and `Telemetry.Mark("Lap 2")` marks that step; laps run from a
+mark `Lap 2` to the next `Lap 3`. Record from `OnFixedUpdate`, where a value lands on its own step's row at any frame
+rate (one recorded in `OnUpdate` goes to the next step's). A contact handler runs after the frame's steps, so it marks
+the step its contact happened in with `Telemetry.MarkStep(label, Collision.Step)`. Names are 1 to 64 bytes; what the
+recorder refuses is dropped and warned about once. `Telemetry.IsRecording` says whether anything records (the editor
+does while its Telemetry panel is open or an agent's recording runs; an exported game never does), so a value that is
+costly to compute is computed only then. Name a lap's distance `Ride.Distance` (metres along the lap): the panel plots
+laps against it when a session has it, so that two laps line up where the rider was, and against time otherwise.
+
 ## Visual scripts
 
 Games can also get their behavior from visual scripts: graphs of nodes that a `VisualScriptComponent` runs on its
