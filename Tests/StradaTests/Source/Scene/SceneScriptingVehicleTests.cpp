@@ -21,6 +21,7 @@
 #include <array>
 #include <cmath>
 #include <cstdint>
+#include <cstdlib>
 #include <map>
 #include <optional>
 #include <string>
@@ -123,7 +124,8 @@ namespace
 	{
 		auto const found = report.find(key);
 		REQUIRE_MESSAGE(found != report.end(), key);
-		return std::stof(found->second);
+		// strtof, not stof: a reading too small for a normal float (a slip near 0) is a value here, never an exception.
+		return std::strtof(found->second.c_str(), nullptr);
 	}
 
 	std::string Text(std::map<std::string, std::string> const& report, std::string const& key)
@@ -319,4 +321,11 @@ TEST_CASE("Scene: a bike a script rides from OnFixedUpdate gives the same state 
 		compared++;
 	}
 	CHECK(compared == Steps / 2);
+	// At 60 and 144 frames a second every step ends a frame, the odd ones included.
+	for (auto const& [step, hash] : hashes.at(1.0f / 60.0f))
+	{
+		CAPTURE(step);
+		CHECK(hashes.at(1.0f / 144.0f).at(step) == hash);
+	}
+	CHECK(hashes.at(1.0f / 60.0f).size() == Steps);
 }
