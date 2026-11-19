@@ -45,17 +45,23 @@
 //                                                once per slot object and name when the value is of another type
 //     void Set<T>(string name, T value)          kept in the object until Save; refuses (ArgumentException) a name
 //                                                ValidateSavedValueName refuses, a T without a field type, a list longer
-//                                                than MaxScriptFieldListElements, a number that is not finite, and more
-//                                                than MaxSaveSlotValues values
+//                                                than MaxScriptFieldListElements, a number that is not finite, a
+//                                                quaternion ValidateSavedValue refuses, and more than MaxSaveSlotValues
+//                                                values (it measures no size: a slot past MaxSaveSlotBytes is refused
+//                                                whole by Save)
 //     bool Remove(string name)
-//     bool Save()                                writes every value durably; false (logged) when the slot is Newer or
-//                                                Unavailable, or the store refuses the write; Status is Present after one
+//     bool Save()                                writes every value durably and returns once the slot is on disk (its
+//                                                answer is the write's, so the frame that saves waits for the device: a
+//                                                game saves at a results screen or a menu, never while the player
+//                                                rides); false (logged) when the slot is Newer or Unavailable, or the
+//                                                store refuses the write; Status is Present after one
 //     bool Delete()                              removes the file and the values; false (logged) when Newer or Unavailable
 //   public enum SaveSlotStatus { Missing, Present, Damaged, Newer, Unavailable } (the values of the C++ enum)
 // Get<T> and Set<T> are unconstrained generic methods, so graphs get one node each, typed by their links or a TypeArguments
-// setting. The object holds the values in the managed runtime (stored forms, ScriptFieldCodec), so Get and Set cross no
-// boundary; Open and Save cross it once with the values' JSON (the script field map form, §7.3). Two objects opened with
-// one name are independent copies, and the last Save wins. The bindings, all main thread:
+// setting (members of this shape, on an object held in a graph's variable and typed by links alone, are run by
+// ScriptCoreTests' GenericMethodTests.InstanceMethodsOfPlainClassesInferTheirTypeFromLinks). The object holds the values in the managed
+// runtime (stored forms, ScriptFieldCodec), so Get and Set cross no boundary; Open and Save cross it once with the values' JSON (the script
+// field map form, §7.3). Two objects opened with one name are independent copies, and the last Save wins. The bindings, all main thread:
 //   char const* SaveSlot_Read(char const* name, int32_t length, int32_t* status, int32_t* textLength)
 //     the values' JSON in engine-owned storage valid until the next SaveSlot_* call (the caller copies it at once);
 //     *status a SaveSlotStatus, or -1 for a name MakeFileStem refuses (the managed side throws then)
@@ -106,6 +112,8 @@ namespace Strada
 	inline constexpr uint64_t MaxSaveSlotBytes = 16ull * 1024 * 1024;
 	// How much of a file larger than MaxSaveSlotBytes is read to find its header.
 	inline constexpr uint64_t MaxSaveSlotHeaderBytes = 64ull * 1024;
+	// The shortest quaternion a saved value holds: what JsonTraits<glm::quat> reads.
+	inline constexpr float MinSavedQuaternionLength = 1e-6f;
 	// The folder below the game data folder, and the file's extension.
 	inline constexpr std::string_view SaveSlotDirectoryName = "Saves";
 	inline constexpr std::string_view SaveSlotExtension = ".ssave";
@@ -140,7 +148,8 @@ namespace Strada
 	// control characters. Names are compared exactly (letter case included).
 	[[nodiscard]] Result<void> ValidateSavedValueName(std::string_view name);
 	// A value a slot or the player's settings hold: a script field type other than None, a list of at most
-	// MaxScriptFieldListElements elements, every number finite (JSON holds no other).
+	// MaxScriptFieldListElements elements, every number finite (JSON holds no other) and every quaternion of a length of
+	// at least MinSavedQuaternionLength (the JSON reader refuses shorter ones; a quaternion reads back normalized).
 	[[nodiscard]] Result<void> ValidateSavedValue(ScriptFieldValue const& value);
 	// A slot's content: at most MaxSaveSlotValues values, each name and value as the two checks above say.
 	[[nodiscard]] Result<void> ValidateSaveSlot(SaveSlotData const& slot);
@@ -162,9 +171,10 @@ namespace Strada
 	// The version a slot document's header names, read from the header alone, so that a document of a later version is
 	// recognised whatever its content holds: the text's first top-level member when it is "Strada" (writers write it
 	// first; it is delimited by walking strings and brackets, so the text may end anywhere after it, as the first
-	// MaxSaveSlotHeaderBytes of a larger file do), else the "Strada" member that ScanJsonTopLevel
-	// (Serialization/JsonScanner.h) delimits in the whole text; only that member is parsed. Nothing when neither finds a
-	// SaveSlot header with an integer version. Any thread.
+	// MaxSaveSlotHeaderBytes of a larger file do), else the last "Strada" member that ScanJsonTopLevel
+	// (Serialization/JsonScanner.h) delimits in the whole text (the parser keeps the last of repeated keys); only that
+	// member is parsed. A version above INT_MAX reads as INT_MAX, one below 1 as 0. Nothing when neither finds a SaveSlot
+	// header with an integer version. Any thread.
 	[[nodiscard]] std::optional<int> ReadSaveSlotVersion(std::string_view text);
 	// Reads a slot document's text: Present with its values; Newer when ReadSaveSlotVersion names a version above
 	// SaveSlotFormat.Version (the header is read before anything else, size included, so a newer slot is never called
@@ -174,8 +184,9 @@ namespace Strada
 	[[nodiscard]] SaveSlotRead ReadSaveSlotText(std::string_view text);
 	// The document of a slot in the current version. Any thread.
 	[[nodiscard]] Json WriteSaveSlot(SaveSlotData const& slot);
-	// The text of a slot's document (DumpJson: tabs, a trailing newline); refuses a slot ValidateSaveSlot refuses and text
-	// longer than MaxSaveSlotBytes. Any thread.
+	// The text of a slot's document: exactly what DumpJson writes of WriteSaveSlot's document (tabs, a trailing newline),
+	// written without building it (JsonTextWriter). Refuses a slot ValidateSaveSlot refuses and text longer than
+	// MaxSaveSlotBytes, stopping at the value that passes it. Any thread.
 	[[nodiscard]] Result<std::string> WriteSaveSlotText(SaveSlotData const& slot);
 
 	// The slots of the running game in <game data>/Saves. Stateless, so any thread may call it: two writes of one slot at
@@ -194,16 +205,17 @@ namespace Strada
 
 		// Reads the slot: Unavailable without a game data folder, Missing without a file, else ReadSaveSlotText of the file.
 		// A file larger than MaxSaveSlotBytes is not read past its first MaxSaveSlotHeaderBytes: Newer when its header
-		// names a later version, else Damaged. Fails only for a name MakeFileStem refuses.
+		// names a later version, else Damaged. A file that cannot be read, or a folder in the slot's place, is Damaged too
+		// (Write and Delete keep it, since it may be a newer one). Fails only for a name MakeFileStem refuses.
 		// Opens the profiler zone Saves.ReadSlot.
 		[[nodiscard]] static Result<SaveSlotRead> Read(std::string_view name);
 		// Writes the slot durably (FileSystem::WriteTextFileDurably), creating Saves/. Refuses an invalid name, no game data
-		// folder, a slot WriteSaveSlotText refuses, and a file on disk of a newer version (ReadSaveSlotVersion of it: a
-		// damaged file is replaced). A write that fails leaves the file on disk as it was. Opens the profiler zone
-		// Saves.WriteSlot.
+		// folder, a slot WriteSaveSlotText refuses, a file on disk of a newer version (its header, read as Read reads it,
+		// without reading past it when it comes first), and a file on disk that cannot be read; a damaged file is replaced.
+		// A write that fails leaves the file on disk as it was. Opens the profiler zone Saves.WriteSlot.
 		[[nodiscard]] static Result<void> Write(std::string_view name, SaveSlotData const& slot);
-		// Removes the slot's file; a slot without one succeeds. Refuses an invalid name, no game data folder, and a newer
-		// slot.
+		// Removes the slot's file; a slot without one succeeds. Refuses an invalid name, no game data folder, a newer slot
+		// and one that cannot be read; a damaged slot is removed.
 		[[nodiscard]] static Result<void> Delete(std::string_view name);
 		// The names of the slots in Saves/ (files <name>.ssave whose name MakeFileStem gives back unchanged; temporary
 		// files of interrupted writes and other files are left out), sorted; empty without a game data folder.

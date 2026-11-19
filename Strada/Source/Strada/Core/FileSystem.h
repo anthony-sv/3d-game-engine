@@ -33,7 +33,9 @@ namespace Strada
 		// Linux, fcntl's F_FULLFSYNC on macOS, which also empties the drive's cache, falling back to fsync on a file system
 		// that refuses it), so that a power loss or a crash of the system, during the write or after it, leaves the old
 		// file or the new one under the path, whole: never an empty or partial file. On Linux and macOS the folder that
-		// holds the path is synced after the rename, so once the write returns the new file is the one that stays. On
+		// holds the path is synced after the rename, so once the write returns the new file is the one that stays (a folder
+		// the device refuses to sync is logged as a warning and the write succeeds: the new file is in place; a file system
+		// that cannot sync folders says nothing). On
 		// Windows the rename is MoveFileExW with MOVEFILE_WRITE_THROUGH, whose documented wait is for moves across volumes;
 		// a rename within one is a journaled change of NTFS's metadata, which a power loss right after the call can still
 		// undo, leaving the old file whole. A crash between the write and the rename can leave the temporary file beside

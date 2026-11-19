@@ -208,6 +208,28 @@ public sealed class Holder
 	public int Twice() => Count * 2;
 }
 
+// A class of the test library with the shape of the scripting API's SaveSlot: opened by a static member, it keeps values
+// by name, and its Get and Set are unconstrained generic members of an instance, which graphs call on an object held in a
+// variable with T taken from links alone.
+public sealed class Shelf
+{
+	private readonly Dictionary<string, object?> m_Values = [];
+
+	public static Shelf Open() => new();
+
+	[PureNode]
+	public bool Has(string name) => m_Values.ContainsKey(name);
+
+	// The value kept under the name when it is a T, else the fallback.
+	[PureNode]
+	public T Get<T>(string name, T fallback) => m_Values.TryGetValue(name, out object? value) && value is T typed ? typed : fallback;
+
+	public void Set<T>(string name, T value)
+	{
+		m_Values[name] = value;
+	}
+}
+
 // Script classes of the test library's game (Kind Entity).
 public sealed class Mover : Script
 {

@@ -3,13 +3,17 @@
 
 #include "Strada/Core/GameData.h"
 #include "Strada/Core/Platform.h"
+#include "Strada/Core/Profiler.h"
 #include "Strada/Core/UUID.h"
 #include "Strada/Core/Utf8.h"
 
 #include <algorithm>
 #include <array>
 #include <cctype>
+#include <cstddef>
+#include <cstdio>
 #include <fstream>
+#include <string>
 #include <string_view>
 #include <system_error>
 #include <vector>
@@ -17,10 +21,17 @@
 #if defined(ST_PLATFORM_WINDOWS)
 #include <Windows.h>
 #elif defined(ST_PLATFORM_LINUX)
+#include <fcntl.h>
+#include <sys/types.h>
 #include <unistd.h>
+#include <cerrno>
 #include <climits>
 #elif defined(ST_PLATFORM_MACOS)
+#include <fcntl.h>
 #include <mach-o/dyld.h>
+#include <sys/types.h>
+#include <unistd.h>
+#include <cerrno>
 #include <climits>
 #include <cstdlib>
 #endif
@@ -49,21 +60,235 @@ namespace Strada
 		}
 #endif
 
-		Result<void> WriteFileAtomically(std::filesystem::path const& path, void const* data, size_t size)
+		Result<void> CreateParentDirectories(std::filesystem::path const& path)
 		{
-			std::error_code errorCode;
 			std::filesystem::path const parent = path.parent_path();
-			if (!parent.empty())
+			if (parent.empty())
 			{
-				std::filesystem::create_directories(parent, errorCode);
-				if (errorCode)
-				{
-					return MakeError("Failed to create directory '{}': {}", FileSystem::PathToUtf8(parent), errorCode.message());
-				}
+				return {};
 			}
+			std::error_code errorCode;
+			std::filesystem::create_directories(parent, errorCode);
+			if (errorCode)
+			{
+				return MakeError("Failed to create directory '{}': {}", FileSystem::PathToUtf8(parent), errorCode.message());
+			}
+			return {};
+		}
 
+		// The temporary file a write goes into, beside the path: <path>.tmp<UUID>.
+		std::filesystem::path MakeTemporaryPath(std::filesystem::path const& path)
+		{
 			std::filesystem::path temporaryPath = path;
 			temporaryPath += ".tmp" + UUID().ToString();
+			return temporaryPath;
+		}
+
+		void RemoveTemporaryFile(std::filesystem::path const& temporaryPath)
+		{
+			std::error_code removeError;
+			std::filesystem::remove(temporaryPath, removeError);
+		}
+
+#if defined(ST_PLATFORM_WINDOWS)
+		std::string DescribeWindowsError(DWORD error)
+		{
+			return std::system_category().message(static_cast<int>(error));
+		}
+
+		// Writes the bytes into a new file, syncs them to the device and closes it. The caller removes the file when this
+		// fails.
+		Result<void> WriteSyncedFile(std::filesystem::path const& path, void const* data, size_t size)
+		{
+			HANDLE const file = ::CreateFileW(path.c_str(), GENERIC_WRITE, 0, nullptr, CREATE_NEW, FILE_ATTRIBUTE_NORMAL, nullptr);
+			if (file == INVALID_HANDLE_VALUE)
+			{
+				return MakeError("Failed to open '{}' for writing: {}", FileSystem::PathToUtf8(path),
+				                 DescribeWindowsError(::GetLastError()));
+			}
+			DWORD error = ERROR_SUCCESS;
+			char const* bytes = static_cast<char const*>(data);
+			size_t remaining = size;
+			while (remaining > 0 && error == ERROR_SUCCESS)
+			{
+				// WriteFile takes a 32-bit count: larger files go in chunks.
+				DWORD const chunk = static_cast<DWORD>(std::min<size_t>(remaining, size_t{1} << 30));
+				DWORD written = 0;
+				if (!::WriteFile(file, bytes, chunk, &written, nullptr))
+				{
+					error = ::GetLastError();
+				}
+				else if (written == 0)
+				{
+					error = ERROR_WRITE_FAULT;
+				}
+				bytes += written;
+				remaining -= written;
+			}
+			if (error == ERROR_SUCCESS)
+			{
+				ST_PROFILE_SCOPE("SyncFile");
+				if (!::FlushFileBuffers(file))
+				{
+					error = ::GetLastError();
+				}
+			}
+			if (!::CloseHandle(file) && error == ERROR_SUCCESS)
+			{
+				error = ::GetLastError();
+			}
+			if (error != ERROR_SUCCESS)
+			{
+				return MakeError("Failed to write '{}': {}", FileSystem::PathToUtf8(path), DescribeWindowsError(error));
+			}
+			return {};
+		}
+
+		// Renames the synced file over the path. MOVEFILE_WRITE_THROUGH waits for the move to reach the device where the
+		// system makes one wait (a move across volumes); within a volume the rename is a journaled change of the file
+		// system's metadata.
+		Result<void> ReplaceDurably(std::filesystem::path const& temporaryPath, std::filesystem::path const& path)
+		{
+			ST_PROFILE_SCOPE("SyncFile");
+			if (!::MoveFileExW(temporaryPath.c_str(), path.c_str(), MOVEFILE_REPLACE_EXISTING | MOVEFILE_WRITE_THROUGH))
+			{
+				return MakeError("Failed to replace '{}': {}", FileSystem::PathToUtf8(path), DescribeWindowsError(::GetLastError()));
+			}
+			return {};
+		}
+#else
+		std::string DescribeErrno(int error)
+		{
+			return std::error_code(error, std::generic_category()).message();
+		}
+
+		// Syncs what the descriptor wrote, or the folder it names, to the device: 0, or the error. On macOS fsync leaves the
+		// data in the drive's cache, which F_FULLFSYNC empties; a file system that refuses F_FULLFSYNC gets fsync.
+		int SyncDescriptor(int descriptor)
+		{
+			ST_PROFILE_SCOPE("SyncFile");
+#if defined(ST_PLATFORM_MACOS)
+			if (::fcntl(descriptor, F_FULLFSYNC) == 0)
+			{
+				return 0;
+			}
+#endif
+			while (::fsync(descriptor) != 0)
+			{
+				if (errno != EINTR)
+				{
+					return errno;
+				}
+			}
+			return 0;
+		}
+
+		// Writes the bytes into a new file, syncs them to the device and closes it. The caller removes the file when this
+		// fails.
+		Result<void> WriteSyncedFile(std::filesystem::path const& path, void const* data, size_t size)
+		{
+			// Created as std::ofstream creates files (0666 less the process's umask), and never over an existing one.
+			int const descriptor = ::open(path.c_str(), O_WRONLY | O_CREAT | O_EXCL | O_CLOEXEC, 0666);
+			if (descriptor < 0)
+			{
+				return MakeError("Failed to open '{}' for writing: {}", FileSystem::PathToUtf8(path), DescribeErrno(errno));
+			}
+			int error = 0;
+			char const* bytes = static_cast<char const*>(data);
+			size_t remaining = size;
+			while (remaining > 0 && error == 0)
+			{
+				ssize_t const written = ::write(descriptor, bytes, std::min<size_t>(remaining, size_t{1} << 30));
+				if (written < 0)
+				{
+					if (errno != EINTR)
+					{
+						error = errno;
+					}
+				}
+				else if (written == 0)
+				{
+					error = EIO;
+				}
+				else
+				{
+					bytes += written;
+					remaining -= static_cast<size_t>(written);
+				}
+			}
+			if (error == 0)
+			{
+				error = SyncDescriptor(descriptor);
+			}
+			// A close that fails may have lost data written to a network file system; it is not retried (the descriptor is
+			// gone whatever close answers).
+			if (::close(descriptor) != 0 && error == 0)
+			{
+				error = errno;
+			}
+			if (error != 0)
+			{
+				return MakeError("Failed to write '{}': {}", FileSystem::PathToUtf8(path), DescribeErrno(error));
+			}
+			return {};
+		}
+
+		// Renames the synced file over the path, then syncs the folder that holds it, so that the rename lasts. A folder that
+		// cannot be synced is logged: the new file is in place and read, and only its lasting through a power loss is in
+		// doubt. File systems that cannot sync a folder (EINVAL, ENOTSUP) say nothing.
+		Result<void> ReplaceDurably(std::filesystem::path const& temporaryPath, std::filesystem::path const& path)
+		{
+			if (std::rename(temporaryPath.c_str(), path.c_str()) != 0)
+			{
+				return MakeError("Failed to replace '{}': {}", FileSystem::PathToUtf8(path), DescribeErrno(errno));
+			}
+			std::filesystem::path const parent = path.parent_path();
+			std::filesystem::path const folder = parent.empty() ? std::filesystem::path(".") : parent;
+			int const descriptor = ::open(folder.c_str(), O_RDONLY | O_DIRECTORY | O_CLOEXEC);
+			int const error = descriptor < 0 ? errno : SyncDescriptor(descriptor);
+			if (descriptor >= 0)
+			{
+				::close(descriptor);
+			}
+			if (error != 0 && error != EINVAL && error != ENOTSUP)
+			{
+				ST_CORE_WARN("FileSystem: '{}' is written, but its folder could not be synced to the device: {}",
+				             FileSystem::PathToUtf8(path), DescribeErrno(error));
+			}
+			return {};
+		}
+#endif
+
+		// Durable form of WriteFileAtomically (Docs/Architecture.md §13.1, "The durable write").
+		Result<void> WriteFileDurably(std::filesystem::path const& path, void const* data, size_t size)
+		{
+			if (Result<void> created = CreateParentDirectories(path); !created)
+			{
+				return created;
+			}
+			std::filesystem::path const temporaryPath = MakeTemporaryPath(path);
+			if (Result<void> written = WriteSyncedFile(temporaryPath, data, size); !written)
+			{
+				RemoveTemporaryFile(temporaryPath);
+				return written;
+			}
+			if (Result<void> replaced = ReplaceDurably(temporaryPath, path); !replaced)
+			{
+				RemoveTemporaryFile(temporaryPath);
+				return replaced;
+			}
+			return {};
+		}
+
+		Result<void> WriteFileAtomically(std::filesystem::path const& path, void const* data, size_t size)
+		{
+			if (Result<void> created = CreateParentDirectories(path); !created)
+			{
+				return created;
+			}
+
+			std::error_code errorCode;
+			std::filesystem::path const temporaryPath = MakeTemporaryPath(path);
 
 			{
 				std::ofstream stream(temporaryPath, std::ios::binary | std::ios::trunc);
@@ -186,6 +411,16 @@ namespace Strada
 	Result<void> FileSystem::WriteBinaryFile(std::filesystem::path const& path, std::span<uint8_t const> data)
 	{
 		return WriteFileAtomically(path, data.data(), data.size());
+	}
+
+	Result<void> FileSystem::WriteTextFileDurably(std::filesystem::path const& path, std::string_view text)
+	{
+		return WriteFileDurably(path, text.data(), text.size());
+	}
+
+	Result<void> FileSystem::WriteBinaryFileDurably(std::filesystem::path const& path, std::span<uint8_t const> data)
+	{
+		return WriteFileDurably(path, data.data(), data.size());
 	}
 
 	bool FileSystem::Exists(std::filesystem::path const& path)

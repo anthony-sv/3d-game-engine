@@ -1806,7 +1806,12 @@ Showcase's, FeatureTest's `Second.sscene` and `Crate.sprefab`) is at version 1 u
    the new version, or null when every such document already is one.
 3. A change to what an entity holds changes both formats: both get the version, and both migrations call one function
    that upgrades an entity array, kept beside the prefab format in the Asset module; a change to the `Scene` object
-   (its settings) is the scene format's alone.
+   (its settings) is the scene format's alone. **A change to the script field form** (a new element type, a longer
+   list, a new encoding of a value) changes four formats in the same change: the scene, the prefab, the save slot and
+   the player's settings, whose values are script fields too (§13.1), so that an older engine reads a later game's save
+   as `Newer`, never as damaged and replaceable. `SaveSlots.cpp` and `PlayerSettings.cpp` pin the form each version
+   holds with `static_assert`s on `LastScriptFieldElementType` and `MaxScriptFieldListElements` (`ScriptField.h`),
+   which fail until both versions move, and on each format's migrations being one fewer than its version.
 4. Keep every fixture and add the new version's: `Tests/Data/Scenes/Version<N>.sscene` and
    `Tests/Data/Prefabs/Version<N>.sprefab`. The format tests (`SceneFormatTests.cpp`) load each version, compare what a
    migrated file holds with the same content of the current version, and refuse the version after the current one;
@@ -1975,9 +1980,9 @@ is read before anything else: the member `Strada` that writers write first, read
 than 16 MiB, so a newer slot is never called damaged), and as **damaged** when the file is larger than 16 MiB
 (`MaxSaveSlotBytes`, not read further), is not JSON, has a header of another type or a version below 1, or its content
 does not read: `Values` not a script field map, more than 4,096 values, a name empty, longer than 128 bytes, not UTF-8
-or with a control character, a value of the wrong kind, a list of more than 4,096 elements, a number that is not finite.
-Unknown fields are skipped with warnings. The game writes the whole slot, durably, when a script saves it; nothing else
-writes it.
+or with a control character, a value of the wrong kind, a list of more than 4,096 elements, a number that is not finite,
+a quaternion of length below 1e-6. Unknown fields are skipped with warnings. The game writes the whole slot, durably,
+when a script saves it; nothing else writes it. The fixture of version 1 is `Tests/Data/Saves/Version1.ssave`.
 
 ```json
 {
@@ -3424,10 +3429,11 @@ the buses and the effects, and MX2 adds what §9.8 lists on the same structures.
   gain stage of the bus, after the mixer's own, 0 dB and not muted when a game starts. So a settings menu's volume and
   the mix design (the asset, its snapshots) never overwrite each other, and nothing a script sets is written to the
   asset. The main thread keeps them by bus name and sends them to every node made for that name, so a bus removed and
-  restored by an undo gets its game value back. The player's settings (§13.1) set them too: at each game's start,
-  right after they are reset and the project's mixer is applied (so that every bus they name exists), and whenever a
-  script changes a setting. A script that sets them through `Strada.Audio` changes the run's mix, not the player's
-  settings, which the next game's start applies again.
+  restored by an undo gets its game value back. The player's settings (§13.1) have a stage of their own beside it, kept
+  by bus name the same way: the main thread sends each node the sum of the two volumes in decibels and either mute, and
+  the master the product of the two master volumes, so `Strada.Audio`'s setters and `Strada.Settings`' never overwrite
+  each other and each getter reads its own stage. `ResetGameValues` resets the game's stage only; the player's is set
+  from the settings at each game's start, whenever a script changes a setting, and reset when the game stops.
 
 ### 9.6 Effects
 
@@ -3969,8 +3975,9 @@ editor's Simulate mode runs neither kind.
   `Delete()` are not. `Get<T>` answers the value when the slot holds one of `T`'s field type (§10.3: `T[]` and `List<T>`
   are lists, an enum its integer, a typed asset reference a handle), else the fallback, warned about once per object and
   name when the value is of another type. `Set<T>` refuses (`ArgumentException`) a name the store refuses, a `T` without
-  a field type, a list of more than 4,096 elements, a number that is not finite and a value past the 4,096th. `Save`
-  writes every value as one document and `Delete` removes the file; both answer false, logged, for a newer slot or
+  a field type, a list of more than 4,096 elements, a number that is not finite, a quaternion of length below 1e-6 and
+  a value past the 4,096th. `Save` writes every value as one document and returns once it is on disk (a slot past
+  16 MiB is refused then, whole), and `Delete` removes the file; both answer false, logged, for a newer slot or
   without a game data folder, and `Save` for a write the store refuses. The object keeps its values in the managed
   runtime, so `Get` and `Set` cross no boundary; `Open` and `Save` cross it once, with the values in the script field
   JSON (§7.3; bindings `SaveSlot_*` in `ScriptBindingsSaves.cpp`). Two objects opened with one name are copies, and the
@@ -3980,8 +3987,9 @@ editor's Simulate mode runs neither kind.
   `WindowMode` (`WindowMode`: `Windowed`, `Fullscreen`), `WindowWidth`, `WindowHeight`, `SetWindowSize(width, height)`,
   `VSync`, `MasterVolume` (0 to 1), `GetBusVolume(bus)` and `IsBusMuted(bus)` (pure), `SetBusVolume(bus, decibels)` and
   `SetBusMuted(bus, muted)`, the game's own named values `Has(name)` and `Get<T>(name, fallback)` (pure),
-  `Set<T>(name, value)` and `Remove(name)` with `SaveSlot`'s rules, and `Save()` (false, logged, without a game data
-  folder or when the write fails). Every setter applies at once (the window through the host, below) and reaches the
+  `Set<T>(name, value)` and `Remove(name)` with `SaveSlot`'s rules (`Set<T>` also refuses a value that would bring the
+  file past 1 MiB), and `Save()` (false, logged, without a game data folder or when the write fails). The volumes are
+  the player's stage of the mix, apart from `Strada.Audio`'s (§9.5). Every setter applies at once (the window through the host, below) and reaches the
   file only at `Save`. Bindings `Settings_*` in `ScriptBindingsSaves.cpp`, over `PlayerSettingsStore`; the window's four
   values cross in one blittable struct, so a mode and a size change together.
 - Math: `Vector2/3/4`, `Quaternion`, `Matrix4`, `Color`, `Mathf`, `Random`.
@@ -5795,9 +5803,14 @@ A folder the write creates is not synced into its parent, so the first file writ
 after a power loss, never partial. A failed write (a full disk, a folder in the file's place, a file the system will not
 replace) removes its temporary file, leaves the old file as it was and is logged by its caller. The sync is a wait for
 the device (milliseconds on a solid-state drive, more on others), which is why no per-frame work writes durably and why
-the budget of a 1 MB slot written and read back in 50 ms is judged without it, its time reported beside it. Saves and
-settings are written on the thread that asks, the main thread for scripts: a game saves where a short hitch is harmless
-(a lap's end, a menu).
+the budget of a 1 MB slot written and read back in 50 ms is judged without it, its time reported beside it (the case
+of `Script/SaveSlotBenchmarkTests.cpp`, run with `STRADA_SAVE_BENCHMARK=1` in Release, times the text, the atomic
+write, the read, the durable write and the store's round trip, with the zones `Saves.WriteSlot`, `Saves.ReadSlot` and
+`SyncFile`). Saves and
+settings are written on the thread that asks, the main thread for scripts, and a save returns once the file is on disk
+(its answer is the write's), so the frame that saves waits for the device: a game saves where a short hitch is harmless
+(a results screen, a menu, between races), never while the player rides, and keeps what it learns during a ride (a best
+lap at a lap's end) in memory until then.
 
 **Saves.** A save slot is a file of named values, `<game data>/Saves/<name>.ssave`, read and written by `SaveSlotStore`
 (Script module, `Strada/Script/SaveSlots.h`; the format is §7.3's "Save slot"), which the scripting API's `SaveSlot`
@@ -5812,21 +5825,28 @@ reaches (§10.4).
   `Prefab`, `Asset`, and lists of any of them of up to 4,096 elements. A lap's ghost at 10 samples a second (positions
   as `Vector3[]`, rotations as `Quaternion[]`, the engine's speed as `Float[]`, a lap of up to 409 s) and a race's
   splits (`Float[]`) are a slot's values. At most 4,096 values (what `ParseJson` reads in one object), names of 1 to 128
-  bytes of UTF-8 without control characters, every number finite. A slot's text is at most 16 MiB (`MaxSaveSlotBytes`,
-  16 times the budget's 1 MB slot): a larger write is refused, and of a larger file only the first 64 KiB are read, for
-  a header that would make it newer (it is damaged otherwise). An entity or asset value is an ID, which another build of
-  the game may not hold: a game keeps what it can find again.
+  bytes of UTF-8 without control characters, every number finite, every quaternion of a length JSON's readers take
+  (at least 1e-6; a quaternion reads back normalized, as in scenes). A slot's text is at most 16 MiB
+  (`MaxSaveSlotBytes`, 16 times the budget's 1 MB slot): a save of a larger slot is refused whole (a value's `Set`
+  measures nothing), and of a larger file only the first 64 KiB are read, for a header that would make it newer (it is
+  damaged otherwise). An entity or asset value is an ID, which another build of the game may not hold: a game keeps
+  what it can find again.
 - **What a reader sees** (`SaveSlotStatus`): `Missing`, no file (an empty slot, which a write creates); `Present`;
   `Damaged`, a file that does not read (it reads as empty, stays on disk, and only an explicit save or delete replaces
   it); `Newer`, a file whose header names a version above this engine's (it reads as empty, and this engine never writes
   over it or deletes it, so a player who runs an older build keeps the newer build's save); `Unavailable`, no game runs
-  (nothing is read or written). A write reads the header of the file on disk first (`ScanJsonTopLevel` delimits it and
-  nothing else is parsed), so a newer slot is refused however the slot was opened.
+  (nothing is read or written). A slot's version is read from its header alone, before anything else: the text's first
+  top-level member when it is `Strada` (as writers write it; delimited by walking strings and brackets, so a truncated
+  text is enough), else the last `Strada` member `ScanJsonTopLevel` delimits, as the parser keeps the last of repeated
+  keys; only that member is parsed. A write reads the header of the file on disk first, so a newer slot is refused
+  however the slot was opened.
 - **Writes** are durable and whole: a save writes every value of the slot as one document. A write that fails is logged
   and leaves the slot on disk as it was. The store holds no state: any thread may call it, and two writes of one slot
   at once leave one of them whole.
 - **Versions**: 1. A later version follows the struct documents' rules (§6.4, with a migration and a fixture of each
-  older version), and an engine before it reads such a slot as `Newer`.
+  older version, `Tests/Data/Saves/Version<N>.ssave`), and an engine before it reads such a slot as `Newer`. A change
+  to the script field form takes the next version of slots and settings with the scene's and the prefab's (§7.3,
+  "Adding a version", step 3).
 
 **The player's settings.** `<game data>/Settings.json` (`PlayerSettings`, kept by `PlayerSettingsStore`, Script module,
 `Strada/Script/PlayerSettings.h`; the format is §7.3's "Player settings") holds the window (windowed or borderless
@@ -5845,14 +5865,31 @@ settings, High, a master volume of 1, no bus and no value; a field the file lack
 - The player reads the file before its window opens, from the folder it is about to give the service by the table's
   rules (none for a test run or a `--temporary-data` run, whose folder is new), so the window opens as the player left
   it. Its command line wins: `--resolution` keeps a window of that drawing size, `--no-vsync` keeps vsync off, and a run
-  without a window (`--headless`, `--test`) keeps the values without applying them.
-- The volumes are the game's values of the mix (§9.5): `Strada.Audio.MasterVolume`, `SetBusVolume` and `SetBusMuted`
-  set the same gain stage for the run without changing the settings, and the next game's start applies the settings
-  again. A bus the project's mixer lacks is kept and applies nothing (the audio engine logs its name once).
+  without a window (`--headless`, `--test`) keeps the values without applying them. One pure function of the Project
+  module merges the game's window settings, the player's and the command line, before the window opens and for each
+  window a script asks for, so the precedence is tested without a window.
+- The volumes are **the player's stage** of the mix (§9.5), which the audio engine keeps beside the game's values (the
+  stage `Strada.Audio.MasterVolume`, `SetBusVolume` and `SetBusMuted` set) and combines with them on the main thread: a
+  bus's node gets the sum of the two volumes in decibels and either mute, the master the product of the two volumes,
+  through the commands the game's values already use, so the mixing thread is unchanged. `Settings`' members write and
+  read only the player's stage and `Strada.Audio`'s only the game's, so a settings screen and a graph that sets the mix
+  never overwrite each other, and each getter reads what its own setter set. `AudioEngine::ResetGameValues` resets the
+  game's stage; the settings set the player's at a game's start and reset it at its stop. A bus the project's mixer
+  lacks is kept by name and applies nothing until a bus of that name exists (the audio engine logs its name once).
 - A file of a newer version, or a damaged one, is logged once and read as the defaults, and the next save replaces it:
   settings are cheap to choose again, saves are not.
-- `SceneRunner::Start` loads the settings (`PlayerSettingsStore::Load`, after the host has filled the service) and
-  applies the volumes; `SceneRunner::Stop` clears them. Nothing but a script's `Settings.Save` writes the file.
+- `SceneRunner::Start` loads the settings (`PlayerSettingsStore::Load`, after the host has filled the service) **whatever
+  its audio and the audio engine's state**, so a headless run, Simulate and a test run read them as a player's run does;
+  only the volumes' application sits with the other audio calls, after the game values are reset and the mixer applied.
+  `SceneRunner::Stop` clears them the same way. At each game's start the player and play mode log once what applies and
+  whence ("Player settings: quality Medium, window 1920x1080 fullscreen, vsync on, 2 buses, from Settings.json" or "...
+  the game's defaults"), and `StradaRuntime --profile` writes the quality beside its medians, so a measurement or a
+  capture says which preset it ran at: measurement and capture runs pass `--temporary-data` or run a fresh copy of the
+  project, which reads the game's defaults. Nothing but a script's `Settings.Save` writes the file.
+- A named value is refused when it would bring the settings' text past 1 MiB (`MaxPlayerSettingsBytes`): its setter
+  writes the text with the value and measures it, so one oversized value never keeps the window, the quality, the
+  volumes and the other values from being saved. Settings are small, so the measure costs microseconds; a value set
+  to what it holds measures nothing.
 
 **Where they go when no player plays.** Saves and settings go through the service as the binding profile does, so the
 table above redirects them: the project's play data in play mode and for `StradaRuntime --project`, a test run's

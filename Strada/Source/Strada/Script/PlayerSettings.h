@@ -29,12 +29,24 @@
 //   changes them, once the frame's update has returned (ScriptHost::RequestWindowSettings, below). The player's command
 //   line wins over both (--resolution keeps a window of that size, --no-vsync keeps vsync off), and a run without a window
 //   (--headless, --test) keeps the values without applying them. The editor's play mode keeps them and never applies them
-//   to the editor's window;
+//   to the editor's window. One pure function of the Project module (SV-3: ResolvePlayerWindow, over the game's
+//   WindowSpecification, these settings and the player's command line) gives the window the player opens and each window
+//   a script asks for, so the precedence is tested without a window;
 // - the quality: in every frame of the game's views (SceneRenderOptions::Quality, Renderer/QualityPresets.h);
-// - the volumes and mutes: as the game's values of the mix (AudioEngine::SetMasterVolume, SetBusVolume, SetBusMuted), at
-//   each game's start right after AudioEngine::ResetGameValues and the project's mixer (SceneRunner::Start), and at once
-//   when a script sets them. They are the same values Strada.Audio's MasterVolume, SetBusVolume and SetBusMuted set: a
-//   script that sets those changes the run's mix and not the player's settings, which the next game's start applies again.
+// - the volumes and mutes: the player's stage of the mix (Docs/Architecture.md §9.5), which AudioEngine keeps by bus name
+//   beside the game's values (the stage Strada.Audio's MasterVolume, SetBusVolume and SetBusMuted set) and combines with
+//   them on the main thread (SV-3: AudioEngine::SetPlayerMasterVolume, SetPlayerBusVolume, SetPlayerBusMuted and
+//   ResetPlayerValues, with getters of their own): a bus's node gets the sum of the two volumes in decibels and either
+//   mute, the master the product of the two volumes, through the commands the game's values already use, so the mixing
+//   thread is unchanged. Settings' members write and read the player's stage only, Strada.Audio's the game's only, so
+//   neither overwrites the other. AudioEngine::ResetGameValues resets the game's stage; ApplyAudio sets the player's at a
+//   game's start, after the reset and the project's mixer, and at once when a script sets a volume; Clear resets it.
+//
+// SceneRunner::Start calls Load whatever SceneRuntimeSettings::PlayAudio and the audio engine's state (a headless run,
+// Simulate and a test run read the settings as a player's run does), and only ApplyAudio sits inside its audio branch;
+// SceneRunner::Stop calls Clear the same way. Load logs once what applies and whence ("Player settings: quality Medium,
+// window 1920x1080 fullscreen, vsync on, 2 buses, from Settings.json", or "... the game's defaults"), and the player's
+// --profile writes the quality beside its medians, so a measurement or a capture says which preset it ran at.
 //
 // A file of a newer version, or a damaged one, is logged once and read as the game's defaults, and the next Save replaces
 // it (settings are cheap to choose again; saves are not, which is why a newer slot is never replaced).
@@ -49,7 +61,9 @@
 //     float GetBusVolume(string bus) [PureNode], void SetBusVolume(string bus, float decibels),
 //     bool IsBusMuted(string bus) [PureNode], void SetBusMuted(string bus, bool muted)
 //     bool Has(string name) [PureNode], T Get<T>(string name, T fallback) [PureNode], void Set<T>(string name, T value),
-//     bool Remove(string name)                                 the game's named values, with SaveSlot's rules
+//     bool Remove(string name)                                 the game's named values, with SaveSlot's rules; Set
+//                                                              also refuses (ArgumentException, logged) a value that
+//                                                              would bring the file past MaxPlayerSettingsBytes
 //     bool Save()                                              writes Settings.json durably; false (logged) without a
 //                                                              game data folder or when the write fails
 // Every setter applies at once as said above and changes the file only at Save. The bindings, all main thread, read and
@@ -115,9 +129,9 @@ namespace Strada
 		                    Field("VSync", &PlayerWindowSettings::VSync).Doc("Present in step with the display's refresh."));
 	};
 
-	// A bus's volume and mute as the player set them: a game value of the mix (§9.5), by the bus's name (matched ignoring
-	// letter case, as the mixer's names are). A bus the game's mixer lacks is kept and applies nothing (AudioEngine logs
-	// the name once).
+	// A bus's volume and mute as the player set them: the player's stage of the bus (§9.5), by the bus's name (matched
+	// ignoring letter case, as the mixer's names are). A bus the game's mixer lacks is kept and applies nothing until a bus
+	// of that name exists (AudioEngine logs the name once).
 	struct PlayerBusSettings
 	{
 		std::string Bus;
@@ -237,7 +251,8 @@ namespace Strada
 		// rest): Unavailable without a game data folder. Logs a Damaged or Newer file once, and the warnings. Replaces what
 		// was loaded.
 		static void Load(PlayerSettings const& defaults);
-		// Back to PlayerSettings{} and Unavailable; writes nothing.
+		// Back to PlayerSettings{} and Unavailable, and the player's stage of the mix back to unchanged when the audio engine
+		// runs; writes nothing.
 		static void Clear();
 
 		static PlayerSettings const& Get();
@@ -259,13 +274,18 @@ namespace Strada
 		static void SetBusMuted(std::string_view bus, bool muted);
 		// The game's named value; null when it holds none. The pointer is valid until the next change of the store.
 		[[nodiscard]] static ScriptFieldValue const* FindValue(std::string_view name);
-		// Refuses a name or value SaveSlots.h's checks refuse, and a new name past MaxSaveSlotValues values.
+		// Refuses a name or value SaveSlots.h's checks refuse, a new name past MaxSaveSlotValues values, and a value that
+		// would bring the settings' text past MaxPlayerSettingsBytes (measured by writing the text with the value, so that one
+		// oversized value never keeps the rest from being saved; settings are small, so it costs microseconds, and a value
+		// set to what it holds measures nothing).
 		[[nodiscard]] static Result<void> SetValue(std::string_view name, ScriptFieldValue value);
 		// Whether a value of the name was there.
 		static bool RemoveValue(std::string_view name);
 
-		// Applies the master volume and every bus's setting as the game's values of the mix: SceneRunner calls it at a game's
-		// start, after AudioEngine::ResetGameValues and the project's mixer, so that each bus exists when it is set.
+		// Applies the master volume and every bus's setting as the player's stage of the mix (AudioEngine's player values,
+		// apart from the game's): SceneRunner calls it at a game's start, after AudioEngine::ResetGameValues and the
+		// project's mixer, when the game plays audio and the engine is initialized; the setters apply their value the same
+		// way at once.
 		static void ApplyAudio();
 		// Writes Settings.json durably (FileSystem::WriteTextFileDurably), whatever was on disk (a newer or damaged file
 		// included); the status is Present after it. Refuses without a game data folder. Opens the profiler zone
