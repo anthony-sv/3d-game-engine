@@ -6,6 +6,7 @@
 #include "Strada/Core/Profiler.h"
 #include "Strada/Math/Math.h"
 #include "Strada/Physics/JoltContext.h"
+#include "Strada/Physics/PhysicsSurfaces.h"
 #include "Strada/Physics/PhysicsSystem.h"
 
 #include <Jolt/Core/TempAllocator.h>
@@ -226,58 +227,12 @@ namespace Strada
 			uint32_t m_Mask;
 		};
 
-		// Collider properties referenced by the user data of their shapes (index + 1; 0 = none): whether the collider is a
-		// trigger, its surface and, for a triangle mesh with submesh surfaces, those. Such a mesh's triangles carry Jolt
-		// material indices: 0 for the collider's surface, i > 0 for Submeshes[i - 1] (its material list holds placeholders,
-		// so that the indices are valid). The main thread writes the table between steps only; Jolt's worker threads read it
-		// during steps.
-		struct ColliderMaterial
-		{
-			bool IsTrigger = false;
-			ColliderSurface Surface;
-			std::vector<ColliderSurface> Submeshes;
-		};
-
 		// The values a contact may use: friction at least 0, restitution within [0, 1].
 		ColliderSurface ClampSurface(ColliderSurface surface)
 		{
 			surface.Friction = std::max(surface.Friction, 0.0f);
 			surface.Restitution = std::clamp(surface.Restitution, 0.0f, 1.0f);
 			return surface;
-		}
-
-		// What a sub-shape of a body is: its collider's entry and its surface (the submesh's on a triangle mesh with submesh
-		// surfaces). Both null for a shape without an entry (a character's inner body).
-		struct SubShapeMaterial
-		{
-			ColliderMaterial const* Collider = nullptr;
-			ColliderSurface const* Surface = nullptr;
-		};
-
-		// Any thread, while the table does not change. Compound and decorated shapes pass the ID on to their leaf
-		// (CompoundShape::GetLeafShape, DecoratedShape::GetLeafShape); a leaf's user data names its collider, and a mesh
-		// shape's remaining ID its triangle.
-		SubShapeMaterial FindSubShapeMaterial(std::vector<ColliderMaterial> const& materials, JPH::Shape const& shape,
-		                                      JPH::SubShapeID const& subShape)
-		{
-			JPH::SubShapeID triangle;
-			JPH::Shape const* leaf = shape.GetLeafShape(subShape, triangle);
-			uint64_t const index = leaf != nullptr ? leaf->GetUserData() : 0;
-			if (index == 0 || index > materials.size())
-			{
-				return {};
-			}
-			ColliderMaterial const& collider = materials[index - 1];
-			ColliderSurface const* surface = &collider.Surface;
-			if (!collider.Submeshes.empty() && leaf->GetSubType() == JPH::EShapeSubType::Mesh)
-			{
-				JPH::uint const material = static_cast<JPH::MeshShape const*>(leaf)->GetMaterialIndex(triangle);
-				if (material > 0 && material <= collider.Submeshes.size())
-				{
-					surface = &collider.Submeshes[material - 1];
-				}
-			}
-			return {&collider, surface};
 		}
 
 		// Two bodies (Jolt reports them with the lower ID first) and whether they touch through a trigger collider.

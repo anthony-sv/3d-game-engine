@@ -265,6 +265,29 @@ namespace Strada
 		uint32_t Layer = 0;
 	};
 
+	// Makes the entity a motorcycle while the scene runs (Docs/Architecture.md §8, "Vehicles"): Jolt's motorcycle controller
+	// on the entity's body, which must be dynamic and have a collider (the chassis: the wheels are not colliders), made from
+	// the Vehicle definition it names (a .svehicle asset: two wheels, the engine, the gearbox, the final drive, the lean). The
+	// rider's inputs (throttle, front and rear brake, lean) and gear shifts are run-time state that scripts and graphs set,
+	// never a field of the scene.
+	struct VehicleComponent
+	{
+		// A .svehicle asset; none, or a reference that is no loadable Vehicle, makes no vehicle (said once when the scene makes
+		// it).
+		AssetHandle Definition;
+	};
+
+	// Draws one wheel of the nearest entity above this one with a Vehicle component (its parent, or the parent's parent, and
+	// so on): the vehicle places this entity where the wheel is after each physics step (its suspension, steering and spin)
+	// and draws it between steps as bodies are. The entity's local X is the wheel's axle and its local Y the wheel's up; its
+	// own scale is kept. A wheel entity has no collider: the wheels are found by the wheels' own casts.
+	struct VehicleWheelComponent
+	{
+		// The name of the wheel in the vehicle's definition (VehicleWheelDefinition::Name), ignoring letter case. A name the
+		// definition lacks, or no vehicle above the entity, draws nothing (said once when the scene starts running it).
+		std::string Wheel = "Front";
+	};
+
 	struct AudioSourceComponent
 	{
 		AssetHandle Clip;

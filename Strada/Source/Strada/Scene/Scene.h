@@ -378,9 +378,9 @@ namespace Strada
 		// The fixed steps (OnFixedUpdate, then physics) the running scene has run since it started, with or without physics.
 		uint64_t GetFixedStepCount() const { return m_FixedStepCount; }
 		// A 64-bit hash of the running scene's simulation (Architecture.md section 8): the fixed step count, PhysicsScene's
-		// hash of its bodies and characters, then each character's step positions in UUID order. The step accumulator is
-		// left out, so a scene run at different frame rates hashes alike at one step count. Without physics, the step count
-		// alone.
+		// hash of its bodies, characters and vehicles, then each character's step positions in UUID order. The step
+		// accumulator is left out, so a scene run at different frame rates hashes alike at one step count. Without physics,
+		// the step count alone.
 		uint64_t ComputePhysicsStateHash() const;
 		// The hash taken right after the fixed step SceneRuntimeSettings::PhysicsHashStep (the latest time that step ran, when
 		// a snapshot went back before it); empty before that step and when none was asked for.
@@ -394,8 +394,8 @@ namespace Strada
 		// sequence (an ID still held by an entity made since is skipped), and the entities of bodies and characters where they
 		// were then, so the steps that follow run as they did. Physics component changes not applied yet are applied first, as
 		// the next frame would. Then it fails, changing nothing more, when the scene runs no physics, the snapshot is of
-		// another run, or a body, joint or character was added, removed or rebuilt since. What the simulation does not change
-		// (scripts' state, entities without bodies, settings) stays as it is.
+		// another run, or a body, joint, character or vehicle was added, removed or rebuilt since. What the simulation does
+		// not change (scripts' state, entities without bodies, settings) stays as it is.
 		[[nodiscard]] Result<void> RestorePhysicsState(ScenePhysicsSnapshot const& snapshot);
 		// The physics world while running; null otherwise or when physics is unavailable.
 		PhysicsScene* GetPhysicsScene() { return m_Physics.get(); }

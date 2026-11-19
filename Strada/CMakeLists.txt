@@ -109,6 +109,9 @@ set(STRADA_ASSET_SOURCES
     Source/Strada/Asset/TextureAsset.h
     Source/Strada/Asset/TrueTypeSanitizer.cpp
     Source/Strada/Asset/TrueTypeSanitizer.h
+    Source/Strada/Asset/Vehicle.cpp
+    Source/Strada/Asset/Vehicle.h
+    Source/Strada/Asset/VehicleAsset.h
     Source/Strada/Asset/VisualScriptAsset.cpp
     Source/Strada/Asset/VisualScriptAsset.h
     Source/Strada/Asset/VisualScriptLayout.cpp
@@ -163,9 +166,13 @@ set(STRADA_PHYSICS_SOURCES
     Source/Strada/Physics/MeshColliderOutline.h
     Source/Strada/Physics/PhysicsScene.cpp
     Source/Strada/Physics/PhysicsScene.h
+    Source/Strada/Physics/PhysicsSurfaces.cpp
+    Source/Strada/Physics/PhysicsSurfaces.h
     Source/Strada/Physics/PhysicsSystem.cpp
     Source/Strada/Physics/PhysicsSystem.h
     Source/Strada/Physics/PhysicsTypes.h
+    Source/Strada/Physics/VehicleWorld.cpp
+    Source/Strada/Physics/VehicleWorld.h
 )
 
 set(STRADA_PLATFORM_SOURCES

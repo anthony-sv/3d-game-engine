@@ -617,6 +617,38 @@ namespace Strada
 				.Doc("Physics layer index as configured in the project settings."));
 	};
 
+	// The vehicle components are registered with their runtime (AllComponents), not before: a registered component must be in
+	// the FeatureTest project's scenes and in Docs/Components.md.
+	template<>
+	struct ComponentTraits<VehicleComponent>
+	{
+		static constexpr std::string_view Name = "Vehicle";
+		static constexpr uint32_t Flags = ComponentFlagsNone;
+		static constexpr std::string_view Category = ComponentCategory::Physics;
+		static constexpr std::string_view Description =
+			"Makes the entity a motorcycle: Jolt's motorcycle controller on its dynamic RigidBody and collider (the chassis), made "
+			"from a Vehicle definition. Scripts and graphs give it the rider's throttle, brakes, lean and shifts while it runs.";
+		static constexpr auto Fields = std::make_tuple(
+			Field("Definition", &VehicleComponent::Definition)
+				.References("Vehicle")
+				.Doc("The vehicle's definition (a .svehicle asset: its wheels, engine, gearbox, final drive and lean); none makes no "
+		             "vehicle."));
+	};
+
+	template<>
+	struct ComponentTraits<VehicleWheelComponent>
+	{
+		static constexpr std::string_view Name = "VehicleWheel";
+		static constexpr uint32_t Flags = ComponentFlagsNone;
+		static constexpr std::string_view Category = ComponentCategory::Physics;
+		static constexpr std::string_view Description =
+			"Draws a wheel of the nearest Vehicle above the entity where its suspension, steering and spin put it, smoothly between "
+			"physics steps. The entity's local X is the axle; it has no collider.";
+		static constexpr auto Fields = std::make_tuple(Field("Wheel", &VehicleWheelComponent::Wheel)
+		                                                   .Doc("The wheel's name in the vehicle's definition (Front, Rear), ignoring "
+		                                                        "letter case."));
+	};
+
 	template<>
 	struct ComponentTraits<AudioSourceComponent>
 	{
