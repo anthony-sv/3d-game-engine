@@ -649,6 +649,26 @@ namespace Strada
 
 		// --- The pending row. ---
 
+		// Only the pending row's cells stay in the table of names; the names it holds besides go. At a session's beginning
+		// in EndStep (the names of the ended session), and when the table is full as a new name comes (SetPendingValue).
+		void KeepTouchedCells(TelemetryData& data)
+		{
+			std::vector<PendingCell> kept;
+			kept.reserve(data.PendingTouched.size());
+			data.PendingIndices.clear();
+			for (uint32_t const index : data.PendingTouched)
+			{
+				kept.push_back(std::move(data.PendingCells[index]));
+				data.PendingIndices.emplace(kept.back().Name, static_cast<uint32_t>(kept.size() - 1));
+			}
+			data.PendingCells = std::move(kept);
+			data.PendingTouched.clear();
+			for (uint32_t index = 0; index < data.PendingCells.size(); ++index)
+			{
+				data.PendingTouched.push_back(index);
+			}
+		}
+
 		void SetPendingValue(TelemetryData& data, std::string_view name, float value, bool tooLong = false)
 		{
 			if (tooLong)
@@ -676,8 +696,17 @@ namespace Strada
 				}
 				if (data.PendingCells.size() >= data.Settings.MaxChannels)
 				{
-					NoteDrop(data.Drops, DropKind::Channels, false, name);
-					return;
+					// A row of one session holds at most MaxChannels channels, so a name past them is dropped here as the
+					// session would drop it. The table holds names the row has not touched besides (the live session's, and
+					// those of a session ending: values for another scene's first step come before EndStep finds that the
+					// session changes), and a new name is never refused for them: they go. The live session's own channels
+					// are found again by name when recorded (FindChannel); the session bounds its channels as it commits.
+					if (data.PendingTouched.size() >= data.Settings.MaxChannels)
+					{
+						NoteDrop(data.Drops, DropKind::Channels, false, name);
+						return;
+					}
+					KeepTouchedCells(data);
 				}
 				index = static_cast<uint32_t>(data.PendingCells.size());
 				data.PendingCells.push_back({std::string(name)});
@@ -820,26 +849,6 @@ namespace Strada
 			data.PendingMarks.clear();
 			data.Drops = {};
 			++data.PendingStamp;
-		}
-
-		// At a session's beginning in EndStep: the pending row's cells stay, the names of the ended session go, so that
-		// the names held never outgrow what one session may hold.
-		void KeepTouchedCells(TelemetryData& data)
-		{
-			std::vector<PendingCell> kept;
-			kept.reserve(data.PendingTouched.size());
-			data.PendingIndices.clear();
-			for (uint32_t const index : data.PendingTouched)
-			{
-				kept.push_back(std::move(data.PendingCells[index]));
-				data.PendingIndices.emplace(kept.back().Name, static_cast<uint32_t>(kept.size() - 1));
-			}
-			data.PendingCells = std::move(kept);
-			data.PendingTouched.clear();
-			for (uint32_t index = 0; index < data.PendingCells.size(); ++index)
-			{
-				data.PendingTouched.push_back(index);
-			}
 		}
 
 		// At a session's end: marks of the pending row that name a step are dropped and counted (the session never reaches

@@ -411,6 +411,58 @@ TEST_CASE("Telemetry: past a session's channels, steps and marks, what is record
 	}
 }
 
+TEST_CASE("Telemetry: a session's channels are bounded by its own names, never by those of the session before")
+{
+	TelemetryScope const telemetry;
+	TelemetrySettings settings;
+	settings.MaxChannels = Telemetry::MinChannels;
+	REQUIRE(Telemetry::Start(settings).IsOk());
+	uint64_t const logStart = Log::GetNextEntryIndex();
+	auto recordChannels = [](std::string const& prefix, uint32_t count)
+	{
+		for (uint32_t channel = 0; channel < count; ++channel)
+		{
+			Telemetry::Record(prefix + std::to_string(channel), 1.0f);
+		}
+	};
+	// A first scene records 40 channels; another scene's first step records 40 others before EndStep finds that the
+	// session changes, and a thread records one more of them: together they pass MaxChannels, each session alone does not.
+	for (uint64_t step = 1; step <= 2; ++step)
+	{
+		recordChannels("First.", 40);
+		Telemetry::EndStep(MakeTelemetryStep(step, 1));
+	}
+	recordChannels("Second.", 39);
+	RunOnThread(
+		[]
+		{
+			Telemetry::Record("Second.39", 1.0f);
+		});
+	Telemetry::EndStep(MakeTelemetryStep(1, 2));
+	recordChannels("Second.", 40);
+	Telemetry::EndStep(MakeTelemetryStep(2, 2));
+
+	std::deque<TelemetrySession> const& sessions = Telemetry::GetSessions();
+	REQUIRE(sessions.size() == 2);
+	for (TelemetrySession const& session : sessions)
+	{
+		CHECK(session.Channels.size() == 40);
+		CHECK(session.DroppedValues == 0);
+		CHECK(session.Rows == 2);
+	}
+	CHECK(FindTelemetryChannel(sessions.back(), "Second.39")->Count == 2);
+	CHECK(GetTelemetryWarnings(logStart).empty());
+
+	// A row past MaxChannels of its own still drops what is past them, and the session names the bound.
+	recordChannels("Second.", Telemetry::MinChannels + 3);
+	Telemetry::EndStep(MakeTelemetryStep(3, 2));
+	CHECK(sessions.back().Channels.size() == Telemetry::MinChannels);
+	CHECK(sessions.back().DroppedValues == 3);
+	std::vector<std::string> const warnings = GetTelemetryWarnings(logStart);
+	REQUIRE(warnings.size() == 1);
+	CHECK(warnings[0].find("at most 64 channels") != std::string::npos);
+}
+
 TEST_CASE("Telemetry: the sessions hold their bytes in whole blocks, the oldest dropped first and the live one dropping its own")
 {
 	TelemetryScope const telemetry;
