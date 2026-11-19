@@ -245,6 +245,9 @@ Profiler panel, the `profiler.*` commands and `StradaRuntime --profile` read its
     and `GraphEditor.Index`, `GraphEditor.DrawCanvas`, and `GraphEditor.PrepareCommit`; the debugger's `GraphDebug.Frame` (its part of a game frame, which takes the
     runtime's trace), `GraphDebug.EndFrame` (the session's end of an editor frame), `GraphDebug.TakeFlow` (a window's
     flow) and `GraphDebug.ReadValues` (the live wire values); the Telemetry panel's `TelemetryPanel.Draw` (§4.5);
+  - a game's saves (§13.1), never per frame but read from a ride's capture when a save makes a hitch: `Saves.ReadSlot`
+    and `Saves.WriteSlot` around a slot's read and write and `Saves.WriteSettings` around the player's settings' save,
+    with `SyncFile` (no subsystem of its own) around each of the durable write's waits for the device;
   - zones are placed per phase, never per item, except per script instance and graph invoke: a recorded zone costs
     about 70 ns, and a thread's buffer holds `ZonesPerThread` (4,096) zones a frame.
 - **Who writes.** Any thread may record: the main thread, Jolt's workers (named by the job system's thread init
@@ -991,8 +994,9 @@ a switch that can only turn off:
 
 Shadows themselves are never turned off, and exposure, tonemapping, grading, lens effects and dithering are the scene's
 at every preset. So High is the scene itself (goldens, captures and measured figures are High's), and a scene that turns
-something off keeps it off at every preset. The renderer recreates the shadow maps a changed size or cascade count needs
-from one frame to the next, as it does when a volume changes them. A preset costs a few comparisons per view and
+something off keeps it off at every preset. A changed shadow map size or cascade count takes effect at the next frame,
+as an edit of the scene's settings does: `SceneRenderer::EnsureShadowMap` makes a map of the new size or slice count,
+and NVRHI keeps the old one alive while command lists in flight use it. A preset costs a few comparisons per view and
 frame.
 
 ### 6.3 Assets
@@ -1967,10 +1971,11 @@ Save slot (`<game data>/Saves/<name>.ssave`, the name in lower case; `SaveSlotDa
 version 1, §13.1 "Saves"; a struct document, not an asset):
 `"SaveSlot": { "Values": { "<Name>": { "Type", "Value" } } }`, the game's values in name order, each in the script field
 form above, lists included. A slot reads as **newer** when its header names the type with a version above 1 (the header
-is read before the content, so a newer slot is never called damaged), and as **damaged** when the file is larger than 16
-MiB (`MaxSaveSlotBytes`, not read), is not JSON, has a header of another type or a version below 1, or its content does
-not read: `Values` not a script field map, more than 4,096 values, a name empty, longer than 128 bytes, not UTF-8 or
-with a control character, a value of the wrong kind, a list of more than 4,096 elements, a number that is not finite.
+is read before anything else: the member `Strada` that writers write first, read from the first 64 KiB of a file larger
+than 16 MiB, so a newer slot is never called damaged), and as **damaged** when the file is larger than 16 MiB
+(`MaxSaveSlotBytes`, not read further), is not JSON, has a header of another type or a version below 1, or its content
+does not read: `Values` not a script field map, more than 4,096 values, a name empty, longer than 128 bytes, not UTF-8
+or with a control character, a value of the wrong kind, a list of more than 4,096 elements, a number that is not finite.
 Unknown fields are skipped with warnings. The game writes the whole slot, durably, when a script saves it; nothing else
 writes it.
 
@@ -5778,19 +5783,21 @@ player keeps (the save slots, the player's settings, the binding profile) is wri
 - the temporary file's data are synced to the device before the rename: `FlushFileBuffers` on Windows, `fsync` on Linux,
   `fcntl(F_FULLFSYNC)` on macOS (where `fsync` leaves the data in the drive's cache), falling back to `fsync` on a file
   system that refuses it;
-- the rename waits for the device too: `MoveFileExW` with `MOVEFILE_REPLACE_EXISTING | MOVEFILE_WRITE_THROUGH` on
-  Windows; on Linux and macOS the folder holding the file is synced after the rename.
+- on Linux and macOS the folder holding the file is synced after the rename, so the rename itself lasts; on Windows the
+  rename is `MoveFileExW` with `MOVEFILE_REPLACE_EXISTING | MOVEFILE_WRITE_THROUGH`, whose documented wait is for a move
+  across volumes, while a rename within one is a journaled change of NTFS's metadata.
 
-So once a durable write returns, the file is the new one, whole, whatever happens next; a power loss or a crash during
-it leaves the old file or the new one, whole, never an empty or partial file under the name. A crash between the write
-and the rename leaves the temporary file beside the target, which nothing reads and the slots' listing leaves out. A
-folder the write creates is not synced into its parent, so the first file written into a new folder may be missing
-after a power loss, never partial. A failed write (a full disk, a folder in the file's place, a file the system will
-not replace) removes its temporary file, leaves the old file as it was and is logged by its caller. The sync is a wait
-for the device (milliseconds on a solid-state drive, more on others), which is why no per-frame work writes durably and
-why the budget of a 1 MB slot written and read back in 50 ms is judged without it, its time reported beside it. Saves
-and settings are written on the thread that asks, the main thread for scripts: a game saves where a short hitch is
-harmless (a lap's end, a menu).
+So a power loss or a crash of the system, during a durable write or after it, leaves the old file or the new one under
+the name, whole, never an empty or partial file. Once the write returns, the new file is the one that stays on Linux and
+macOS; on Windows a power loss right after it can still undo the rename, leaving the old file whole. A crash between the
+write and the rename leaves the temporary file beside the target, which nothing reads and the slots' listing leaves out.
+A folder the write creates is not synced into its parent, so the first file written into a new folder may be missing
+after a power loss, never partial. A failed write (a full disk, a folder in the file's place, a file the system will not
+replace) removes its temporary file, leaves the old file as it was and is logged by its caller. The sync is a wait for
+the device (milliseconds on a solid-state drive, more on others), which is why no per-frame work writes durably and why
+the budget of a 1 MB slot written and read back in 50 ms is judged without it, its time reported beside it. Saves and
+settings are written on the thread that asks, the main thread for scripts: a game saves where a short hitch is harmless
+(a lap's end, a menu).
 
 **Saves.** A save slot is a file of named values, `<game data>/Saves/<name>.ssave`, read and written by `SaveSlotStore`
 (Script module, `Strada/Script/SaveSlots.h`; the format is §7.3's "Save slot"), which the scripting API's `SaveSlot`
@@ -5806,8 +5813,9 @@ reaches (§10.4).
   as `Vector3[]`, rotations as `Quaternion[]`, the engine's speed as `Float[]`, a lap of up to 409 s) and a race's
   splits (`Float[]`) are a slot's values. At most 4,096 values (what `ParseJson` reads in one object), names of 1 to 128
   bytes of UTF-8 without control characters, every number finite. A slot's text is at most 16 MiB (`MaxSaveSlotBytes`,
-  16 times the budget's 1 MB slot): a larger write is refused, and a larger file reads as damaged without being read. An
-  entity or asset value is an ID, which another build of the game may not hold: a game keeps what it can find again.
+  16 times the budget's 1 MB slot): a larger write is refused, and of a larger file only the first 64 KiB are read, for
+  a header that would make it newer (it is damaged otherwise). An entity or asset value is an ID, which another build of
+  the game may not hold: a game keeps what it can find again.
 - **What a reader sees** (`SaveSlotStatus`): `Missing`, no file (an empty slot, which a write creates); `Present`;
   `Damaged`, a file that does not read (it reads as empty, stays on disk, and only an explicit save or delete replaces
   it); `Newer`, a file whose header names a version above this engine's (it reads as empty, and this engine never writes

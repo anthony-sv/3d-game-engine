@@ -73,8 +73,8 @@ namespace Strada
 		Missing = 0,
 		// Read: its values.
 		Present,
-		// A file that cannot be read (not JSON, another type, a value of the wrong kind, larger than MaxSaveSlotBytes):
-		// read as empty; only an explicit write or delete replaces it.
+		// A file that cannot be read (not JSON, another type, a value of the wrong kind, larger than MaxSaveSlotBytes
+		// without a later version's header): read as empty; only an explicit write or delete replaces it.
 		Damaged,
 		// A file of a version newer than this engine's: read as empty; never written over or deleted.
 		Newer,
@@ -100,9 +100,12 @@ namespace Strada
 	inline constexpr size_t MaxSavedValueNameLength = 128;
 	// The most values a slot holds: what ParseJson reads in one object.
 	inline constexpr size_t MaxSaveSlotValues = MaxJsonObjectMembers;
-	// The largest slot file, in bytes: written larger is refused, and a larger file reads as Damaged without being read.
-	// It is 16 times the budget's 1 MB slot (a lap's ghost at 10 samples a second is far below either).
+	// The largest slot file, in bytes: written larger is refused, and of a larger file only the first MaxSaveSlotHeaderBytes
+	// are read, for its header (a later version's, or Damaged). It is 16 times the budget's 1 MB slot (a lap's ghost at 10
+	// samples a second is far below either).
 	inline constexpr uint64_t MaxSaveSlotBytes = 16ull * 1024 * 1024;
+	// How much of a file larger than MaxSaveSlotBytes is read to find its header.
+	inline constexpr uint64_t MaxSaveSlotHeaderBytes = 64ull * 1024;
 	// The folder below the game data folder, and the file's extension.
 	inline constexpr std::string_view SaveSlotDirectoryName = "Saves";
 	inline constexpr std::string_view SaveSlotExtension = ".ssave";
@@ -156,15 +159,18 @@ namespace Strada
 		std::vector<std::string> Warnings;
 	};
 
-	// The version a slot document's header names, read from the header alone: ScanJsonTopLevel
-	// (Serialization/JsonScanner.h) delimits the text's top-level members without building values, and only the "Strada"
-	// member is parsed. Nothing when the text is not one JSON object at its top level or its header is not a SaveSlot's
-	// with an integer version. So a document of a later version is recognised whatever its content holds. Any thread.
+	// The version a slot document's header names, read from the header alone, so that a document of a later version is
+	// recognised whatever its content holds: the text's first top-level member when it is "Strada" (writers write it
+	// first; it is delimited by walking strings and brackets, so the text may end anywhere after it, as the first
+	// MaxSaveSlotHeaderBytes of a larger file do), else the "Strada" member that ScanJsonTopLevel
+	// (Serialization/JsonScanner.h) delimits in the whole text; only that member is parsed. Nothing when neither finds a
+	// SaveSlot header with an integer version. Any thread.
 	[[nodiscard]] std::optional<int> ReadSaveSlotVersion(std::string_view text);
 	// Reads a slot document's text: Present with its values; Newer when ReadSaveSlotVersion names a version above
-	// SaveSlotFormat.Version (the header is read before the content, so a newer slot is never called damaged); Damaged when
-	// the text is larger than MaxSaveSlotBytes, is not JSON, its header is not a SaveSlot's of a version from 1, or its
-	// content does not read or ValidateSaveSlot refuses it. Unknown fields are skipped with warnings. Any thread.
+	// SaveSlotFormat.Version (the header is read before anything else, size included, so a newer slot is never called
+	// damaged); Damaged when the text is larger than MaxSaveSlotBytes, is not JSON, its header is not a SaveSlot's of a
+	// version from 1, or its content does not read or ValidateSaveSlot refuses it. Unknown fields are skipped with warnings.
+	// Any thread.
 	[[nodiscard]] SaveSlotRead ReadSaveSlotText(std::string_view text);
 	// The document of a slot in the current version. Any thread.
 	[[nodiscard]] Json WriteSaveSlot(SaveSlotData const& slot);
@@ -186,8 +192,9 @@ namespace Strada
 		// <game data>/Saves; nothing when no game runs. Not created.
 		[[nodiscard]] static std::optional<std::filesystem::path> GetDirectory();
 
-		// Reads the slot: Unavailable without a game data folder, Missing without a file, else ReadSaveSlotText of the file
-		// (a file larger than MaxSaveSlotBytes is Damaged without being read). Fails only for a name MakeFileStem refuses.
+		// Reads the slot: Unavailable without a game data folder, Missing without a file, else ReadSaveSlotText of the file.
+		// A file larger than MaxSaveSlotBytes is not read past its first MaxSaveSlotHeaderBytes: Newer when its header
+		// names a later version, else Damaged. Fails only for a name MakeFileStem refuses.
 		// Opens the profiler zone Saves.ReadSlot.
 		[[nodiscard]] static Result<SaveSlotRead> Read(std::string_view name);
 		// Writes the slot durably (FileSystem::WriteTextFileDurably), creating Saves/. Refuses an invalid name, no game data

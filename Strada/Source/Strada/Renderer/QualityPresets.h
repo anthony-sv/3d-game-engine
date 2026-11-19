@@ -20,8 +20,9 @@
 // screen-space-only frame keeps its own settings). Its default is the identity, so a view that never sets it (the Scene
 // View, thumbnails, tests) renders as before by construction; the player's RuntimeLayer and the editor's Game View set it
 // from the player's settings (Script/PlayerSettings.h, PlayerSettingsStore::Get().Quality) every frame. The renderer
-// already takes a change of shadow map size or cascade count from one frame to the next (it recreates the shadow maps
-// it needs), as post-process volumes may change settings per frame.
+// already takes a change of shadow map size or cascade count from one frame to the next, as an edit of the scene's
+// settings while it renders brings: SceneRenderer::EnsureShadowMap makes a shadow map of the new size or slice count
+// when the one it holds differs, and NVRHI keeps the old one alive while command lists in flight use it.
 namespace Strada
 {
 	enum class QualityPreset : uint8_t
