@@ -10,6 +10,7 @@
 #include <filesystem>
 #include <optional>
 #include <string>
+#include <system_error>
 #include <vector>
 
 using namespace Strada;
@@ -108,6 +109,31 @@ TEST_CASE("FileSystem: a durable write that fails before its rename leaves the o
 	}
 	CHECK(FileSystem::ReadTextFile(file).GetValue() == "old");
 	CHECK(ListNames(directory.GetPath()) == std::vector<std::string>{"file.txt", "taken"});
+#else
+	// POSIX asks the folder, not the file, whether a file may be replaced: a folder nobody may write refuses the temporary
+	// file, before any rename, and the old file stays. A user the system lets write anyway (root) skips this part.
+	std::filesystem::path const locked = directory.GetPath() / "locked";
+	std::filesystem::path const kept = locked / "kept.txt";
+	REQUIRE(FileSystem::WriteTextFile(kept, "old").IsOk());
+	std::error_code error;
+	std::filesystem::perms const permissions = std::filesystem::status(locked, error).permissions();
+	REQUIRE_FALSE(error);
+	constexpr std::filesystem::perms Write =
+		std::filesystem::perms::owner_write | std::filesystem::perms::group_write | std::filesystem::perms::others_write;
+	std::filesystem::permissions(locked, Write, std::filesystem::perm_options::remove, error);
+	REQUIRE_FALSE(error);
+	bool const enforced = !FileSystem::WriteTextFile(locked / "probe.txt", "x").IsOk();
+	bool const failedText = !FileSystem::WriteTextFileDurably(kept, "new").IsOk();
+	bool const failedBinary = !FileSystem::WriteBinaryFileDurably(kept, std::array<uint8_t, 1>{0x01}).IsOk();
+	std::filesystem::permissions(locked, permissions, std::filesystem::perm_options::replace, error);
+	REQUIRE_FALSE(error);
+	if (enforced)
+	{
+		CHECK(failedText);
+		CHECK(failedBinary);
+		CHECK(FileSystem::ReadTextFile(kept).GetValue() == "old");
+		CHECK(ListNames(locked) == std::vector<std::string>{"kept.txt"});
+	}
 #endif
 }
 

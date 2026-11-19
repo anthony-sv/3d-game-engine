@@ -14,11 +14,13 @@
 
 #include <climits>
 #include <cmath>
+#include <cstddef>
 #include <cstdint>
 #include <filesystem>
 #include <limits>
 #include <optional>
 #include <string>
+#include <string_view>
 #include <utility>
 #include <vector>
 
@@ -99,7 +101,7 @@ namespace
 		                                   "\" } } }\n}\n");
 	}
 
-	std::string ReadFile(std::filesystem::path const& path)
+	std::string ReadWholeFile(std::filesystem::path const& path)
 	{
 		Result<std::string> text = FileSystem::ReadTextFile(path);
 		REQUIRE(text.IsOk());
@@ -173,7 +175,7 @@ TEST_CASE("SaveSlot: a slot of every value type and their lists round trips, wri
 TEST_CASE("SaveSlot: the version 1 fixture reads, and writes and reads back alike")
 {
 	std::filesystem::path const path = Testing::GetTestDataPath("Saves/Version1.ssave");
-	SaveSlotRead const read = ReadSaveSlotText(ReadFile(path));
+	SaveSlotRead const read = ReadSaveSlotText(ReadWholeFile(path));
 	REQUIRE_MESSAGE(read.Status == SaveSlotStatus::Present, read.Problem);
 	ScriptFieldMap const& values = read.Data.Values;
 	REQUIRE(values.size() == 13);
@@ -196,9 +198,9 @@ TEST_CASE("SaveSlot: the version 1 fixture reads, and writes and reads back alik
 TEST_CASE("SaveSlot: a slot of a newer version is told apart from a damaged one, whatever follows its header")
 {
 	std::string const valid = WriteText(MakeEveryTypeSlot());
-	auto const checkNewer = [](std::string_view text, int expectedVersion)
+	auto const checkNewer = [](std::string_view slotText, int expectedVersion)
 	{
-		SaveSlotRead const found = ReadSaveSlotText(text);
+		SaveSlotRead const found = ReadSaveSlotText(slotText);
 		CHECK(found.Status == SaveSlotStatus::Newer);
 		CHECK(found.Version == expectedVersion);
 		CHECK(found.Data.Values.empty());
@@ -365,7 +367,7 @@ TEST_CASE("SaveSlotStore: slots are read, written, listed and deleted below the 
 	CHECK(SaveSlotStore::GetNames().empty());
 	REQUIRE(SaveSlotStore::Write("Best", slot).IsOk());
 	std::filesystem::path const file = data / "Saves" / "best.ssave";
-	CHECK(ReadFile(file) == WriteText(slot));
+	CHECK(ReadWholeFile(file) == WriteText(slot));
 	SaveSlotRead const read = SaveSlotStore::Read("BEST").GetValue();
 	CHECK(read.Status == SaveSlotStatus::Present);
 	CHECK(read.Data == slot);
@@ -410,14 +412,14 @@ TEST_CASE("SaveSlotStore: a newer slot is never written over or deleted, and a d
 		Result<void> const deleted = SaveSlotStore::Delete("best");
 		REQUIRE_FALSE(deleted.IsOk());
 		CHECK(deleted.GetError().find("newer") != std::string::npos);
-		CHECK(ReadFile(file) == newer);
+		CHECK(ReadWholeFile(file) == newer);
 	}
 
 	// A damaged slot stays on disk when it is read, and an explicit write replaces it.
 	REQUIRE(FileSystem::WriteTextFile(file, "not a slot").IsOk());
 	SaveSlotRead const damaged = SaveSlotStore::Read("Best").GetValue();
 	CHECK(damaged.Status == SaveSlotStatus::Damaged);
-	CHECK(ReadFile(file) == "not a slot");
+	CHECK(ReadWholeFile(file) == "not a slot");
 	REQUIRE(SaveSlotStore::Write("Best", slot).IsOk());
 	CHECK(SaveSlotStore::Read("Best").GetValue().Data == slot);
 	// A damaged slot larger than a slot may be is replaced too, and one of version 1 with a bad value is deleted.
@@ -433,7 +435,7 @@ TEST_CASE("SaveSlotStore: a newer slot is never written over or deleted, and a d
 	CHECK(SaveSlotStore::Read("Best").GetValue().Status == SaveSlotStatus::Damaged);
 	CHECK_FALSE(SaveSlotStore::Write("Best", slot).IsOk());
 	CHECK_FALSE(SaveSlotStore::Delete("Best").IsOk());
-	CHECK(ReadFile(file / "inside.txt") == "x");
+	CHECK(ReadWholeFile(file / "inside.txt") == "x");
 }
 
 TEST_CASE("SaveSlot: damaged slots are read, refused or found newer, and what is read writes and reads back alike")
