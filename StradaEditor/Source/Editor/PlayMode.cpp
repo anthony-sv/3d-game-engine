@@ -5,6 +5,7 @@
 #include "Strada/Core/Input.h"
 #include "Strada/Core/Log.h"
 #include "Strada/Core/Profiler.h"
+#include "Strada/Core/Telemetry.h"
 #include "Strada/Project/Project.h"
 #include "Strada/Project/ProjectSettings.h"
 #include "Strada/Script/VisualScriptEngine.h"
@@ -138,6 +139,9 @@ namespace Strada
 		m_Runner->Stop();
 		m_LastTestReport = m_Runner->GetTestReport();
 		m_Runner.reset();
+		// The game's telemetry session ends with it (what its scripts recorded in OnDestroy is never a step's): the next play
+		// begins a session of its own, and the one that ended reads as finished at once.
+		Telemetry::EndSession();
 		// After the scripts' OnDestroy, their last chance to write.
 		m_GameData.reset();
 		m_Context.EndPlay();

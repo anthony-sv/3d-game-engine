@@ -148,9 +148,14 @@ namespace Strada
 	void JsonTextWriter::Double(double value)
 	{
 		BeforeValue();
+		AppendDouble(m_Text, value);
+	}
+
+	void JsonTextWriter::AppendDouble(std::string& text, double value)
+	{
 		if (!std::isfinite(value))
 		{
-			m_Text.append("null");
+			text.append("null");
 			return;
 		}
 		if (std::abs(value) < FixedIntegralLimit && std::trunc(value) == value)
@@ -158,15 +163,15 @@ namespace Strada
 			// nlohmann keeps the sign of zero.
 			if (value == 0.0)
 			{
-				m_Text.append(std::signbit(value) ? "-0.0" : "0.0");
+				text.append(std::signbit(value) ? "-0.0" : "0.0");
 				return;
 			}
-			AppendInteger(m_Text, static_cast<int64_t>(value));
-			m_Text.append(".0");
+			AppendInteger(text, static_cast<int64_t>(value));
+			text.append(".0");
 			return;
 		}
 		// nlohmann's Grisu2 does not always give the shortest digits that read back, so std::to_chars could differ.
-		m_Text.append(Json(value).dump());
+		text.append(Json(value).dump());
 	}
 
 	void JsonTextWriter::Bool(bool value)

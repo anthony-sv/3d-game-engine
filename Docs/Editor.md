@@ -204,6 +204,7 @@ visual-script debugging buttons while the game plays, and Simulate. [Play mode](
 | Game View | The scene through its primary camera, as the game sees it; where the game plays |
 | Renderer Info | The GPU device, frame times and what each view's renderer drew |
 | Profiler | Where each frame's time goes: zones of every thread, GPU passes, medians; captures to save and open ([Profiler](#profiler)) |
+| Telemetry | What the game's simulation did step by step: channels its scripts, graphs and the engine record, plotted against time or distance, a lap over another ([Telemetry](#telemetry)) |
 | Scene Hierarchy | The tree of the scene's entities: create, select, rename, parent, duplicate and delete them |
 | Inspector | The selected entities' components, or the asset selected in the content browser |
 | Scene Settings | The scene's name, gravity and renderer settings |
@@ -218,8 +219,9 @@ visual-script debugging buttons while the game plays, and Simulate. [Play mode](
 The default layout puts the Scene Hierarchy on the left, the Inspector, Scene Settings and Project Settings as tabs on
 the right, the Scene View, Game View and Renderer Info as tabs in the middle, and the Content Browser, Console, Input
 Actions, Mixer and Visual Script Debugger as tabs below the middle. The Scene View, the Inspector and the Content
-Browser are the tabs in front. Graph windows open as tabs beside the Scene View. The Profiler is closed until you open
-it from the View menu, because the profiler records while it is open; it opens as a tab beside the Console.
+Browser are the tabs in front. Graph windows open as tabs beside the Scene View. The Profiler and the Telemetry panel
+are closed until you open them from the View menu, because each records while it is open; they open as tabs beside the
+Console.
 
 ### Arranging panels
 
@@ -228,9 +230,9 @@ over a panel to split the space. Drag a tab out of the main window to give the p
 move to another monitor (on Linux under Wayland panels stay inside the main window; set `STRADA_GLFW_PLATFORM=x11` to
 use X11 instead). Close a panel with the cross on its tab and bring it back from the View menu.
 
-View > Reset Layout reopens every panel but the Profiler and rebuilds the default layout. The editor remembers the
-arrangement between sessions (in `imgui.ini`, see [User data](#user-data)); every panel but the Profiler is open again
-when the editor starts.
+View > Reset Layout reopens every panel but the Profiler and the Telemetry panel and rebuilds the default layout. The
+editor remembers the arrangement between sessions (in `imgui.ini`, see [User data](#user-data)); every panel but those
+two is open again when the editor starts.
 
 ### Window title
 
@@ -1230,6 +1232,36 @@ until `profiler.stop`); a closed panel costs nothing.
 
 A frame is one editor frame: while the game plays in the editor it holds the game's frame and the editor's own work
 (its panels and windows). Measure a game alone with `StradaRuntime --profile` ([GettingStarted.md](GettingStarted.md)).
+
+### Telemetry
+
+The Telemetry panel (View > Telemetry) plots what the game's simulation did, one row per fixed step: the channels its
+scripts and graphs record (`Telemetry.Record`, [Scripting.md](Scripting.md#debugging),
+[VisualScripting.md](VisualScripting.md#telemetry)) and the engine's own, and the marks they set, from which laps are
+found (a lap runs from a mark `Lap 2` to the next `Lap 3`). Telemetry records while the panel is open, and stops when it
+closes (unless an agent started a recording with `telemetry.start`, which goes on until `telemetry.stop`); a closed
+panel costs nothing. Each play recorded is a session of its own, and the panel keeps the last ones (eight, within
+64 MiB) to compare.
+
+- **The toolbar.** Pause stops the recording and keeps the sessions; Record starts again. The status says how much is
+  held and what the recorder dropped (a name it refused, a session past its limits). Export CSV... writes the shown
+  session's rows as CSV, which spreadsheets and analysis tools open.
+- **What is shown.** The session (by default the newest, followed while the game plays), the lap shown (by default the
+  lap in progress while the game plays, else the last lap; or the whole session, which while it plays is its last
+  30 seconds), the lap drawn beneath it (by default the best of the session's other laps, or the best lap of an earlier
+  session when this one has none; any lap of any session held, or none), and what the rows are plotted against: time
+  from each lap's start, or a distance channel, by default `Ride.Distance` (metres along the lap) when the session has
+  it. By distance each row is drawn where the rider was, so two laps line up corner by corner; rows that still carry the
+  lap before's distance, or already the next one's, are left out at either end.
+- **The channels.** The list on the left holds the session's channels with their last values; check the ones to plot
+  (the first four are plotted until you choose). An engine channel named after an entity's ID
+  (`Vehicle.<entity ID>.Speed`) is listed under the entity's name. Each channel plotted has a lane of its own, scaled to
+  its values in both laps; the shown lap is drawn over the other in its own color, and the legend above the lanes names
+  both.
+
+The panel reads the recording as it grows, so a lap draws itself while the game plays; drawing changes nothing in what
+was recorded. An agent reads the same sessions with `telemetry.channels` and `telemetry.read`
+([Automation.md](Automation.md#telemetry)).
 
 ### Test runs
 

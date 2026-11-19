@@ -62,6 +62,11 @@ public sealed class EditorIntegrationTests
 			{
 				Assert.Contains(tools, tool => tool!["name"]!.GetValue<string>() == profilerTool);
 			}
+			// The telemetry tools: recording, the sessions' channels, marks and laps, reading samples and exporting CSV.
+			foreach (string telemetryTool in new[] { "telemetry_start", "telemetry_stop", "telemetry_channels", "telemetry_read", "telemetry_export" })
+			{
+				Assert.Contains(tools, tool => tool!["name"]!.GetValue<string>() == telemetryTool);
+			}
 			// The playing scene's physics queries.
 			Assert.Contains(tools, tool => tool!["name"]!.GetValue<string>() == "physics_query");
 			// The mix's meters.

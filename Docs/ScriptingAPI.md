@@ -10,7 +10,7 @@ summary C# editors show as you type. The [scripting guide](Scripting.md) shows t
 the few whose summary says graphs have none.
 The engine's tests generate this page from the API, so it lists exactly what the API has.
 
-98 types in 2 namespaces, with 836 members and enum values in all.
+99 types in 2 namespaces, with 840 members and enum values in all.
 
 ## Strada
 
@@ -89,6 +89,7 @@ The engine's tests generate this page from the API, so it lists exactly what the
 | [SphereColliderComponent](#spherecollidercomponent) | class | A sphere collision shape of the entity's body. |
 | [SpotLightComponent](#spotlightcomponent) | class | Light shining from the entity's position in a cone along its -Z axis. |
 | [SpriteRendererComponent](#spriterenderercomponent) | class | Renders an unlit textured or colored quad, in the world or on the screen. |
+| [Telemetry](#telemetry) | static class | The game's telemetry: named channels of one number per fixed step, and marks on steps, which the editor records while its Telemetry panel is open or an agent's recording runs (the telemetry tools) and plots, reads and exports; the game player records nothing. A channel's name and a mark's label are 1 to 64 bytes of UTF-8 without control characters; a longer one is refused, never cut. A value recorded during a fixed step (`Script.OnFixedUpdate`) is that step's, and the last of several wins; one recorded between steps (`Script.OnUpdate`, an event) is the next step's; a step that records nothing for a channel has no value there. Laps run from a mark `Lap n` to the next mark `Lap n+1` on a later step; `Lap end` ends a lap in progress without making one. What the recorder refuses (a name too long, a value that is not finite, too many channels) is dropped, counted and warned about once per recording session. Any thread may call these, and while nothing records each returns after one native call. |
 | [TextAlignment](#textalignment) | enum | How text lines align to the entity's position. |
 | [TextComponent](#textcomponent) | class | Renders text in the world (in the entity's XY plane) or on the screen. |
 | [TextVerticalAlignment](#textverticalalignment) | enum | Where a `UITextComponent`'s text block sits in its rectangle. |
@@ -1356,6 +1357,21 @@ Renders an unlit textured or colored quad, in the world or on the screen.
 | `Texture? Texture { get; set; }` | The texture, or null for a plain color. |
 | `float Tiling { get; set; }` | How many times the texture repeats across the quad. |
 | `bool ScreenSpace { get; set; }` | Whether the quad is placed on the screen (translation in normalized viewport coordinates). |
+
+### Telemetry
+
+```csharp
+public static class Telemetry
+```
+
+The game's telemetry: named channels of one number per fixed step, and marks on steps, which the editor records while its Telemetry panel is open or an agent's recording runs (the telemetry tools) and plots, reads and exports; the game player records nothing. A channel's name and a mark's label are 1 to 64 bytes of UTF-8 without control characters; a longer one is refused, never cut. A value recorded during a fixed step (`Script.OnFixedUpdate`) is that step's, and the last of several wins; one recorded between steps (`Script.OnUpdate`, an event) is the next step's; a step that records nothing for a channel has no value there. Laps run from a mark `Lap n` to the next mark `Lap n+1` on a later step; `Lap end` ends a lap in progress without making one. What the recorder refuses (a name too long, a value that is not finite, too many channels) is dropped, counted and warned about once per recording session. Any thread may call these, and while nothing records each returns after one native call.
+
+| Member | Summary |
+|---|---|
+| `static bool IsRecording { get; }` | Whether a recording runs, so that values costly to compute are computed only when they are kept. |
+| `static void Record(string channel, float value)` | Records a channel's value for the current fixed step: in `Script.OnFixedUpdate` that step, between steps the next one. Nothing happens while no recording runs. |
+| `static void Mark(string label)` | Marks the current fixed step with a label (a lap boundary such as `Lap 2`, a sector, an event), placed as `Telemetry.Record` places a value. A step keeps every mark it gets, in order. Nothing happens while no recording runs. |
+| `static void MarkStep(string label, ulong step)` | Marks a given fixed step, counted from 1 as `Collision.Step` counts it: a contact handler, which runs after the frame's steps, marks the step its contact happened in, whatever the frame rate. A step before the recording's session began, one it never reaches and step 0 drop the mark, counted. Nothing happens while no recording runs. |
 
 ### TextAlignment
 

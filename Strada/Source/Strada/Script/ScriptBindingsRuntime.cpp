@@ -5,6 +5,7 @@
 #include "Strada/Core/Input.h"
 #include "Strada/Core/InputActions.h"
 #include "Strada/Core/InputCapture.h"
+#include "Strada/Core/Telemetry.h"
 #include "Strada/Physics/PhysicsScene.h"
 
 #include <algorithm>
@@ -769,6 +770,31 @@ namespace Strada::ScriptGlue
 			}
 			return 1;
 		}
+
+		// --- Telemetry ---
+
+		// Any thread (scripts' own tasks included): the recorder checks names and values and counts what it drops, warning
+		// once per kind and session (Docs/Architecture.md §4.5), so nothing here touches a scene or logs per call. The managed
+		// side asks IsRecording before it encodes a name.
+		void Telemetry_Record(char const* channel, int32_t length, float value)
+		{
+			Telemetry::Record(ToStringView(channel, length), value);
+		}
+
+		void Telemetry_Mark(char const* label, int32_t length)
+		{
+			Telemetry::Mark(ToStringView(label, length));
+		}
+
+		void Telemetry_MarkStep(char const* label, int32_t length, uint64_t step)
+		{
+			Telemetry::MarkStep(ToStringView(label, length), step);
+		}
+
+		uint8_t Telemetry_IsRecording()
+		{
+			return Telemetry::IsRecording() ? 1 : 0;
+		}
 	}
 
 	void RegisterRuntimeBindings(BindingTable& table)
@@ -832,5 +858,10 @@ namespace Strada::ScriptGlue
 		table.Add("Audio_TransitionTo", &Audio_TransitionTo);
 		table.Add("Audio_GetCurrentSnapshot", &Audio_GetCurrentSnapshot);
 		table.Add("Audio_GetBusPeak", &Audio_GetBusPeak);
+
+		table.Add("Telemetry_Record", &Telemetry_Record);
+		table.Add("Telemetry_Mark", &Telemetry_Mark);
+		table.Add("Telemetry_MarkStep", &Telemetry_MarkStep);
+		table.Add("Telemetry_IsRecording", &Telemetry_IsRecording);
 	}
 }

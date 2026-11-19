@@ -71,6 +71,11 @@ internal sealed class McpServer
 		"profiler_status with medians true reports the frame's median and 99th percentile, subsystems, threads, GPU passes " +
 		"and the costliest zones (Graph.<asset path> per graph, Script.<class> per C# script), profiler_capture writes a " +
 		"capture into the project, profiler_open shows one in the Profiler panel, and profiler_stop ends the recording. " +
+		"To see what the simulation does step by step: telemetry_start records the channels and marks the game's scripts and " +
+		"graphs record (Telemetry.Record, Mark and MarkStep; laps run from a mark Lap n to Lap n+1) and the engine's own, one " +
+		"row per fixed step and a session per play; telemetry_channels lists the sessions, their channels, marks and laps, " +
+		"telemetry_read samples channels over steps or a lap (best for the shortest) with a summary of each, telemetry_export " +
+		"writes CSV into the project, and telemetry_stop ends the recording. " +
 		"Curves (.scurve data assets: keys that map a number to another, which C# scripts and graphs evaluate with " +
 		"Curve.Evaluate): curve_create makes one, curve_get reads it and curve_set changes it as one undo step. " +
 		"Physics materials (.sphysmat data assets: friction, restitution and how they combine, rolling resistance and a " +

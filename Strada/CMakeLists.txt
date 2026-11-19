@@ -49,6 +49,8 @@ set(STRADA_CORE_SOURCES
     Source/Strada/Core/Profiler.cpp
     Source/Strada/Core/Profiler.h
     Source/Strada/Core/Result.h
+    Source/Strada/Core/Telemetry.cpp
+    Source/Strada/Core/Telemetry.h
     Source/Strada/Core/Timer.h
     Source/Strada/Core/Timestep.h
     Source/Strada/Core/UUID.cpp
@@ -249,6 +251,7 @@ set(STRADA_SCENE_SOURCES
     Source/Strada/Scene/SceneScripting.cpp
     Source/Strada/Scene/SceneSerializer.cpp
     Source/Strada/Scene/SceneSerializer.h
+    Source/Strada/Scene/SceneTelemetry.cpp
     Source/Strada/Scene/SceneTransforms.cpp
     Source/Strada/Scene/SceneUI.cpp
     Source/Strada/Scene/SceneVisualScripting.cpp
@@ -303,6 +306,8 @@ set(STRADA_SERIALIZATION_SOURCES
     Source/Strada/Serialization/StructDocument.h
     Source/Strada/Serialization/StructSerialization.cpp
     Source/Strada/Serialization/StructSerialization.h
+    Source/Strada/Serialization/TelemetryCsv.cpp
+    Source/Strada/Serialization/TelemetryCsv.h
     Source/Strada/Serialization/VersionedDocument.cpp
     Source/Strada/Serialization/VersionedDocument.h
 )

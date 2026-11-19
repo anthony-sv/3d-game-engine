@@ -11,6 +11,7 @@
 #include "Editor/Automation/ProjectContentCommands.h"
 #include "Editor/Automation/ScriptCommands.h"
 #include "Editor/Automation/StartCommands.h"
+#include "Editor/Automation/TelemetryCommands.h"
 #include "Editor/DefaultScene.h"
 #include "Editor/EditorEditingKeys.h"
 #include "Editor/EntityPresets.h"
@@ -54,7 +55,7 @@ namespace Strada
 	{
 		// Bumping the version rebuilds the default layout once for users with a saved layout of an older panel set or default
 		// layout.
-		constexpr char const* DockspaceName = "Strada.Dockspace.v11";
+		constexpr char const* DockspaceName = "Strada.Dockspace.v12";
 		constexpr char const* UnsavedChangesPopup = "Unsaved Changes";
 		constexpr char const* NewScriptPopup = "New Script";
 		constexpr char const* SceneExtension = ".sscene";
@@ -303,6 +304,16 @@ namespace Strada
 			};
 		}
 		registered = registered ? RegisterProfilerCommands(m_Commands, m_Profiler, m_Context, std::move(showProfiler)) : registered;
+		std::function<void()> showTelemetry;
+		if (application.GetImGuiLayer() != nullptr)
+		{
+			showTelemetry = [this]
+			{
+				m_ShowTelemetry = true;
+				m_FocusTelemetry = true;
+			};
+		}
+		registered = registered ? RegisterTelemetryCommands(m_Commands, m_Telemetry, m_Context, std::move(showTelemetry)) : registered;
 		ST_ASSERT(registered.IsOk(), "The built-in editor commands must register");
 		(void)registered;
 		// What is wrong with the templates (the default scene standing in for a missing empty-3d) is said once, at start.
@@ -625,6 +636,8 @@ namespace Strada
 		// The profiler records while the Profiler panel is open and drawn (the start screen covers the panels), from the next
 		// frame on.
 		m_Profiler.Update(m_ShowProfiler && !m_StartScreen.IsVisible() && Application::Get().GetImGuiLayer() != nullptr);
+		// Telemetry likewise, while the Telemetry panel is open and drawn: its recording begins a session at the next fixed step.
+		m_Telemetry.Update(m_ShowTelemetry && !m_StartScreen.IsVisible() && Application::Get().GetImGuiLayer() != nullptr);
 		m_PlayMode.Update(timestep);
 		// After the frame: breakpoints follow the project and edits, stops made while no frame ran are seen, waits complete.
 		m_DebugSession.EndFrame();
@@ -837,6 +850,9 @@ namespace Strada
 			case ScreenshotWindow::Mixer:
 				name = MixerPanel::WindowName;
 				break;
+			case ScreenshotWindow::Telemetry:
+				name = TelemetryPanel::WindowName;
+				break;
 			case ScreenshotWindow::Graph:
 			{
 				// Named by its file, as its window's title names it ("Player"); the ID after the title finds the window.
@@ -1027,6 +1043,13 @@ namespace Strada
 			m_ProfilerPanel.OnImGuiRender(m_Profiler, m_ShowProfiler,
 			                              project != nullptr ? project->GetDirectory() : std::filesystem::path());
 		}
+		// After the Profiler, as the default layout docks them.
+		if (m_ShowTelemetry)
+		{
+			Project const* const project = m_Context.GetProject();
+			m_TelemetryPanel.OnImGuiRender(m_Telemetry, m_ShowTelemetry, &m_Context.GetScene(),
+			                               project != nullptr ? project->GetDirectory() : std::filesystem::path());
+		}
 		if (m_ShowImGuiDemo)
 		{
 			ImGui::ShowDemoWindow(&m_ShowImGuiDemo);
@@ -1055,6 +1078,10 @@ namespace Strada
 		if (std::exchange(m_FocusProfiler, false) && m_ShowProfiler)
 		{
 			ImGui::SetWindowFocus(ProfilerPanel::WindowName);
+		}
+		if (std::exchange(m_FocusTelemetry, false) && m_ShowTelemetry)
+		{
+			ImGui::SetWindowFocus(TelemetryPanel::WindowName);
 		}
 		if (std::exchange(m_FocusInputActions, false) && m_ShowInputActions)
 		{
@@ -1138,6 +1165,7 @@ namespace Strada
 		ImGui::DockBuilderDockWindow(MixerPanel::WindowName, bottom);
 		ImGui::DockBuilderDockWindow(VisualScriptDebuggerPanel::WindowName, bottom);
 		ImGui::DockBuilderDockWindow(ProfilerPanel::WindowName, bottom);
+		ImGui::DockBuilderDockWindow(TelemetryPanel::WindowName, bottom);
 		// The graph windows that are open join the scene view.
 		if (m_VisualScripts)
 		{
@@ -1300,6 +1328,7 @@ namespace Strada
 			ImGui::MenuItem(InputActionsPanel::WindowName, nullptr, &m_ShowInputActions);
 			ImGui::MenuItem(MixerPanel::WindowName, nullptr, &m_ShowMixer);
 			ImGui::MenuItem(ProfilerPanel::WindowName, nullptr, &m_ShowProfiler);
+			ImGui::MenuItem(TelemetryPanel::WindowName, nullptr, &m_ShowTelemetry);
 			if (m_VisualScripts)
 			{
 				bool debugger = m_DebuggerPanel.IsOpen();
@@ -1321,7 +1350,7 @@ namespace Strada
 			ImGui::Separator();
 			if (ImGui::MenuItem("Reset Layout"))
 			{
-				// The Profiler stays as it is: it records while it is open.
+				// The Profiler and the Telemetry panel stay as they are: they record while they are open.
 				m_ShowViewport = m_ShowGameView = m_ShowHierarchy = m_ShowInspector = m_ShowSceneSettings = m_ShowProjectSettings =
 					m_ShowContentBrowser = m_ShowConsole = m_ShowRendererInfo = m_ShowInputActions = m_ShowMixer = true;
 				m_DebuggerPanel.SetOpen(true);

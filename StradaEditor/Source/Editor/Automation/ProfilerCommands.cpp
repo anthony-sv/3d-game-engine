@@ -30,34 +30,6 @@ namespace Strada
 			return error;
 		}
 
-		// A path a command names: absolute as given, else relative to the open project's directory and inside it.
-		CommandValue<std::filesystem::path> ResolvePath(std::string const& text, EditorContext const& context)
-		{
-			std::filesystem::path const path = FileSystem::PathFromUtf8(text);
-			if (path.is_absolute())
-			{
-				return path.lexically_normal();
-			}
-			// "C:file" and "\file" name places that depend on the process's drive or directory.
-			if (path.has_root_name() || path.has_root_directory())
-			{
-				return MakePathError(fmt::format("'{}' is neither absolute nor relative to the project", text));
-			}
-			Project const* const project = context.GetProject();
-			if (project == nullptr)
-			{
-				return MakeCommandError(AutomationErrorCode::InvalidOperation,
-				                        "no project is open: give an absolute path, or open a project for '{}' to be in", text);
-			}
-			std::filesystem::path const directory = project->GetDirectory().lexically_normal();
-			std::filesystem::path const resolved = (directory / path).lexically_normal();
-			if (resolved == directory || !FileSystem::IsInside(resolved, directory))
-			{
-				return MakePathError(fmt::format("'{}' is not a file inside the project", text));
-			}
-			return resolved;
-		}
-
 		bool HasJsonExtension(std::filesystem::path const& path)
 		{
 			std::string extension = FileSystem::PathToUtf8(path.extension());
@@ -289,7 +261,7 @@ namespace Strada
 			capture.Handler = [&context](Json const& params) -> CommandResult
 			{
 				std::string const text = params["path"].get<std::string>();
-				CommandValue<std::filesystem::path> resolved = ResolvePath(text, context);
+				CommandValue<std::filesystem::path> resolved = ResolveCommandFilePath(text, context);
 				if (!resolved)
 				{
 					return resolved.TakeError();
@@ -362,7 +334,7 @@ namespace Strada
 			open.Handler = [&profiler, &context, showPanel = std::move(showPanel)](Json const& params) -> CommandResult
 			{
 				std::string const text = params["path"].get<std::string>();
-				CommandValue<std::filesystem::path> resolved = ResolvePath(text, context);
+				CommandValue<std::filesystem::path> resolved = ResolveCommandFilePath(text, context);
 				if (!resolved)
 				{
 					return resolved.TakeError();
@@ -383,6 +355,33 @@ namespace Strada
 			};
 			return registry.Register(std::move(open));
 		}
+	}
+
+	CommandValue<std::filesystem::path> ResolveCommandFilePath(std::string const& text, EditorContext const& context)
+	{
+		std::filesystem::path const path = FileSystem::PathFromUtf8(text);
+		if (path.is_absolute())
+		{
+			return path.lexically_normal();
+		}
+		// "C:file" and "\file" name places that depend on the process's drive or directory.
+		if (path.has_root_name() || path.has_root_directory())
+		{
+			return MakePathError(fmt::format("'{}' is neither absolute nor relative to the project", text));
+		}
+		Project const* const project = context.GetProject();
+		if (project == nullptr)
+		{
+			return MakeCommandError(AutomationErrorCode::InvalidOperation,
+			                        "no project is open: give an absolute path, or open a project for '{}' to be in", text);
+		}
+		std::filesystem::path const directory = project->GetDirectory().lexically_normal();
+		std::filesystem::path const resolved = (directory / path).lexically_normal();
+		if (resolved == directory || !FileSystem::IsInside(resolved, directory))
+		{
+			return MakePathError(fmt::format("'{}' is not a file inside the project", text));
+		}
+		return resolved;
 	}
 
 	Json DescribeProfilerMedians(ProfilerMedians const& medians, size_t maxZones)

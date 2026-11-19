@@ -1,14 +1,24 @@
+using System;
 using Strada;
 using Strada.Testing;
 
 namespace FeatureTest;
 
-/// <summary>Application, Time, Log, Debug and SceneManager.</summary>
+/// <summary>Application, Time, Log, Debug, SceneManager and Telemetry. Its fixed updates ride three laps for telemetry, as a
+/// race does: FeatureTest.Distance (metres along a lap of LapLength) every step, marks Lap 1 to Lap 4 where each lap begins and
+/// the last ends, then Lap end; the laps take 24, 18 and 30 steps, so the second is the best. The player records nothing,
+/// and the editor's telemetry tests read what it rode.</summary>
 public sealed class ApplicationTests : FeatureTestScript
 {
+	private const float LapLength = 120.0f;
+	private static readonly int[] s_LapSteps = [24, 18, 30];
+
 	private double m_Elapsed;
 	private ulong m_Frames;
 	private float m_TimeScale;
+	private int m_FixedSteps;
+	private int m_Lap;
+	private int m_LapStart;
 
 	protected override void Start()
 	{
@@ -35,9 +45,40 @@ public sealed class ApplicationTests : FeatureTestScript
 			Debug.DrawLine(Vector3.Zero, Vector3.Right, Color.Red, 0.5f);
 		});
 		Check("the fixed time step is the project's", () => Assert.AreApproximatelyEqual(1.0f / 60.0f, Time.FixedDeltaTime, 1e-6f));
+		Check("telemetry refuses null names, and records only in the editor", () =>
+		{
+			Assert.Throws<ArgumentNullException>(() => Telemetry.Record(null!, 1.0f));
+			Assert.Throws<ArgumentNullException>(() => Telemetry.Mark(null!));
+			Assert.Throws<ArgumentNullException>(() => Telemetry.MarkStep(null!, 1));
+			// The game player never records; the editor records while its Telemetry panel is open or an agent's recording runs.
+			Assert.IsTrue(Application.IsEditor || !Telemetry.IsRecording, "the game player records telemetry");
+		});
 		m_Elapsed = Time.Elapsed;
 		m_Frames = Time.FrameCount;
 		m_TimeScale = Time.TimeScale;
+	}
+
+	protected override void OnFixedUpdate(float fixedDeltaTime)
+	{
+		m_FixedSteps++;
+		if (m_Lap > s_LapSteps.Length)
+		{
+			return;
+		}
+		if (m_Lap == 0 || m_FixedSteps - m_LapStart == s_LapSteps[m_Lap - 1])
+		{
+			// A lap boundary: the lap that begins here, or the finish, which closes the last lap.
+			m_Lap++;
+			m_LapStart = m_FixedSteps;
+			Telemetry.Mark($"Lap {m_Lap}");
+			if (m_Lap > s_LapSteps.Length)
+			{
+				Telemetry.Mark("Lap end");
+				return;
+			}
+		}
+		int lapSteps = s_LapSteps[m_Lap - 1];
+		Telemetry.Record("FeatureTest.Distance", LapLength * (m_FixedSteps - m_LapStart) / lapSteps);
 	}
 
 	protected override bool Step(int frame, float deltaTime)

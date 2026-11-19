@@ -58,6 +58,7 @@ time):
 | `audio` | 1 | The mix's meters: each bus's peak and RMS, the snapshot the mix is at, and the voice counts |
 | `log`, `viewport` | 6 | The log, screenshots of the editor or one of its windows, the scene view's camera, overlays and statistics |
 | `profiler` | 5 | Recording where each frame's time goes (CPU zones of every thread, GPU passes), medians, and captures written and opened |
+| `telemetry` | 5 | Recording what the simulation does step by step (channels and marks the game's scripts, graphs and the engine record), its sessions and laps, samples with summaries, and CSV exports |
 
 `strada mcp` serves each command as a tool named after it, with `.` and `-` replaced by `_` (`entity.create` is
 `entity_create`, `asset.create-folder` is `asset_create_folder`); read-only commands carry `readOnlyHint`. strada adds
@@ -83,7 +84,7 @@ six tools of its own that search and import [Poly Haven](https://polyhaven.com) 
   (`curve_create`, `physics_material_create`) change files directly; deleting an asset discards the undo steps that
   edited its file, and creating, opening or closing a project drops every step of asset files. Selections (`entity_select`, `asset_select`), the scene
   view's camera and overlays, and the visual-script debugger's breakpoints and targets are view state, not history, and
-  so are the profiler's recordings (`profiler_*`).
+  so are the profiler's and telemetry's recordings (`profiler_*`, `telemetry_*`).
 - **Unsaved work is protected.** Commands that would discard unsaved changes (a new scene, another project, quitting)
   fail with `UnsavedChanges` unless they get `"discardChanges": true`.
 - **Play mode runs a copy.** While the game plays, scene and entity commands act on a copy of the scene with a history
@@ -286,8 +287,8 @@ The [`strada-make-game`](../.claude/skills/strada-make-game/SKILL.md) skill is t
 8. **Look at the result.** In a windowed editor, `viewport_frame` points the scene view's camera at entities,
    `viewport_camera` sets the view, `viewport_overlays` chooses what the scene view draws over the scene (`colliders`
    `all` shows every physics shape, `contacts` where contacts began in the last frame while the game plays), and `viewport_screenshot` returns an image of the editor or of one window
-   (`window`: `SceneView`, `GameView`, `Hierarchy`, `Inspector`, `ContentBrowser`, `Console`, `Debugger`, `Profiler`
-   or `Graph` with `graph`). MCP clients receive the screenshot as image content. To show the user the start screen or the File
+   (`window`: `SceneView`, `GameView`, `Hierarchy`, `Inspector`, `ContentBrowser`, `Console`, `Debugger`, `Profiler`,
+   `InputActions`, `Mixer`, `Telemetry`, or `Graph` with `graph`). MCP clients receive the screenshot as image content. To show the user the start screen or the File
    menu's dialogs, `start_show` and `editor_dialog` (`new-project` or `agent-setup`) open them and change nothing
    else; while the start screen shows, only `window` `Editor` can be captured.
 9. **Play and test.** `play_start`, then `play_pause` and `play_advance` with `frames` for exact steps; `input_set`
@@ -313,6 +314,16 @@ The [`strada-make-game`](../.claude/skills/strada-make-game/SKILL.md) skill is t
     and `profiler_open` shows one in the Profiler panel; `profiler_stop` ends the recording. An editor frame holds the
     editor's own work too: `StradaRuntime --profile <file>` measures the game alone
     ([GettingStarted.md](GettingStarted.md)), and `profiler_open` reads its capture.
+
+    To check what the game's simulation does rather than what it costs, read its telemetry: `telemetry_start`, play
+    (`play_start`, `play_pause`, `play_advance` with `frames`: each fixed step is a row), then `telemetry_channels` lists
+    the sessions (one per play), each one's channels with their ranges, its marks and its laps with the best one;
+    `telemetry_read` with `channels` and `lap` (`best`, a lap's label) or `from` and `to` (steps) answers the samples (at
+    most `maxSamples` a channel, with the stride it took) and a summary of each channel: values, smallest and largest
+    with their steps, mean, first and last. A ride is checked this way after a change: the speed reached on a lap, the
+    step a gear changes at, how far the bike leans, compared with the lap before. `telemetry_export` writes the rows as
+    CSV, `telemetry_stop` ends the recording, and `telemetry_start` with `panel: true` opens the Telemetry panel for the
+    person at the editor, where the newest lap is drawn over the best one.
 11. **Ship.** Save everything (`scene_save`), then `project_export` with a `directory` (and `smokeTest: true` to run the
     exported game headless for a few frames). It builds the scripts in Release and names the executable.
 

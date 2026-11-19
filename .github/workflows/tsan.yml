@@ -136,6 +136,17 @@ jobs:
           run_cases StradaEditorTests "-tc=EditorProfiler:*,ProfilerCommands:*,ProfilerPanel:*" || status=1
           exit "${status}"
 
+      # The telemetry recorder: threads recording at once while steps are collected, a pause, threads beyond the
+      # buffers, buffers freed at every session, and Start, Stop, EndSession, Init and Shutdown racing threads that
+      # record. The prefix leaves out the scene's cases (SceneTelemetry:), the CSV writer's (TelemetryCsv:) and the
+      # benchmarks (TelemetryBenchmark:).
+      - name: Telemetry
+        if: ${{ !cancelled() && steps.prepare.outcome == 'success' }}
+        shell: bash
+        run: |
+          source "${RUNNER_TEMP}/run-cases.sh"
+          run_cases StradaTests "-tc=Telemetry:*"
+
       # Application::SubmitToMainThread from other threads and the main loop that drains it, and identifiers generated on
       # several threads at once.
       - name: Main-thread queue

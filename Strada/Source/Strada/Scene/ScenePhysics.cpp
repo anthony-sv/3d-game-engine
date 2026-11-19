@@ -1753,6 +1753,9 @@ namespace Strada
 		{
 			m_RecordedPhysicsHash = ComputePhysicsStateHash();
 		}
+		// Last: the step's row reads what the step produced (Docs/Architecture.md section 4.5). Work the step gains goes
+		// before this call.
+		SampleTelemetry(step);
 	}
 
 	void Scene::SyncBodiesFromTransforms(float stepDelta)
