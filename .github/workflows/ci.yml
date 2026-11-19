@@ -50,17 +50,21 @@ jobs:
           # GPU tests run on Mesa's lavapipe (software Vulkan) on Windows and Linux. macOS runners have no usable
           # Vulkan device, so GPU tests are skipped there.
           - { name: "Windows MSVC Debug", os: windows-2025, config: debug, allowNoGpu: "0" }
-          # Windows MSVC Release is two jobs, each configuring some of the test suites (STRADA_TEST_SUITES): as one job
-          # it took 44 minutes, 18 of them compiling the C++ test suites, too near the time limit. Each job builds
-          # every target that is not a test suite; together they build every target in Release with warnings as errors
-          # and run every ctest entry once, as the one job did. A test that starts a program (the editor, the player, a
-          # test script assembly) depends on its target, so each job builds what its own tests run.
+          # Windows MSVC Release and Linux GCC Release are two jobs each, each job configuring some of the test suites
+          # (STRADA_TEST_SUITES): as one job Windows MSVC Release took 44 minutes, 18 of them compiling the C++ test
+          # suites, and Linux GCC Release 40 to 42, about 36 of them building, too near the time limit. Each job builds
+          # every target that is not a test suite; each pair together builds every target in Release with warnings as
+          # errors and runs every ctest entry once, as the one job did. A test that starts a program (the editor, the
+          # player, a test script assembly) depends on its target, so each job builds what its own tests run.
           - { name: "Windows MSVC Release (engine tests)", os: windows-2025, config: release, allowNoGpu: "0",
               testSuites: "StradaTests;ScriptCoreTests" }
           - { name: "Windows MSVC Release (editor and player tests)", os: windows-2025, config: release, allowNoGpu: "0",
               testSuites: "StradaEditorTests;StradaRuntimeTests;StradaToolTests" }
           - { name: "Linux GCC Debug", os: ubuntu-24.04, config: debug, compiler: gcc, allowNoGpu: "0" }
-          - { name: "Linux GCC Release", os: ubuntu-24.04, config: release, compiler: gcc, allowNoGpu: "0" }
+          - { name: "Linux GCC Release (engine tests)", os: ubuntu-24.04, config: release, compiler: gcc, allowNoGpu: "0",
+              testSuites: "StradaTests;ScriptCoreTests" }
+          - { name: "Linux GCC Release (editor and player tests)", os: ubuntu-24.04, config: release, compiler: gcc,
+              allowNoGpu: "0", testSuites: "StradaEditorTests;StradaRuntimeTests;StradaToolTests" }
           # Linux Clang Debug builds the editor core and the C++ tests without their precompiled header of third-party
           # and standard headers: it is the check that every source of those targets includes what it uses, so a
           # missing include fails there. The GCC jobs build without that header too, but only because GCC is excluded

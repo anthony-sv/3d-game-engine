@@ -5853,7 +5853,7 @@ that each platform's names are tested on every platform:
   `GraphDebug.ReadValues` 0.82 to 0.98 ms. The remainders are runtime work (a cheaper Record mode, a
   binary value block, reading only the sources that changed, a document reader without a JSON document per member).
 - CI: Windows (MSVC), Ubuntu 24.04 (GCC + Clang), macOS (Apple Clang, arm64); format check; tests on every push.
-  Windows MSVC Release is two jobs, which divide the test suites between them through the CMake cache variable
-  `STRADA_TEST_SUITES` (`StradaTests` and `ScriptCoreTests`; `StradaEditorTests`, `StradaRuntimeTests` and
-  `StradaToolTests`), so that each stays far from the job's time limit: each builds every target that is not a test
-  suite, and together they build every target and run every ctest entry once.
+  Windows MSVC Release and Linux GCC Release are two jobs each, which divide the test suites between them through the
+  CMake cache variable `STRADA_TEST_SUITES` (`StradaTests` and `ScriptCoreTests`; `StradaEditorTests`,
+  `StradaRuntimeTests` and `StradaToolTests`), so that each stays far from the job's time limit: each builds every target
+  that is not a test suite, and each pair together builds every target and runs every ctest entry once.
