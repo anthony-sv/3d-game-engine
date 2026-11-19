@@ -721,7 +721,8 @@ namespace Strada
 		record.Tester = new VehicleWheelTester(objectLayer, m_Materials);
 		record.Constraint->SetVehicleCollisionTester(record.Tester);
 
-		VehicleRecord& stored = m_Vehicles.insert_or_assign(desc.Entity, std::move(record)).first->second;
+		auto const inserted = m_Vehicles.insert_or_assign(desc.Entity, std::move(record)).first;
+		VehicleRecord& stored = inserted->second;
 		stored.Constraint->SetCombineFriction(TyreGripCombine{&stored});
 		stored.Constraint->SetPostCollideCallback(WheelSurfaceUpdate{&stored});
 		if (state != nullptr)

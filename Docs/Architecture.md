@@ -2822,10 +2822,12 @@ wheel all of its torque).
   (`SetVehicleSettings`) does not. The chassis's centre of mass and inertia are its colliders' alone, as any dynamic body's
   are: a bike that must carry its mass low places its chassis collider low, and the vehicle adds no offset of its own.
   The colliders also give the chassis its roll inertia, which the lean spring needs: Jolt applies the spring's impulse at
-  every velocity iteration of the solver against what it applied before (`MotorcycleController.cpp:218-226`), which
-  settles only while `LeanSpringDamping` times the collision step is below the chassis's roll inertia about its front
-  (16.7 kg m² for the default damping of 1,000 at 60 steps a second); a chassis below it is thrown over at its first
-  contact. A 250 kg box 0.5 m wide and 1 m high has 26 kg m².
+  every velocity iteration of the solver against what it applied before (`MotorcycleController.cpp:218-226`), so its
+  damping term changes the roll rate by `LeanSpringDamping` times the collision step over the roll inertia about the
+  front at each iteration, and the iterations settle only while that ratio is below 1 (for the default damping of 1,000
+  at 60 steps a second, a roll inertia above 16.7 kg m²; more collision steps a step lower the bound). Seen in the
+  engine's tests: a 250 kg chassis box 0.5 m wide and 1 m high (26 kg m²) stands and rides, and one 0.3 m wide and 0.5
+  m high (5.7 kg m²) is thrown over at its first contact. A chassis whose roll inertia is too low takes less damping.
   **Order.** Jolt removes a constraint by moving the last one into its slot
   (`ConstraintManager.cpp:49-59`) and solves the constraints of an island in the order of their priority and then their
   index (`:103-115`), so after any change to the vehicles the world takes every vehicle's constraint and every joint out

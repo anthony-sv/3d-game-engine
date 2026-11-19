@@ -179,15 +179,15 @@ namespace
 		std::vector<Vertex> vertices;
 		std::vector<uint32_t> indices;
 		std::vector<Submesh> submeshes;
-		for (float const near : {-20.0f, 0.0f})
+		for (float const start : {-20.0f, 0.0f})
 		{
 			Submesh submesh;
 			submesh.BaseVertex = static_cast<uint32_t>(vertices.size());
 			submesh.VertexCount = 4;
 			submesh.BaseIndex = static_cast<uint32_t>(indices.size());
 			submesh.IndexCount = 6;
-			for (glm::vec3 const& corner : {glm::vec3(-10.0f, 0.0f, near), glm::vec3(-10.0f, 0.0f, near + 20.0f),
-			                                glm::vec3(10.0f, 0.0f, near + 20.0f), glm::vec3(10.0f, 0.0f, near)})
+			for (glm::vec3 const& corner : {glm::vec3(-10.0f, 0.0f, start), glm::vec3(-10.0f, 0.0f, start + 20.0f),
+			                                glm::vec3(10.0f, 0.0f, start + 20.0f), glm::vec3(10.0f, 0.0f, start)})
 			{
 				Vertex vertex;
 				vertex.Position = corner;
@@ -431,10 +431,10 @@ TEST_CASE("PhysicsScene: each brake slows its own wheels by its torques, and a w
 	};
 
 	// Free: nothing changes the spins.
-	std::vector<std::array<float, VehicleWheelCount>> const free = brake({}, 3);
-	REQUIRE(free.front()[0] > 40.0f);
-	REQUIRE(free.front()[1] > 40.0f);
-	CHECK(free.back() == free.front());
+	std::vector<std::array<float, VehicleWheelCount>> const freeSpins = brake({}, 3);
+	REQUIRE(freeSpins.front()[0] > 40.0f);
+	REQUIRE(freeSpins.front()[1] > 40.0f);
+	CHECK(freeSpins.back() == freeSpins.front());
 
 	// The front brake slows the front wheel by its 300 N m and leaves the rear alone, and the rear brake the reverse.
 	std::vector<std::array<float, VehicleWheelCount>> const front = brake(MakeInputs(0.0f, 1.0f, 0.0f, 0.0f), 3);
