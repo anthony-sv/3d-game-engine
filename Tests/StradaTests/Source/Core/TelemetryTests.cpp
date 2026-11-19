@@ -610,6 +610,59 @@ TEST_CASE("Telemetry: a column grows in blocks that never move, with empty cells
 	CHECK(Telemetry::GetStatus().BytesHeld == session.Bytes);
 }
 
+TEST_CASE("Telemetry: 64 channels recorded every step make their next blocks in different steps, two at most after the first")
+{
+	TelemetryScope const telemetry;
+	REQUIRE(Telemetry::Start().IsOk());
+	constexpr uint32_t Channels = 64;
+	constexpr uint64_t BlockCells = TelemetryChannel::BlockCells;
+	constexpr uint64_t BlockBytes = BlockCells * sizeof(float);
+	std::vector<std::string> names;
+	for (uint32_t channel = 0; channel < Channels; ++channel)
+	{
+		names.push_back("Channel." + std::to_string(channel));
+	}
+	// Past every column's first block, so that each made its next one ahead of need and moved on to it.
+	constexpr uint64_t Steps = BlockCells + 100;
+	uint64_t bytes = 0;
+	uint64_t firstStepBlocks = 0;
+	uint64_t mostBlocksAfterFirst = 0;
+	uint64_t stepsMakingBlocks = 0;
+	bool wholeBlocks = true;
+	for (uint64_t step = 1; step <= Steps; ++step)
+	{
+		for (std::string const& name : names)
+		{
+			Telemetry::Record(name, static_cast<float>(step));
+		}
+		Telemetry::EndStep(MakeTelemetryStep(step));
+		// The session's bytes are its columns' blocks alone: each step's growth is the blocks it made.
+		uint64_t const held = GetNewestTelemetrySession().Bytes;
+		uint64_t const blocks = (held - bytes) / BlockBytes;
+		wholeBlocks = wholeBlocks && (held - bytes) % BlockBytes == 0;
+		bytes = held;
+		if (step == 1)
+		{
+			firstStepBlocks = blocks;
+			continue;
+		}
+		mostBlocksAfterFirst = std::max(mostBlocksAfterFirst, blocks);
+		stepsMakingBlocks += blocks > 0 ? 1 : 0;
+	}
+	TelemetrySession const& session = GetNewestTelemetrySession();
+	CHECK(wholeBlocks);
+	CHECK(session.DroppedValues == 0);
+	CHECK(firstStepBlocks == Channels);
+	// Two channels a step (index and index + 32) make their next block, over 32 steps of the first block's second half.
+	CHECK(mostBlocksAfterFirst == 2);
+	CHECK(stepsMakingBlocks == Channels / 2);
+	for (TelemetryChannel const& channel : session.Channels)
+	{
+		CHECK(channel.Blocks.size() == 2);
+	}
+	CHECK(session.Bytes == 2 * Channels * BlockBytes);
+}
+
 TEST_CASE("Telemetry: a session holds one scene's consecutive steps, and the sessions are kept across recordings")
 {
 	TelemetryScope const telemetry;

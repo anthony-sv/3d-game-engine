@@ -77,6 +77,36 @@ namespace
 		size_t const index = std::min(values.size() - 1, static_cast<size_t>(fraction * static_cast<double>(values.size())));
 		return ToMicroseconds(values[index]);
 	}
+
+	// The slowest step from `firstStep` on (steps count from 1, durations[0] being step 1's), and its number.
+	struct WorstStep
+	{
+		uint64_t Step = 0;
+		double Microseconds = 0.0;
+	};
+
+	WorstStep FindWorstStep(std::vector<int64_t> const& durations, uint64_t firstStep)
+	{
+		WorstStep worst;
+		for (uint64_t step = firstStep; step <= durations.size(); ++step)
+		{
+			double const microseconds = ToMicroseconds(durations[step - 1]);
+			if (worst.Step == 0 || microseconds > worst.Microseconds)
+			{
+				worst = {step, microseconds};
+			}
+		}
+		return worst;
+	}
+
+	// "worst W us (step S), after the first step W' us (step S')".
+	std::string DescribeWorstSteps(std::vector<int64_t> const& durations)
+	{
+		WorstStep const worst = FindWorstStep(durations, 1);
+		WorstStep const worstAfterFirst = FindWorstStep(durations, 2);
+		return "worst " + std::to_string(worst.Microseconds) + " us (step " + std::to_string(worst.Step) + "), after the first step " +
+		       std::to_string(worstAfterFirst.Microseconds) + " us (step " + std::to_string(worstAfterFirst.Step) + ")";
+	}
 }
 
 TEST_CASE("TelemetryBenchmark: 64 channels recorded on the main thread and collected, each fixed step" *
@@ -119,8 +149,8 @@ TEST_CASE("TelemetryBenchmark: 64 channels recorded on the main thread and colle
 	ProfilerMedians const medians = ComputeProfilerMedians(Profiler::GetRecording());
 	double const collect = GetZoneMicroseconds(medians, "Telemetry.Collect");
 	MESSAGE("64 channels a step over " << Steps << " steps: median " << GetPercentile(durations, 0.5) << " us, 99th percentile "
-	                                   << GetPercentile(durations, 0.99) << " us, worst " << GetPercentile(durations, 1.0)
-	                                   << " us; Telemetry.Collect median " << collect << " us");
+	                                   << GetPercentile(durations, 0.99) << " us, " << DescribeWorstSteps(durations)
+	                                   << "; Telemetry.Collect median " << collect << " us");
 }
 
 TEST_CASE("TelemetryBenchmark: a long session of 64 channels makes at most one block per channel in any step" *
@@ -160,9 +190,10 @@ TEST_CASE("TelemetryBenchmark: a long session of 64 channels makes at most one b
 	CHECK(session.Rows == Steps);
 	CHECK(session.DroppedValues == 0);
 	CHECK(mostBlocks <= Channels);
+	CHECK(mostBlocksAfterFirst <= 2);
 	MESSAGE("64 channels over " << Steps << " steps: median " << GetPercentile(durations, 0.5) << " us, 99th percentile "
-	                            << GetPercentile(durations, 0.99) << " us, worst " << GetPercentile(durations, 1.0)
-	                            << " us; blocks made in one step at most " << mostBlocks << " (the first), " << mostBlocksAfterFirst
+	                            << GetPercentile(durations, 0.99) << " us, " << DescribeWorstSteps(durations)
+	                            << "; blocks made in one step at most " << mostBlocks << " (the first), " << mostBlocksAfterFirst
 	                            << " after it; " << session.Bytes / (1024 * 1024) << " MiB held");
 }
 
