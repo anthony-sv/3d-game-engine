@@ -2699,8 +2699,9 @@ joints stay; contacts that persist take the new values at the next step (Jolt ca
 A sleeping body has no contacts to take them (Jolt drops them until it wakes), so when an edit changes a body's surface
 values, `SetMaterialValues` wakes the body and, for a static one, every non-static body whose bounds meet its own
 (widened by Jolt's speculative contact distance), in entity order: a box asleep on a slope slides at the next step after
-its material, or the slope's, loses its grip. An edit that changes no value (a `Surface` text, a rolling resistance, a
-`set` of the same values) wakes nothing. A material that starts or stops applying (its file breaks and is reloaded or
+its material, or the slope's, loses its grip. An edit that changes no value contacts read (a `Surface` text, a `set` of
+the same values) wakes nothing; one of the rolling resistance or the tyre grip wakes only the vehicles whose wheels touched
+the material (§8, "Vehicles"). A material that starts or stops applying (its file breaks and is reloaded or
 refreshed, or loads again, or the asset is dropped) makes the bodies naming it again, which keep their velocities: what
 is not a loadable physics material counts as unset. A refresh of the asset directory that retries a failed load or
 finds a missing file again moves the data asset epoch (§6.4), so a material fixed on disk while the scene plays applies
@@ -3153,9 +3154,11 @@ wheel all of its torque).
   body, not its sub-shape), and the wheel's surface is found from that sub-shape.
 - **Grip and rolling drag from the surface under each wheel.** A physics material gains `TyreGrip` (at least 0, default
   1), read by vehicles alone; `ColliderSurface` carries it with the material's `RollingResistance`, given by
-  `SetMaterialValues` like the other values. An edit of these two alone wakes nothing (only the values contacts read
-  wake what a surface touches): a vehicle's wheels read them at every step the vehicle moves in, and a vehicle asleep is
-  at rest, where neither acts. A
+  `SetMaterialValues` like the other values. An edit that changes these two alone wakes no body but the chassis of each
+  vehicle one of whose wheels touched a surface of that material at its last step (the material its wheel's slot holds),
+  woken in the order of the entities' UUIDs with the bodies the other values wake: a vehicle asleep across a slope is
+  held there by its tyres' grip, so a lower grip must reach it, while no other body reads either value. A world without
+  vehicles therefore wakes nothing on such an edit, and its hash stays as it was. A
   collider without a material, and a sub-shape without a collider entry (a character's inner body), has a grip of 1 and no
   rolling resistance. A tyre's grip cannot be the surface's `Friction`: a sample's gravel has the higher friction, combined
   by `Maximum`, so that blocks slow on it (`Projects/Moto/Assets/Surfaces/Gravel.sphysmat`). In the post-collide callback
@@ -3336,6 +3339,55 @@ wheel all of its torque).
   and outside the physics block, so that it runs with and without physics, sees `GetFixedStepCount()` as the number of the
   step that just ended (as `ContactEvent::Step` counts), and reads every body, character, vehicle and wheel where that
   step left them; the vehicles add nothing after it.
+- **Scripts and graphs** (`VehicleComponent`, §10.4). `Definition` is the component's field (a `Vehicle`). While the
+  scene simulates the entity's vehicle, `SetDriverInput(throttle, frontBrake, rearBrake, lean)` gives
+  `PhysicsScene::SetVehicleInputs` the four values (the world clamps them, so a value out of its range is its nearest
+  end; a value that is not finite is a script error naming the member, and the call does nothing, as every binding
+  refuses one); `ShiftUp()` and `ShiftDown()` give `RequestVehicleShift` +1 and -1 (requests before a step add up; an
+  Automatic gearbox ignores them). The reads are the vehicle as its last step left it (`GetVehicleState`): `EngineSpeed`
+  (rpm), `Gear` (0 neutral), `ForwardSpeed` (m/s along the chassis's front), `LeanAngle` (degrees from the world's up
+  around the front, positive to the right, as the lean input), the inputs that step applied (`Throttle`, `FrontBrake`,
+  `RearBrake`, `Lean`), and `GetWheelState(index)` (0 the front, 1 the rear; any other index throws
+  `ArgumentOutOfRangeException`, a programming mistake), a `VehicleWheelState` of public fields that graphs Make and
+  Break: `HasContact`, `Ground` (the entity under the wheel), `Material` (its `PhysicsMaterial`, one shared reference per
+  material, as a raycast hit's), `ContactPoint`, `ContactNormal`, `SuspensionLength` (m), `Spin` (rad/s, positive rolling
+  forward), `LongitudinalSlip` (the ratio) and `LateralSlip` (the slip angle in degrees, the unit of the lateral friction
+  curve), with the getter `Surface` (the material's surface name, empty for none). The reads are one binding
+  (`VehicleComponent_GetState`, the layout `NativeVehicleState`) that applies pending physics changes first, as the
+  character's reads do; without a simulated vehicle (the scene does not play, the entity has no dynamic body or no
+  definition that loads, or physics is unavailable) they are a vehicle at rest in neutral and a wheel without contact,
+  silently, while the inputs and the shifts are script errors naming the member and do nothing. What a script sets in
+  `OnFixedUpdate` (a graph: `Event.FixedUpdate`) reaches the step that follows it; set in `OnUpdate`, the latest before a
+  step reaches it, so a ride compared across frame rates sets its inputs in the fixed step as a function of the
+  simulation. Every member is a node: the methods impure but `GetWheelState`, a `[PureNode]` query, and the getters
+  pure. The node coverage runs them on a chassis of FeatureTest's proportions (250 kg, the 0.25 by 0.5 by 0.6 m box)
+  with FeatureTest's definition, in a scene with physics (`MemberTypeRecipes`). The `Vehicle` asset class reads the
+  definition (`TransmissionMode`, `GearCount`, `GetGearRatio(gear)`, `FinalDrive`, `MaxTorque`, `MinRPM`, `MaxRPM`,
+  `ShiftUpRPM`, `ShiftDownRPM`, `MaxLeanAngle`, `GetWheelName(index)`) from the runtime's copy of its values
+  (`Vehicle_Read`, `VehicleCache`, read again when the asset's version changes, §6.4).
+- **Agents.** `vehicle.state` (read-only, not an undo step) answers a playing scene's vehicles (play or simulate, paused
+  or not) as `GetVehicleState` gives them, every vehicle in the order of its entity's UUID or the one `entity` names: its
+  latest and applied inputs, engine speed and torque, gear, clutch, whether it shifts, forward speed, lean and target
+  lean (degrees), and each wheel's name (the definition's), contact entity, surface (the material's reference and its
+  name), tyre grip and rolling resistance, suspension length, spin, steering angle (degrees), slips (the slip angle in
+  degrees) and contact point and normal. It refuses with InvalidOperation while nothing plays and for an entity whose
+  `Vehicle` makes no vehicle, EntityNotFound for no entity, ComponentNotFound for an entity without a `Vehicle`, and
+  Unavailable when the playing scene has no physics world. `vehicle.create`, `vehicle.get` and `vehicle.set` edit the
+  definitions (§7.3).
+- **The overlay** (VH2's next step). With the viewport's overlay on, each vehicle of the scene the viewport shows is drawn
+  through `SceneRenderer::SubmitLine` from the values its last step left (`GetVehicleState`, no query of its own): each
+  wheel's suspension from its attachment to the wheel's center, the contact normal at the contact point, the slips as
+  lines along the tyre's forward and sideways directions scaled by the slip, and the target lean against the chassis's
+  lean; nothing while the overlay is off, and nothing for a scene that does not simulate.
+- **Telemetry channels** (VH2's next step; §4.5). While a recording runs, `Scene::SampleTelemetry` records for every
+  vehicle, in UUID order, the channels `Vehicle.<entity's UUID in decimal>.<Quantity>`: `Throttle`, `FrontBrake`,
+  `RearBrake` and `Lean` as applied, `EngineSpeed`, `Gear`, `ForwardSpeed`, `LeanAngle` (degrees), and for the wheels
+  `Front.` and `Rear.` with `LongitudinalSlip`, `LateralSlip` (degrees), `Suspension` and `Grip` (the surface's tyre grip):
+  sixteen a vehicle, one row a fixed step. Channels are numbers: a surface's name is read through `GetWheelState`.
+- **The lean spring's warning** (VH2's next step, with live edits). When a vehicle is made, or its values or its body
+  change, and its chassis's roll inertia about its front is at or below `LeanSpringDamping` times the collision step, the
+  scene warns once per vehicle and cause, naming the entity, the inertia, the damping and the largest damping that
+  settles; it changes no value of the author's.
 - **Profiler zones** (§4.4): `Physics.Vehicles` around the world's step listener, once per collision step on the thread
   that runs it; the inputs and shifts reach the controllers inside `Physics.Step`; `Scene.SyncVehicles` only in the frames
   after a data asset changed or a vehicle's component or body changed; the wheels are recorded inside `Scene.SyncFromPhysics`, drawn inside `Scene.Interpolate` and
@@ -4144,7 +4196,10 @@ editor's Simulate mode runs neither kind.
   `AddTorque(Vector3, ForceMode)`, `MoveKinematic(Vector3, Quaternion)`, `Teleport(Vector3, Quaternion)`, `IsSleeping`, `WakeUp()`),
   `BoxColliderComponent`, `SphereColliderComponent`, `CapsuleColliderComponent`, `MeshColliderComponent`,
   `JointComponent`, `CharacterControllerComponent` (every field, `Move(Vector3 velocity)`, `Velocity`, `IsGrounded`,
-  `GroundNormal`, `Teleport(Vector3)`),
+  `GroundNormal`, `Teleport(Vector3)`), `VehicleComponent` (`Definition`, `SetDriverInput(throttle, frontBrake,
+  rearBrake, lean)`, `ShiftUp()`, `ShiftDown()`, `EngineSpeed` (rpm), `Gear`, `ForwardSpeed` (m/s), `LeanAngle` (deg,
+  positive to the right), the inputs the last step applied (`Throttle`, `FrontBrake`, `RearBrake`, `Lean`) and
+  `GetWheelState(index)`, a `VehicleWheelState`; §8 "Vehicles", "Scripts and graphs"),
   `AudioSourceComponent` (`Play()`, `Stop()`, `Pause()`, `IsPlaying`, `Volume`, `Pitch`, `Loop`, `Clip`, `Stream`,
   `PlayOneShot(volume)`, `PlayOneShot(clip, volume)`, `Bus`, `Priority`, `MaxVoices`; §9.3; `DopplerLevel`, §9.8),
   `AudioListenerComponent`, `ReverbZoneComponent` (every field; `Shape` is a `ReverbZoneShape`, §9.8), `TextComponent`, `SpriteRendererComponent`, `ParticleSystemComponent` (every field,
@@ -4190,7 +4245,7 @@ editor's Simulate mode runs neither kind.
 - `Log`: `Trace/Info/Warn/Error`. `Debug`: `DrawLine(from, to, color, duration)`.
 - `SceneManager`: `LoadScene(path)`, `CurrentSceneName`. `Application`: `Quit()`, `WindowWidth/Height`, `IsEditor`.
 - `Assets`: `Load<T>(path)` for `Prefab`, `Material`, `Mesh`, `AudioClip`, `Texture`, `Font`, `EnvironmentMap`,
-  `VisualScript`, `Curve`, `InputActions`, `Mixer`, `PhysicsMaterial`.
+  `VisualScript`, `Curve`, `InputActions`, `Mixer`, `PhysicsMaterial`, `Vehicle`.
 - `Curve` (a `.scurve` asset, §6.5): `Evaluate(time)`, a pure node, evaluated by the runtime's copy of the keys.
 - `InputActions` (a `.sinput` asset, §7.4): `ActionNames`, the names of its actions in its order (a new array on each
   read, from the runtime's copy of the names, read again when the asset's version changes).
@@ -4205,6 +4260,10 @@ editor's Simulate mode runs neither kind.
 - `PhysicsMaterial` (a `.sphysmat` asset, §8): `Friction`, `Restitution`, `FrictionCombine`, `RestitutionCombine`
   (`PhysicsMaterialCombine`), `RollingResistance`, `Surface`, `ImpactSound` (`AudioClip`), `ImpactParticles` (`Prefab`):
   read-only properties, so pure nodes, read from the runtime's copy of the values.
+- `Vehicle` (a `.svehicle` asset, §8 "Vehicles"): `TransmissionMode` (`VehicleTransmissionMode`), `GearCount`,
+  `GetGearRatio(gear)`, `FinalDrive`, `MaxTorque`, `MinRPM`, `MaxRPM`, `ShiftUpRPM`, `ShiftDownRPM`, `MaxLeanAngle`,
+  `GetWheelName(index)`: the definition's own values, read from the runtime's copy of them (`Vehicle_Read`,
+  `VehicleCache`; curves are not copied); every member a pure node.
 - `Telemetry` (§4.5): `Record(channel, value)`, `Mark(label)` and `MarkStep(label, step)`, impure nodes, and
   `IsRecording`, a pure node (a getter). Any thread may call them; null throws, and while nothing records each returns
   after the one native call `IsRecording` makes, so a name is encoded (on the stack up to 256 bytes) only for a
@@ -4223,12 +4282,14 @@ velocities, forces, sleep, `MoveKinematic` and `Teleport` act on the simulated b
 frame are created first; `Type`, `Mass` and `Layer` rebuild it), `CharacterControllerComponent.Move` (the walking
 velocity of the next physics step; call it from `OnFixedUpdate`), `Velocity` (the character's own: falling, jumping),
 `IsGrounded`, `GroundNormal` and `Teleport` act on the entity's character (fields change it before the next step;
-without a simulated character the reads are a character at rest and `Move` and setting `Velocity` are logged), and
+without a simulated character the reads are a character at rest and `Move` and setting `Velocity` are logged),
+`VehicleComponent`'s inputs, shifts and reads act on the entity's vehicle (without a simulated vehicle the reads are a
+vehicle at rest in neutral and the inputs and shifts are logged), and
 `AudioSourceComponent` playback acts on the entity's sound, brought up to date with the component first. Entity
 lookups (`FindByName`, `FindByID`, `Parent`, `Children`, contacts, raycast hits) return the script instance of scripted
 entities. `Time.TimeScale` scales script and physics time, not sounds. Asset references are typed (`Mesh`, `Material`,
 `Texture`, `AudioClip`, `Font`, `EnvironmentMap` (not `Environment`, which clashes with `System.Environment`),
-`Prefab`, `VisualScript`, `Curve`, `InputActions`, `Mixer`, `PhysicsMaterial`). Calls without a running scene
+`Prefab`, `VisualScript`, `Curve`, `InputActions`, `Mixer`, `PhysicsMaterial`, `Vehicle`). Calls without a running scene
 or on missing entities and components log a script error and do nothing; values from scripts are checked (non-finite
 numbers and unknown enumerators are rejected and logged, rotations are normalized), and null arguments throw.
 `Entity.Instantiate` places the prefab's root at a world position and rotation (keeping its scale) and starts the
@@ -6432,6 +6493,35 @@ that each platform's names are tested on every platform:
   checking every graph (no diagnostic, every node in one box, every box arranged), by a test run that must pass every
   check, by playing the main scene for 10 s in play mode, where the camera must be on the tour's path and the ghost on
   its line, and by refusing any warning in the log.
+  **The ridden bike** (slice 4's VH2: its design; its next steps build it). The grid bike becomes a vehicle ridden with
+  the actions: the `bike` part gives the `Bike` root a dynamic body of `RacingLine.py`'s 262 kg (rider included), a chassis
+  collider low between the wheels (not the wheels: a wheel entity has no collider, §8 "Vehicles") whose roll inertia
+  clears the lean spring's bound, and `Vehicle` on `Assets/Vehicles/Moto.svehicle`; `Front Wheel` and `Rear Wheel` get
+  `VehicleWheel`. `Tools/Vehicle.py` writes the definition from `Bike.py`'s geometry (wheelbase 1.485 m, rake 24°, trail
+  98 mm, tyres of 0.2999 and 0.3259 m radius, 120 and 200 mm wide) and `RacingLine.py`'s figures (150 kW, the gears 2.714
+  to 1.304 behind a primary of 1.80 and a final drive of 2.5625, so overall ratios of 12.52 in first to 6.01 in sixth;
+  idle 1,700 rpm, red line 16,000), in `Manual` mode (the rider shifts with `ShiftUp` and `ShiftDown`), with its curves in
+  `Assets/Vehicles/` and a `check()` that recomputes the figures below from what it wrote. The four surfaces get their
+  tyre grip through the `circuit` part (asphalt 1, kerb 0.9, grass and gravel low). One riding graph on the bike is its
+  only writer of `SetDriverInput` and the shifts: in `Event.FixedUpdate` it reads `Throttle`, `FrontBrake`, `RearBrake`
+  and `Lean` (or the public input values a test or the autopilot writes, as its public `Driver` says) and shifts on the
+  actions' presses. `Moto.sinput` replaces `Brake` by `FrontBrake` (the left trigger and `Key/S`) and `RearBrake`
+  (`Gamepad/X` and `Key/Space`). **The short ride** (`Scenes/Ride.sscene`: the main scene without the props, made by the
+  tests part; the shard `StradaRuntimeTests.Ride`, at 1/60 and 1/30) drives the riding graph's test inputs from
+  `Event.FixedUpdate` by its count of steps, and checks bands drawn from these figures (`Vehicle.py`'s `check()` prints
+  each from the definition it writes, and the bands are the figure with the room stated): (1) from rest in first gear at
+  full throttle, the speed after 3 s: the definition holds the rear wheel's force at full throttle in first gear to
+  `RacingLine.py`'s `WHEELIE` of 9 m/s² (2,358 N at 262 kg), so a = 9 - 0.015 g - ρ C_dA v² / 2m gives about 26 m/s
+  (9,500 rpm in first, below the shift); the band is 18 to 30 m/s; (2) each `ShiftUp` one gear up, exactly; (3) from
+  20 m/s, the front brake alone stops the bike in about v² / 2a = 17 m at `BRAKING`'s 11.5 m/s² (band 12 to 26 m), and the
+  rear brake alone, whose torque asks about 0.45 g of the lightened rear tyre, in about 45 m: the front's distance is
+  shorter; (4) upright on the straight with no lean input: |lean| below 3°; (5) a left lean input of -0.5 for 1 s at
+  15 m/s leans the bike left by more than 5° and turns its heading left by more than 5°; (6) coasting 1 s at 15 m/s onto
+  the gravel trap outside Turn 6 (rolling resistance 0.25, so 2.45 m/s² against asphalt's 0.15) loses at least 1 m/s more
+  than on asphalt. The ride lasts about 20 s of game time (1,200 frames at 1/60, 600 at 1/30) and starts the player once
+  per rate on a scene without props, so the shard stays well under 200 s on CI's macOS runners, where one start on Moto
+  with its props costs about 25 s; anything longer runs behind `STRADA_LONG_RIDES=1`. `Tests.sscene` keeps its 24 checks
+  and gains no ride.
 - The Showcase's **Graph Garden**: chimes played by six visual scripts (`Scripts/GraphGarden`; `Tools/GraphGarden.py`
   authors them and `Tools/Author.py --exhibit GraphGarden` rebuilds the exhibit in place, with a hash guard that names
   any file outside the exhibit that changed), whose score is a Timeline; seven of the Showcase's 68 checks look at it.

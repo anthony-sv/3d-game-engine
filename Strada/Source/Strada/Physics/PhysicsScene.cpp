@@ -2794,16 +2794,20 @@ namespace Strada
 		Data& data = *m_Data;
 		size_t named = 0;
 		bool differs = false;
-		auto const update = [&material, &clamped, &named, &differs](ColliderSurface& target)
+		// Whether the values only vehicles read (their tyres' grip and rolling drag) changed on a surface of the material.
+		bool vehicleValuesDiffer = false;
+		auto const update = [&material, &clamped, &named, &differs, &vehicleValuesDiffer](ColliderSurface& target)
 		{
 			if (target.Material == material)
 			{
-				// Only the values contacts read wake bodies: a vehicle's wheels read RollingResistance and TyreGrip at every step
-				// it moves in, and one asleep is at rest, so an edit of those alone wakes nothing.
+				// The values contacts read wake the bodies of the surfaces and what rests on them; the values only vehicles read
+				// wake the vehicles whose wheels touched the material (below), and no other body.
 				bool const contactsDiffer = target.Friction != clamped.Friction || target.Restitution != clamped.Restitution ||
 				                            target.FrictionCombine != clamped.FrictionCombine ||
 				                            target.RestitutionCombine != clamped.RestitutionCombine;
 				differs = differs || contactsDiffer;
+				vehicleValuesDiffer =
+					vehicleValuesDiffer || target.RollingResistance != clamped.RollingResistance || target.TyreGrip != clamped.TyreGrip;
 				target = clamped;
 				named++;
 			}
@@ -2856,6 +2860,11 @@ namespace Strada
 					woken.emplace_back(other, id);
 				}
 			}
+		}
+		// A vehicle asleep across a slope is held by its tyres' grip: a lower grip, or more rolling drag, must reach it.
+		if (vehicleValuesDiffer)
+		{
+			data.Vehicles->AppendVehiclesOnMaterial(material, woken);
 		}
 		std::sort(woken.begin(), woken.end(),
 		          [](auto const& first, auto const& second)

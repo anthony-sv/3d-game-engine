@@ -48,6 +48,7 @@ internal static unsafe class AssetTypes
 		_ when type == typeof(InputActions) => "InputActions",
 		_ when type == typeof(Mixer) => "Mixer",
 		_ when type == typeof(PhysicsMaterial) => "PhysicsMaterial",
+		_ when type == typeof(Vehicle) => "Vehicle",
 		_ => null,
 	};
 
@@ -66,6 +67,7 @@ internal static unsafe class AssetTypes
 		"InputActions" => new InputActions(handle),
 		"Mixer" => new Mixer(handle),
 		"PhysicsMaterial" => new PhysicsMaterial(handle),
+		"Vehicle" => new Vehicle(handle),
 		_ => throw new ArgumentOutOfRangeException(nameof(typeName), typeName, "not an asset class"),
 	};
 

@@ -88,7 +88,9 @@ internal sealed class McpServer
 		"project_settings' InputActions names the game's) with input_actions_create, input_actions_get and input_actions_set. " +
 		"Vehicle definitions (.svehicle data assets: a motorcycle's two wheels with their suspension, brakes and tyre curves, " +
 		"its engine, gearbox, final drive and lean, which a Vehicle component on a dynamic RigidBody with a collider names) " +
-		"are made, read and changed with vehicle_create, vehicle_get and vehicle_set, also while the game plays. " +
+		"are made, read and changed with vehicle_create, vehicle_get and vehicle_set, also while the game plays; vehicle_state " +
+		"reads the playing vehicles (their inputs, engine speed, gear, speed, lean and each wheel's contact, surface, suspension " +
+		"and slips), which scripts and graphs ride with VehicleComponent.SetDriverInput, ShiftUp and ShiftDown. " +
 		"input_set presses and steers the game's input actions by name (actions) and plays it on injected gamepads (gamepads) " +
 		"as well as with keys and the mouse. " +
 		"viewport_statistics says what the scene view drew in its last frame (draw calls, mesh batches, instances). " +

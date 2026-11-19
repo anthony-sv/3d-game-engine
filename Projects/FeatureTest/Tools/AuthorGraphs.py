@@ -205,6 +205,9 @@ BEEP_SOUND = "9906031496213900225"
 CRATE_PREFAB = "17000004240335447843"
 # The handle of Assets/Audio/FeatureTest.smixer, the project's mixer (AssetRegistry.sreg).
 FEATURE_MIXER = "15018235737354920508"
+# The graph's ride of the scene's Bike: the fixed steps of throttle, and the step it ends at (the brakes in between).
+RIDE_THROTTLE_STEPS = 60
+RIDE_STEPS = 150
 
 FEATURES_DESCRIPTION = (
     "The feature test's visual script. Event.Create runs a check of every built-in node kind but the contact and click "
@@ -219,7 +222,9 @@ FEATURES_DESCRIPTION = (
     "checks, which wait for it before Done, and a curve asset and a physics material, as literals and loaded by path, after it; a raycast and sphere, "
     "box and capsule casts onto the physics material probe name the material they hit. A source it makes plays one-shots, "
     "the scene a clip at a point, and it reads the project's mixer and sets the game's values of its Voices bus. It marks its "
-    "start and its first step for telemetry and records its fixed steps as Features.FixedSteps.")
+    "start and its first step for telemetry and records its fixed steps as Features.FixedSteps. It rides the scene's Bike from "
+    "its fixed steps (VehicleComponent: the throttle in the first gear, then both brakes) and sets BikeRidden when the ride "
+    "has ended, for VehicleTests to ride it next.")
 
 
 def build_features(references):
@@ -310,8 +315,9 @@ def build_features(references):
     g.chain(update, g.increment(frames), g.set(elapsed, g.op("Add", g.get(elapsed), (update, "DeltaTime"))))
     fixed = g.node("Event.FixedUpdate")
     # Telemetry gets the count of fixed steps every step (the editor records it while a recording runs; the player never).
-    g.chain(fixed, g.increment(fixed_steps), g.set(fixed_step, (fixed, "FixedDeltaTime")),
-            g.node("Call:Strada.Telemetry.Record(string,float)", None, {"Channel": "Features.FixedSteps"}, Value=g.get(fixed_steps)))
+    recorded = g.chain(fixed, g.increment(fixed_steps), g.set(fixed_step, (fixed, "FixedDeltaTime")),
+                       g.node("Call:Strada.Telemetry.Record(string,float)", None, {"Channel": "Features.FixedSteps"},
+                              Value=g.get(fixed_steps)))
     counted = g.increment(input_events)
     for kind, settings, inputs in [("Event.KeyPressed", {"Key": "Space"}, None), ("Event.KeyReleased", {"Key": "Space"}, None),
                                    ("Event.MouseButtonPressed", {"Button": "Left"}, None),
@@ -989,6 +995,79 @@ def build_features(references):
                       g.equal((g.node("Array.Get", None, {"Index": 2}, Array=stored), "Element"), 1.25))
     groups.append(call_check("a public array takes the list its entity stores", passed,
                              (g.node("String.Join", None, {"Separator": ","}, Parts=stored), "Result")))
+
+    # A ride of the scene's Bike (an Automatic gearbox), driven from the fixed steps by their count while Riding (set by the
+    # second group of Create's Sequence), so that it is the same at every frame rate: the throttle for RIDE_THROTTLE_STEPS
+    # steps (a ShiftUp at the first, which an Automatic gearbox ignores), then both brakes until RIDE_STEPS; what the
+    # throttle's last step left is read on the step after it, and BikeRidden is set at the end, which VehicleTests waits for
+    # before it rides the bike itself. The check waits for the ride.
+    riding = doc.variable("Riding", "bool", False)
+    ride_steps = doc.variable("RideSteps", "int", 0)
+    bike_ridden = doc.variable("BikeRidden", "bool", False, True, "Whether the graph's ride of the Bike has ended (VehicleTests rides it next)")
+    ride_speed = doc.variable("RideSpeed", "float", 0.0)
+    ride_engine = doc.variable("RideEngine", "float", 0.0)
+    ride_gear = doc.variable("RideGear", "int", 0)
+    ride_throttle = doc.variable("RideThrottle", "float", 0.0)
+    ride_contact = doc.variable("RideContact", "bool", False)
+    ride_suspension = doc.variable("RideSuspension", "float", 0.0)
+    ride_surface = doc.variable("RideSurface", "string", "")
+    ride_stopped = doc.variable("RideStopped", "float", 0.0)
+    bike = (g.node("Call:Strada.Entity.FindByName(string)", None, {"Name": "Bike"}), "Result")
+
+    def vehicle_read(member):
+        return g.node(f"Get:Strada.VehicleComponent.{member}", Target=bike), "Value"
+
+    steering = g.node("Flow.Branch", Condition=g.get(riding))
+    g.flow(recorded, steering)
+    counted = g.increment(ride_steps)
+    g.flow((steering, "True"), counted)
+    throttling = g.op("LessOrEqual", g.get(ride_steps), B=RIDE_THROTTLE_STEPS)
+
+    def by_part(throttled, braking):
+        return g.node("Select", Condition=throttling,
+                      **{"True": g.literal("float", throttled), "False": g.literal("float", braking)}), "Result"
+
+    driven = g.node("Call:Strada.VehicleComponent.SetDriverInput(float,float,float,float)", None, {"Lean": 0.0}, Target=bike,
+                    Throttle=by_part(0.4, 0.0), FrontBrake=by_part(0.0, 1.0), RearBrake=by_part(0.0, 0.5))
+    g.flow(counted, driven)
+    first_step = g.node("Flow.Branch", Condition=g.equal(g.get(ride_steps), 1))
+    g.flow(driven, first_step)
+    shifted = g.node("Call:Strada.VehicleComponent.ShiftUp()", Target=bike)
+    g.flow((first_step, "True"), shifted)
+    reading = g.node("Flow.Branch", Condition=g.equal(g.get(ride_steps), RIDE_THROTTLE_STEPS + 1))
+    g.flow((first_step, "False"), reading)
+    g.flow(shifted, reading)
+    front = (g.node("Call:Strada.VehicleComponent.GetWheelState(int)", None, {"Index": 0}, Target=bike), "Result")
+    rear = (g.node("Call:Strada.VehicleComponent.GetWheelState(int)", None, {"Index": 1}, Target=bike), "Result")
+    front_parts = g.node("Break", {"Type": "Strada.VehicleWheelState"}, Value=front)
+    rear_parts = g.node("Break", {"Type": "Strada.VehicleWheelState"}, Value=rear)
+    g.chain((reading, "True"), g.set(ride_speed, vehicle_read("ForwardSpeed")), g.set(ride_engine, vehicle_read("EngineSpeed")),
+            g.set(ride_gear, vehicle_read("Gear")), g.set(ride_throttle, vehicle_read("Throttle")),
+            g.set(ride_contact, g.all_of((front_parts, "HasContact"), (rear_parts, "HasContact"))),
+            g.set(ride_suspension, (rear_parts, "SuspensionLength")),
+            g.set(ride_surface, (g.node("Get:Strada.VehicleWheelState.Surface", Target=front), "Value")))
+    ending = g.node("Flow.Branch", Condition=g.equal(g.get(ride_steps), RIDE_STEPS))
+    g.flow((reading, "False"), ending)
+    stopped_speed = (g.node("Call:Strada.Mathf.Abs(float)", Value=vehicle_read("ForwardSpeed")), "Result")
+    g.chain((ending, "True"), g.set(ride_stopped, stopped_speed),
+            g.node("Call:Strada.VehicleComponent.SetDriverInput(float,float,float,float)", None,
+                   {"Throttle": 0.0, "FrontBrake": 0.0, "RearBrake": 0.0, "Lean": 0.0}, Target=bike),
+            g.node("Call:Strada.VehicleComponent.ShiftDown()", Target=bike), g.set(riding, literal=False),
+            g.set(bike_ridden, literal=True))
+    kicked_off = g.set(riding, literal=True)
+    groups.insert(1, kicked_off)
+    waits.append(kicked_off)
+    ridden = g.node("Flow.WaitUntil", Condition=g.get(bike_ridden))
+    results = {"Speed": g.get(ride_speed), "Gear": g.get(ride_gear), "Engine": g.get(ride_engine), "Stopped": g.get(ride_stopped)}
+    passed = g.all_of(g.op("GreaterOrEqual", results["Gear"], B=1), g.op("Greater", results["Speed"], B=1.0),
+                      g.op("Greater", results["Engine"], B=1500.0), g.equal(g.get(ride_throttle), 0.4), g.get(ride_contact),
+                      g.op("Greater", g.get(ride_suspension), B=0.25), g.op("Less", g.get(ride_suspension), B=0.45),
+                      g.equal(g.get(ride_surface), ""), g.op("Less", results["Stopped"], B=0.3))
+    g.flow((ridden, "Completed"),
+           call_check("a graph rides a vehicle from its fixed steps: the throttle takes the first gear and speeds it up on both "
+                      "wheels, the brakes stop it", passed,
+                      g.format("{Speed} m/s in gear {Gear} at {Engine} rpm, then {Stopped} m/s", **results)))
+    groups.append(ridden)
 
     finished = g.set(done, literal=True)
     g.flow(finished, g.node("Call:Strada.Log.Info(string)", Message=g.format("Features: {Checks} checks passed", Checks=g.get(checks))))

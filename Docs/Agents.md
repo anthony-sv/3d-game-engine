@@ -48,7 +48,7 @@ time):
 | `input-actions` | 3 | Creating, reading and setting input actions (`.sinput`): the actions a game reads and the controls bound to them |
 | `mixer` | 3 | Creating, reading and setting mixers (`.smixer`): the buses sounds play on, with their volumes, effects and ducking, and the snapshots the mix blends to |
 | `physics-material` | 3 | Creating, reading and setting physics materials (`.sphysmat`): the surfaces colliders reference |
-| `vehicle` | 3 | Creating, reading and setting vehicle definitions (`.svehicle`): a motorcycle's two wheels, engine, gearbox, final drive and lean, which a `Vehicle` component names |
+| `vehicle` | 4 | Creating, reading and setting vehicle definitions (`.svehicle`): a motorcycle's two wheels, engine, gearbox, final drive and lean, which a `Vehicle` component names; and reading the playing vehicles' state (`vehicle.state`) |
 | `graph` | 16 | Visual scripts: creating, reading, checking and editing them, arranging, copying, the node library and types, finding, and the graph windows |
 | `graph` (debugging) | 11 | Breakpoints, targets, stops, continue, step, break, wait, traces, values, instances and live edits |
 | `prefab` | 2 | Creating prefabs and placing instances |

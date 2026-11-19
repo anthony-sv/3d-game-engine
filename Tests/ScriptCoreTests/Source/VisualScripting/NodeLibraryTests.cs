@@ -276,7 +276,8 @@ public sealed class NodeLibraryTests
 			"Input.IsGamepadButtonPressed", "Input.IsGamepadButtonReleased", "Input.IsGamepadConnected", "Input.IsKeyDown",
 			"Input.IsKeyPressed", "Input.IsKeyReleased", "Input.IsMouseButtonDown", "Input.IsMouseButtonPressed",
 			"Input.IsMouseButtonReleased", "MeshComponent.GetMaterial", "Mixer.GetBusName", "Mixer.GetBusParent", "Mixer.GetBusVolume",
-			"Mixer.HasBus", "Mixer.IsBusMuted", "Ray.GetPoint",
+			"Mixer.HasBus", "Mixer.IsBusMuted", "Ray.GetPoint", "Vehicle.GetGearRatio", "Vehicle.GetWheelName",
+			"VehicleComponent.GetWheelState",
 		], marked);
 	}
 
@@ -322,9 +323,9 @@ public sealed class NodeLibraryTests
 	{
 		// The library lists types by ID.
 		Assert.Equal(["Strada.Color", "Strada.ContactPoint", "Strada.Matrix4", "Strada.Quaternion", "Strada.Ray", "Strada.ShapeCastHit", "Strada.Vector2",
-			"Strada.Vector3", "Strada.Vector4"], Library.Types.Where(static type => type.Makeable).Select(static type => type.Id));
+			"Strada.Vector3", "Strada.Vector4", "Strada.VehicleWheelState"], Library.Types.Where(static type => type.Makeable).Select(static type => type.Id));
 		Assert.Equal(["Strada.AssetHandle", "Strada.Color", "Strada.ContactPoint", "Strada.Matrix4", "Strada.Quaternion", "Strada.Ray",
-			"Strada.RaycastHit", "Strada.ShapeCastHit", "Strada.Vector2", "Strada.Vector3", "Strada.Vector4"],
+			"Strada.RaycastHit", "Strada.ShapeCastHit", "Strada.Vector2", "Strada.Vector3", "Strada.Vector4", "Strada.VehicleWheelState"],
 			Library.Types.Where(static type => type.Breakable).Select(static type => type.Id));
 		Assert.Equal(["X", "Y", "Z"], Library.FindType("Strada.Vector3")!.Fields.Select(static field => field.Name));
 		Assert.Equal(["R", "G", "B", "A"], Library.FindType("Strada.Color")!.Fields.Select(static field => field.Name));
@@ -342,6 +343,9 @@ public sealed class NodeLibraryTests
 		Assert.Equal(["Entity", "Point", "Normal", "Distance", "Material"], Library.FindType("Strada.ShapeCastHit")!.Fields.Select(static field => field.Name));
 		Assert.Equal(["Strada.Entity", "Strada.Vector3", "Strada.Vector3", "float", "Strada.PhysicsMaterial"],
 			Library.FindType("Strada.ShapeCastHit")!.Fields.Select(static field => field.Type.Id));
+		// A vehicle's wheel: its contact, what it stands on, and its suspension, spin and slips (its surface's name is a getter).
+		Assert.Equal(["HasContact", "Ground", "Material", "ContactPoint", "ContactNormal", "SuspensionLength", "Spin", "LongitudinalSlip",
+			"LateralSlip"], Library.FindType("Strada.VehicleWheelState")!.Fields.Select(static field => field.Name));
 	}
 
 	[Fact]
@@ -463,7 +467,7 @@ public sealed class NodeLibraryTests
 		Assert.Contains(Library.Domains.Components, static type => type.Id == "Strada.TransformComponent");
 		Assert.DoesNotContain(Library.Domains.Components, static type => type.Id == "Strada.Component");
 		Assert.Equal(["Strada.AudioClip", "Strada.Curve", "Strada.EnvironmentMap", "Strada.Font", "Strada.InputActions", "Strada.Material",
-				"Strada.Mesh", "Strada.Mixer", "Strada.PhysicsMaterial", "Strada.Prefab", "Strada.Texture", "Strada.VisualScript"],
+				"Strada.Mesh", "Strada.Mixer", "Strada.PhysicsMaterial", "Strada.Prefab", "Strada.Texture", "Strada.Vehicle", "Strada.VisualScript"],
 			Library.Domains.Assets.Select(static type => type.Id));
 		Assert.Empty(Library.Domains.Scripts);
 		Assert.Equal(["Strada.ScriptCore.Tests.ProbeBoss", "Strada.ScriptCore.Tests.ProbeEnemy", "Strada.ScriptCore.Tests.ProbePlayer"],

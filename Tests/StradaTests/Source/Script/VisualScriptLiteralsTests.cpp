@@ -100,7 +100,7 @@ namespace
 	}
 
 	// Every exposable type, the enums above, and types without such literals: an unusable enum, Strada.Matrix4, a struct, exec.
-	constexpr std::array<std::string_view, 37> TypeIds = {"bool",
+	constexpr std::array<std::string_view, 38> TypeIds = {"bool",
 	                                                      "int",
 	                                                      "uint",
 	                                                      "long",
@@ -127,6 +127,7 @@ namespace
 	                                                      "Strada.InputActions",
 	                                                      "Strada.Mixer",
 	                                                      "Strada.PhysicsMaterial",
+	                                                      "Strada.Vehicle",
 	                                                      "Strada.ForceMode",
 	                                                      "Game.Layers",
 	                                                      "Game.Distance",
@@ -332,6 +333,7 @@ TEST_CASE("VisualScript: canonical literals of every exposable type and enum dec
 		{"Strada.InputActions", "10477063918265290111"},
 		{"Strada.Mixer", "15018235737354920508"},
 		{"Strada.PhysicsMaterial", "11281368738810150711"},
+		{"Strada.Vehicle", "16927299108182019562"},
 		// Enums by name; values without an enumerator as integers, decimal strings for 64-bit enums.
 		{"Strada.ForceMode", "Impulse"},
 		{"Strada.ForceMode", 7},

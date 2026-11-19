@@ -4,7 +4,7 @@
 		"Type": "VisualScript"
 	},
 	"VisualScript": {
-		"Description": "The feature test's visual script. Event.Create runs a check of every built-in node kind but the contact and click events (Contacts.sgraph and Clicks.sgraph have those), each reported through TestReporter by the function Check: Checks counts the passed ones and Done is set after the last. The waiting kinds come last, since each suspends the checks after it. The input events count into InputEvents (test runs have no input). The custom event Add adds its Amount to Score: the graph raises it with Event.Send, VisualScriptTests from C#. The custom event Retrigger enters a RetriggerableDelay, which the graph raises twice. It also checks the game's [VisualNode] members, the library MathLibrary.sgraph's functions and other graphs: it sends Ping to the falling box's Contacts.sgraph, reads and writes its Pings, and broadcasts Ping to every Contacts graph. An override of the input action Throttle presses and releases it, which Event.ActionPressed and Event.ActionReleased count and the action queries read. A Timeline plays beside the later checks, which wait for it before Done, and a curve asset and a physics material, as literals and loaded by path, after it; a raycast and sphere, box and capsule casts onto the physics material probe name the material they hit. A source it makes plays one-shots, the scene a clip at a point, and it reads the project's mixer and sets the game's values of its Voices bus. It marks its start and its first step for telemetry and records its fixed steps as Features.FixedSteps.",
+		"Description": "The feature test's visual script. Event.Create runs a check of every built-in node kind but the contact and click events (Contacts.sgraph and Clicks.sgraph have those), each reported through TestReporter by the function Check: Checks counts the passed ones and Done is set after the last. The waiting kinds come last, since each suspends the checks after it. The input events count into InputEvents (test runs have no input). The custom event Add adds its Amount to Score: the graph raises it with Event.Send, VisualScriptTests from C#. The custom event Retrigger enters a RetriggerableDelay, which the graph raises twice. It also checks the game's [VisualNode] members, the library MathLibrary.sgraph's functions and other graphs: it sends Ping to the falling box's Contacts.sgraph, reads and writes its Pings, and broadcasts Ping to every Contacts graph. An override of the input action Throttle presses and releases it, which Event.ActionPressed and Event.ActionReleased count and the action queries read. A Timeline plays beside the later checks, which wait for it before Done, and a curve asset and a physics material, as literals and loaded by path, after it; a raycast and sphere, box and capsule casts onto the physics material probe name the material they hit. A source it makes plays one-shots, the scene a clip at a point, and it reads the project's mixer and sets the game's values of its Voices bus. It marks its start and its first step for telemetry and records its fixed steps as Features.FixedSteps. It rides the scene's Bike from its fixed steps (VehicleComponent: the throttle in the first gear, then both brakes) and sets BikeRidden when the ride has ended, for VehicleTests to ride it next.",
 		"Variables": [
 			{
 				"ID": 1,
@@ -191,6 +191,74 @@
 				],
 				"Public": true,
 				"Tooltip": "Set by the scene: 0.25, 0.75 and 1.25"
+			},
+			{
+				"ID": 901,
+				"Name": "Riding",
+				"Type": "bool",
+				"Value": false
+			},
+			{
+				"ID": 902,
+				"Name": "RideSteps",
+				"Type": "int",
+				"Value": 0
+			},
+			{
+				"ID": 903,
+				"Name": "BikeRidden",
+				"Type": "bool",
+				"Value": false,
+				"Public": true,
+				"Tooltip": "Whether the graph's ride of the Bike has ended (VehicleTests rides it next)"
+			},
+			{
+				"ID": 904,
+				"Name": "RideSpeed",
+				"Type": "float",
+				"Value": 0.0
+			},
+			{
+				"ID": 905,
+				"Name": "RideEngine",
+				"Type": "float",
+				"Value": 0.0
+			},
+			{
+				"ID": 906,
+				"Name": "RideGear",
+				"Type": "int",
+				"Value": 0
+			},
+			{
+				"ID": 907,
+				"Name": "RideThrottle",
+				"Type": "float",
+				"Value": 0.0
+			},
+			{
+				"ID": 908,
+				"Name": "RideContact",
+				"Type": "bool",
+				"Value": false
+			},
+			{
+				"ID": 909,
+				"Name": "RideSuspension",
+				"Type": "float",
+				"Value": 0.0
+			},
+			{
+				"ID": 910,
+				"Name": "RideSurface",
+				"Type": "string",
+				"Value": ""
+			},
+			{
+				"ID": 911,
+				"Name": "RideStopped",
+				"Type": "float",
+				"Value": 0.0
 			}
 		],
 		"Functions": [
@@ -940,7 +1008,7 @@
 					"Type": "Variable.Get",
 					"Position": [
 						0.0,
-						1120.0
+						3200.0
 					],
 					"Settings": {
 						"Variable": 8
@@ -951,7 +1019,7 @@
 					"Type": "Operator.Add",
 					"Position": [
 						320.0,
-						1120.0
+						3200.0
 					],
 					"Inputs": {
 						"B": 1
@@ -962,7 +1030,7 @@
 					"Type": "Variable.Set",
 					"Position": [
 						640.0,
-						1120.0
+						3200.0
 					],
 					"Settings": {
 						"Variable": 8
@@ -973,7 +1041,7 @@
 					"Type": "Event.KeyPressed",
 					"Position": [
 						0.0,
-						1280.0
+						3360.0
 					],
 					"Settings": {
 						"Key": "Space"
@@ -984,7 +1052,7 @@
 					"Type": "Event.KeyReleased",
 					"Position": [
 						0.0,
-						1440.0
+						3520.0
 					],
 					"Settings": {
 						"Key": "Space"
@@ -995,7 +1063,7 @@
 					"Type": "Event.MouseButtonPressed",
 					"Position": [
 						0.0,
-						1600.0
+						3680.0
 					],
 					"Settings": {
 						"Button": "Left"
@@ -1006,7 +1074,7 @@
 					"Type": "Event.MouseButtonReleased",
 					"Position": [
 						0.0,
-						1760.0
+						3840.0
 					],
 					"Settings": {
 						"Button": "Left"
@@ -1017,7 +1085,7 @@
 					"Type": "Event.GamepadButtonPressed",
 					"Position": [
 						0.0,
-						1920.0
+						4000.0
 					],
 					"Settings": {
 						"Button": "A"
@@ -1031,7 +1099,7 @@
 					"Type": "Event.GamepadButtonReleased",
 					"Position": [
 						0.0,
-						2080.0
+						4160.0
 					],
 					"Settings": {
 						"Button": "A"
@@ -1045,7 +1113,7 @@
 					"Type": "Event.ActionPressed",
 					"Position": [
 						0.0,
-						2320.0
+						4400.0
 					],
 					"Settings": {
 						"Action": "Throttle"
@@ -1056,7 +1124,7 @@
 					"Type": "Variable.Get",
 					"Position": [
 						0.0,
-						2480.0
+						4560.0
 					],
 					"Settings": {
 						"Variable": 27
@@ -1067,7 +1135,7 @@
 					"Type": "Operator.Add",
 					"Position": [
 						320.0,
-						2320.0
+						4400.0
 					],
 					"Inputs": {
 						"B": 1
@@ -1078,7 +1146,7 @@
 					"Type": "Variable.Set",
 					"Position": [
 						640.0,
-						2320.0
+						4400.0
 					],
 					"Settings": {
 						"Variable": 27
@@ -1089,7 +1157,7 @@
 					"Type": "Event.ActionReleased",
 					"Position": [
 						0.0,
-						2720.0
+						4800.0
 					],
 					"Settings": {
 						"Action": "Throttle"
@@ -1100,7 +1168,7 @@
 					"Type": "Variable.Get",
 					"Position": [
 						0.0,
-						2880.0
+						4960.0
 					],
 					"Settings": {
 						"Variable": 28
@@ -1111,7 +1179,7 @@
 					"Type": "Operator.Add",
 					"Position": [
 						320.0,
-						2720.0
+						4800.0
 					],
 					"Inputs": {
 						"B": 1
@@ -1122,7 +1190,7 @@
 					"Type": "Variable.Set",
 					"Position": [
 						640.0,
-						2720.0
+						4800.0
 					],
 					"Settings": {
 						"Variable": 28
@@ -1133,7 +1201,7 @@
 					"Type": "Event.Custom",
 					"Position": [
 						0.0,
-						3120.0
+						5200.0
 					],
 					"Settings": {
 						"Name": "Add",
@@ -1150,7 +1218,7 @@
 					"Type": "Variable.Get",
 					"Position": [
 						0.0,
-						3280.0
+						5360.0
 					],
 					"Settings": {
 						"Variable": 3
@@ -1161,7 +1229,7 @@
 					"Type": "Operator.Add",
 					"Position": [
 						320.0,
-						3120.0
+						5200.0
 					]
 				},
 				{
@@ -1169,7 +1237,7 @@
 					"Type": "Variable.Set",
 					"Position": [
 						640.0,
-						3120.0
+						5200.0
 					],
 					"Settings": {
 						"Variable": 3
@@ -1180,7 +1248,7 @@
 					"Type": "Event.Custom",
 					"Position": [
 						0.0,
-						3520.0
+						5600.0
 					],
 					"Settings": {
 						"Name": "Retrigger"
@@ -1191,7 +1259,7 @@
 					"Type": "Flow.RetriggerableDelay",
 					"Position": [
 						1280.0,
-						3520.0
+						5600.0
 					],
 					"Inputs": {
 						"Duration": 0.2
@@ -1202,7 +1270,7 @@
 					"Type": "Variable.Get",
 					"Position": [
 						0.0,
-						3680.0
+						5760.0
 					],
 					"Settings": {
 						"Variable": 18
@@ -1213,7 +1281,7 @@
 					"Type": "Operator.Add",
 					"Position": [
 						320.0,
-						3520.0
+						5600.0
 					],
 					"Inputs": {
 						"B": 1
@@ -1224,7 +1292,7 @@
 					"Type": "Variable.Set",
 					"Position": [
 						640.0,
-						3520.0
+						5600.0
 					],
 					"Settings": {
 						"Variable": 18
@@ -1235,7 +1303,7 @@
 					"Type": "Variable.Get",
 					"Position": [
 						0.0,
-						3840.0
+						5920.0
 					],
 					"Settings": {
 						"Variable": 5
@@ -1246,7 +1314,7 @@
 					"Type": "Variable.Set",
 					"Position": [
 						960.0,
-						3520.0
+						5600.0
 					],
 					"Settings": {
 						"Variable": 20
@@ -1257,7 +1325,7 @@
 					"Type": "Variable.Get",
 					"Position": [
 						0.0,
-						4000.0
+						6080.0
 					],
 					"Settings": {
 						"Variable": 19
@@ -1268,7 +1336,7 @@
 					"Type": "Operator.Add",
 					"Position": [
 						320.0,
-						3680.0
+						5760.0
 					],
 					"Inputs": {
 						"B": 1
@@ -1279,7 +1347,7 @@
 					"Type": "Variable.Set",
 					"Position": [
 						1600.0,
-						3520.0
+						5600.0
 					],
 					"Settings": {
 						"Variable": 19
@@ -1290,7 +1358,7 @@
 					"Type": "Variable.Get",
 					"Position": [
 						0.0,
-						4160.0
+						6240.0
 					],
 					"Settings": {
 						"Variable": 5
@@ -1301,7 +1369,7 @@
 					"Type": "Variable.Get",
 					"Position": [
 						0.0,
-						4320.0
+						6400.0
 					],
 					"Settings": {
 						"Variable": 20
@@ -1312,7 +1380,7 @@
 					"Type": "Operator.Subtract",
 					"Position": [
 						320.0,
-						3840.0
+						5920.0
 					]
 				},
 				{
@@ -1320,7 +1388,7 @@
 					"Type": "Variable.Set",
 					"Position": [
 						1920.0,
-						3520.0
+						5600.0
 					],
 					"Settings": {
 						"Variable": 21
@@ -1331,7 +1399,7 @@
 					"Type": "Variable.Get",
 					"Position": [
 						0.0,
-						4560.0
+						6640.0
 					],
 					"Settings": {
 						"Variable": 4
@@ -1342,7 +1410,7 @@
 					"Type": "Operator.Equal",
 					"Position": [
 						320.0,
-						4560.0
+						6640.0
 					],
 					"Inputs": {
 						"B": 0
@@ -1353,7 +1421,7 @@
 					"Type": "FormatString",
 					"Position": [
 						320.0,
-						4720.0
+						6800.0
 					],
 					"Settings": {
 						"Format": "{Frames} updates ran first"
@@ -1364,7 +1432,7 @@
 					"Type": "Function.Call",
 					"Position": [
 						640.0,
-						4560.0
+						6640.0
 					],
 					"Settings": {
 						"Function": 29
@@ -1378,7 +1446,7 @@
 					"Type": "Literal",
 					"Position": [
 						0.0,
-						4720.0
+						6800.0
 					],
 					"Settings": {
 						"Type": "int",
@@ -1390,7 +1458,7 @@
 					"Type": "Literal",
 					"Position": [
 						0.0,
-						4880.0
+						6960.0
 					],
 					"Settings": {
 						"Type": "int",
@@ -1402,7 +1470,7 @@
 					"Type": "Operator.Add",
 					"Position": [
 						320.0,
-						4880.0
+						6960.0
 					]
 				},
 				{
@@ -1410,7 +1478,7 @@
 					"Type": "Operator.Subtract",
 					"Position": [
 						320.0,
-						5040.0
+						7120.0
 					]
 				},
 				{
@@ -1418,7 +1486,7 @@
 					"Type": "Operator.Multiply",
 					"Position": [
 						320.0,
-						5200.0
+						7280.0
 					]
 				},
 				{
@@ -1426,7 +1494,7 @@
 					"Type": "Operator.Divide",
 					"Position": [
 						320.0,
-						5360.0
+						7440.0
 					]
 				},
 				{
@@ -1434,7 +1502,7 @@
 					"Type": "Operator.Modulo",
 					"Position": [
 						320.0,
-						5520.0
+						7600.0
 					]
 				},
 				{
@@ -1442,7 +1510,7 @@
 					"Type": "Operator.Negate",
 					"Position": [
 						320.0,
-						5680.0
+						7760.0
 					]
 				},
 				{
@@ -1450,7 +1518,7 @@
 					"Type": "Operator.Equal",
 					"Position": [
 						640.0,
-						4720.0
+						6800.0
 					],
 					"Inputs": {
 						"B": 22
@@ -1461,7 +1529,7 @@
 					"Type": "Operator.Equal",
 					"Position": [
 						640.0,
-						4880.0
+						6960.0
 					],
 					"Inputs": {
 						"B": 12
@@ -1472,7 +1540,7 @@
 					"Type": "Operator.Equal",
 					"Position": [
 						640.0,
-						5040.0
+						7120.0
 					],
 					"Inputs": {
 						"B": 85
@@ -1483,7 +1551,7 @@
 					"Type": "Operator.Equal",
 					"Position": [
 						640.0,
-						5200.0
+						7280.0
 					],
 					"Inputs": {
 						"B": 3
@@ -1494,7 +1562,7 @@
 					"Type": "Operator.Equal",
 					"Position": [
 						640.0,
-						5360.0
+						7440.0
 					],
 					"Inputs": {
 						"B": 2
@@ -1505,7 +1573,7 @@
 					"Type": "Operator.Equal",
 					"Position": [
 						640.0,
-						5520.0
+						7600.0
 					],
 					"Inputs": {
 						"B": -17
@@ -1516,7 +1584,7 @@
 					"Type": "Operator.And",
 					"Position": [
 						960.0,
-						4560.0
+						6640.0
 					]
 				},
 				{
@@ -1524,7 +1592,7 @@
 					"Type": "Operator.And",
 					"Position": [
 						1280.0,
-						4560.0
+						6640.0
 					]
 				},
 				{
@@ -1532,7 +1600,7 @@
 					"Type": "Operator.And",
 					"Position": [
 						1600.0,
-						4560.0
+						6640.0
 					]
 				},
 				{
@@ -1540,7 +1608,7 @@
 					"Type": "Operator.And",
 					"Position": [
 						1920.0,
-						4560.0
+						6640.0
 					]
 				},
 				{
@@ -1548,7 +1616,7 @@
 					"Type": "Operator.And",
 					"Position": [
 						2240.0,
-						4560.0
+						6640.0
 					]
 				},
 				{
@@ -1556,7 +1624,7 @@
 					"Type": "FormatString",
 					"Position": [
 						640.0,
-						5680.0
+						7760.0
 					],
 					"Settings": {
 						"Format": "17 and 5: {Sum} {Difference} {Product} {Quotient} {Remainder} {Negated}"
@@ -1567,7 +1635,7 @@
 					"Type": "Function.Call",
 					"Position": [
 						2560.0,
-						4560.0
+						6640.0
 					],
 					"Settings": {
 						"Function": 29
@@ -1581,7 +1649,7 @@
 					"Type": "Literal",
 					"Position": [
 						0.0,
-						5040.0
+						7120.0
 					],
 					"Settings": {
 						"Type": "float",
@@ -1593,7 +1661,7 @@
 					"Type": "Operator.Divide",
 					"Position": [
 						320.0,
-						5840.0
+						7920.0
 					]
 				},
 				{
@@ -1601,7 +1669,7 @@
 					"Type": "Operator.Less",
 					"Position": [
 						320.0,
-						6000.0
+						8080.0
 					]
 				},
 				{
@@ -1609,7 +1677,7 @@
 					"Type": "Operator.LessOrEqual",
 					"Position": [
 						320.0,
-						6160.0
+						8240.0
 					]
 				},
 				{
@@ -1617,7 +1685,7 @@
 					"Type": "Operator.Greater",
 					"Position": [
 						320.0,
-						6320.0
+						8400.0
 					]
 				},
 				{
@@ -1625,7 +1693,7 @@
 					"Type": "Operator.GreaterOrEqual",
 					"Position": [
 						320.0,
-						6480.0
+						8560.0
 					]
 				},
 				{
@@ -1633,7 +1701,7 @@
 					"Type": "Operator.NotEqual",
 					"Position": [
 						320.0,
-						6640.0
+						8720.0
 					]
 				},
 				{
@@ -1641,7 +1709,7 @@
 					"Type": "Operator.Not",
 					"Position": [
 						0.0,
-						5200.0
+						7280.0
 					],
 					"Inputs": {
 						"A": false
@@ -1652,7 +1720,7 @@
 					"Type": "Operator.Or",
 					"Position": [
 						0.0,
-						5360.0
+						7440.0
 					],
 					"Inputs": {
 						"A": false,
@@ -1664,7 +1732,7 @@
 					"Type": "Operator.Xor",
 					"Position": [
 						0.0,
-						5520.0
+						7600.0
 					],
 					"Inputs": {
 						"A": true,
@@ -1676,7 +1744,7 @@
 					"Type": "Operator.Equal",
 					"Position": [
 						640.0,
-						5840.0
+						7920.0
 					],
 					"Inputs": {
 						"B": 1.4
@@ -1687,7 +1755,7 @@
 					"Type": "Operator.And",
 					"Position": [
 						640.0,
-						6000.0
+						8080.0
 					]
 				},
 				{
@@ -1695,7 +1763,7 @@
 					"Type": "Operator.And",
 					"Position": [
 						960.0,
-						4720.0
+						6800.0
 					]
 				},
 				{
@@ -1703,7 +1771,7 @@
 					"Type": "Operator.And",
 					"Position": [
 						1280.0,
-						4720.0
+						6800.0
 					]
 				},
 				{
@@ -1711,7 +1779,7 @@
 					"Type": "Operator.And",
 					"Position": [
 						1600.0,
-						4720.0
+						6800.0
 					]
 				},
 				{
@@ -1719,7 +1787,7 @@
 					"Type": "Operator.And",
 					"Position": [
 						1920.0,
-						4720.0
+						6800.0
 					]
 				},
 				{
@@ -1727,7 +1795,7 @@
 					"Type": "Operator.And",
 					"Position": [
 						2240.0,
-						4720.0
+						6800.0
 					]
 				},
 				{
@@ -1735,7 +1803,7 @@
 					"Type": "Operator.And",
 					"Position": [
 						2560.0,
-						4720.0
+						6800.0
 					]
 				},
 				{
@@ -1743,7 +1811,7 @@
 					"Type": "Operator.And",
 					"Position": [
 						2880.0,
-						4560.0
+						6640.0
 					]
 				},
 				{
@@ -1751,7 +1819,7 @@
 					"Type": "FormatString",
 					"Position": [
 						640.0,
-						6160.0
+						8240.0
 					],
 					"Settings": {
 						"Format": "7.0 / 5 is {Quotient}"
@@ -1762,7 +1830,7 @@
 					"Type": "Function.Call",
 					"Position": [
 						3200.0,
-						4560.0
+						6640.0
 					],
 					"Settings": {
 						"Function": 29
@@ -1776,7 +1844,7 @@
 					"Type": "Operator.Equal",
 					"Position": [
 						320.0,
-						6800.0
+						8880.0
 					]
 				},
 				{
@@ -1784,7 +1852,7 @@
 					"Type": "Operator.NotEqual",
 					"Position": [
 						320.0,
-						6960.0
+						9040.0
 					]
 				},
 				{
@@ -1792,7 +1860,7 @@
 					"Type": "Operator.Less",
 					"Position": [
 						320.0,
-						7120.0
+						9200.0
 					]
 				},
 				{
@@ -1800,7 +1868,7 @@
 					"Type": "Operator.LessOrEqual",
 					"Position": [
 						320.0,
-						7280.0
+						9360.0
 					]
 				},
 				{
@@ -1808,7 +1876,7 @@
 					"Type": "Operator.Greater",
 					"Position": [
 						320.0,
-						7440.0
+						9520.0
 					]
 				},
 				{
@@ -1816,7 +1884,7 @@
 					"Type": "Operator.GreaterOrEqual",
 					"Position": [
 						320.0,
-						7600.0
+						9680.0
 					]
 				},
 				{
@@ -1824,7 +1892,7 @@
 					"Type": "Operator.And",
 					"Position": [
 						0.0,
-						5680.0
+						7760.0
 					],
 					"Inputs": {
 						"A": true,
@@ -1836,7 +1904,7 @@
 					"Type": "Operator.Or",
 					"Position": [
 						0.0,
-						5840.0
+						7920.0
 					],
 					"Inputs": {
 						"A": false,
@@ -1848,7 +1916,7 @@
 					"Type": "Operator.Xor",
 					"Position": [
 						0.0,
-						6000.0
+						8080.0
 					],
 					"Inputs": {
 						"A": true,
@@ -1860,7 +1928,7 @@
 					"Type": "Operator.Not",
 					"Position": [
 						0.0,
-						6160.0
+						8240.0
 					],
 					"Inputs": {
 						"A": true
@@ -1871,7 +1939,7 @@
 					"Type": "Flow.Branch",
 					"Position": [
 						640.0,
-						6320.0
+						8400.0
 					]
 				},
 				{
@@ -1879,7 +1947,7 @@
 					"Type": "Function.Call",
 					"Position": [
 						960.0,
-						4880.0
+						6960.0
 					],
 					"Settings": {
 						"Function": 29
@@ -1895,7 +1963,7 @@
 					"Type": "Flow.Branch",
 					"Position": [
 						960.0,
-						5040.0
+						7120.0
 					]
 				},
 				{
@@ -1903,7 +1971,7 @@
 					"Type": "Function.Call",
 					"Position": [
 						1280.0,
-						4880.0
+						6960.0
 					],
 					"Settings": {
 						"Function": 29
@@ -1919,7 +1987,7 @@
 					"Type": "Flow.Branch",
 					"Position": [
 						1280.0,
-						5040.0
+						7120.0
 					]
 				},
 				{
@@ -1927,7 +1995,7 @@
 					"Type": "Function.Call",
 					"Position": [
 						1600.0,
-						4880.0
+						6960.0
 					],
 					"Settings": {
 						"Function": 29
@@ -1943,7 +2011,7 @@
 					"Type": "Flow.Branch",
 					"Position": [
 						1600.0,
-						5040.0
+						7120.0
 					]
 				},
 				{
@@ -1951,7 +2019,7 @@
 					"Type": "Function.Call",
 					"Position": [
 						1920.0,
-						4880.0
+						6960.0
 					],
 					"Settings": {
 						"Function": 29
@@ -1967,7 +2035,7 @@
 					"Type": "Flow.Branch",
 					"Position": [
 						1920.0,
-						5040.0
+						7120.0
 					]
 				},
 				{
@@ -1975,7 +2043,7 @@
 					"Type": "Function.Call",
 					"Position": [
 						2240.0,
-						4880.0
+						6960.0
 					],
 					"Settings": {
 						"Function": 29
@@ -1991,7 +2059,7 @@
 					"Type": "Flow.Branch",
 					"Position": [
 						2240.0,
-						5040.0
+						7120.0
 					]
 				},
 				{
@@ -1999,7 +2067,7 @@
 					"Type": "Function.Call",
 					"Position": [
 						2560.0,
-						4880.0
+						6960.0
 					],
 					"Settings": {
 						"Function": 29
@@ -2015,7 +2083,7 @@
 					"Type": "Flow.Branch",
 					"Position": [
 						2560.0,
-						5040.0
+						7120.0
 					]
 				},
 				{
@@ -2023,7 +2091,7 @@
 					"Type": "Function.Call",
 					"Position": [
 						2880.0,
-						4720.0
+						6800.0
 					],
 					"Settings": {
 						"Function": 29
@@ -2039,7 +2107,7 @@
 					"Type": "Flow.Branch",
 					"Position": [
 						2880.0,
-						4880.0
+						6960.0
 					]
 				},
 				{
@@ -2047,7 +2115,7 @@
 					"Type": "Function.Call",
 					"Position": [
 						3200.0,
-						4720.0
+						6800.0
 					],
 					"Settings": {
 						"Function": 29
@@ -2063,7 +2131,7 @@
 					"Type": "Flow.Branch",
 					"Position": [
 						3200.0,
-						4880.0
+						6960.0
 					]
 				},
 				{
@@ -2071,7 +2139,7 @@
 					"Type": "Function.Call",
 					"Position": [
 						3520.0,
-						4560.0
+						6640.0
 					],
 					"Settings": {
 						"Function": 29
@@ -2087,7 +2155,7 @@
 					"Type": "Flow.Branch",
 					"Position": [
 						3520.0,
-						4720.0
+						6800.0
 					]
 				},
 				{
@@ -2095,7 +2163,7 @@
 					"Type": "Function.Call",
 					"Position": [
 						3840.0,
-						4560.0
+						6640.0
 					],
 					"Settings": {
 						"Function": 29
@@ -2111,7 +2179,7 @@
 					"Type": "Function.Call",
 					"Position": [
 						3840.0,
-						4720.0
+						6800.0
 					],
 					"Settings": {
 						"Function": 29
@@ -2126,7 +2194,7 @@
 					"Type": "Literal",
 					"Position": [
 						0.0,
-						6320.0
+						8400.0
 					],
 					"Settings": {
 						"Type": "Strada.Vector3",
@@ -2142,7 +2210,7 @@
 					"Type": "Break",
 					"Position": [
 						320.0,
-						7760.0
+						9840.0
 					],
 					"Settings": {
 						"Type": "Strada.Vector3"
@@ -2153,7 +2221,7 @@
 					"Type": "Make",
 					"Position": [
 						640.0,
-						6480.0
+						8560.0
 					],
 					"Settings": {
 						"Type": "Strada.Vector3"
@@ -2164,7 +2232,7 @@
 					"Type": "Get:Strada.Vector3.Length",
 					"Position": [
 						960.0,
-						5200.0
+						7280.0
 					]
 				},
 				{
@@ -2172,7 +2240,7 @@
 					"Type": "Break",
 					"Position": [
 						960.0,
-						5360.0
+						7440.0
 					],
 					"Settings": {
 						"Type": "Strada.Vector3"
@@ -2183,7 +2251,7 @@
 					"Type": "Operator.Equal",
 					"Position": [
 						1280.0,
-						5200.0
+						7280.0
 					],
 					"Inputs": {
 						"B": 3.0
@@ -2194,7 +2262,7 @@
 					"Type": "Operator.Equal",
 					"Position": [
 						1280.0,
-						5360.0
+						7440.0
 					],
 					"Inputs": {
 						"B": 2.0
@@ -2205,7 +2273,7 @@
 					"Type": "Operator.Equal",
 					"Position": [
 						1280.0,
-						5520.0
+						7600.0
 					],
 					"Inputs": {
 						"B": 1.0
@@ -2216,7 +2284,7 @@
 					"Type": "Operator.And",
 					"Position": [
 						1600.0,
-						5200.0
+						7280.0
 					]
 				},
 				{
@@ -2224,7 +2292,7 @@
 					"Type": "Operator.And",
 					"Position": [
 						1920.0,
-						5200.0
+						7280.0
 					]
 				},
 				{
@@ -2232,7 +2300,7 @@
 					"Type": "FormatString",
 					"Position": [
 						1280.0,
-						5680.0
+						7760.0
 					],
 					"Settings": {
 						"Format": "(2, 2, 1) has the length {Length}"
@@ -2243,7 +2311,7 @@
 					"Type": "Function.Call",
 					"Position": [
 						2240.0,
-						5200.0
+						7280.0
 					],
 					"Settings": {
 						"Function": 29
@@ -2257,7 +2325,7 @@
 					"Type": "Operator.Less",
 					"Position": [
 						320.0,
-						7920.0
+						10000.0
 					]
 				},
 				{
@@ -2265,7 +2333,7 @@
 					"Type": "Literal",
 					"Position": [
 						0.0,
-						6480.0
+						8560.0
 					],
 					"Settings": {
 						"Type": "string",
@@ -2277,7 +2345,7 @@
 					"Type": "Literal",
 					"Position": [
 						0.0,
-						6640.0
+						8720.0
 					],
 					"Settings": {
 						"Type": "string",
@@ -2289,7 +2357,7 @@
 					"Type": "Select",
 					"Position": [
 						640.0,
-						6640.0
+						8720.0
 					]
 				},
 				{
@@ -2297,7 +2365,7 @@
 					"Type": "Reroute",
 					"Position": [
 						960.0,
-						5520.0
+						7600.0
 					]
 				},
 				{
@@ -2305,7 +2373,7 @@
 					"Type": "Operator.Less",
 					"Position": [
 						320.0,
-						8080.0
+						10160.0
 					]
 				},
 				{
@@ -2313,7 +2381,7 @@
 					"Type": "Literal",
 					"Position": [
 						0.0,
-						6800.0
+						8880.0
 					],
 					"Settings": {
 						"Type": "string",
@@ -2325,7 +2393,7 @@
 					"Type": "Literal",
 					"Position": [
 						0.0,
-						6960.0
+						9040.0
 					],
 					"Settings": {
 						"Type": "string",
@@ -2337,7 +2405,7 @@
 					"Type": "Select",
 					"Position": [
 						640.0,
-						6800.0
+						8880.0
 					]
 				},
 				{
@@ -2345,7 +2413,7 @@
 					"Type": "Reroute",
 					"Position": [
 						640.0,
-						6960.0
+						9040.0
 					]
 				},
 				{
@@ -2353,7 +2421,7 @@
 					"Type": "Operator.Equal",
 					"Position": [
 						1280.0,
-						5840.0
+						7920.0
 					],
 					"Inputs": {
 						"B": "not less"
@@ -2364,7 +2432,7 @@
 					"Type": "Operator.Equal",
 					"Position": [
 						960.0,
-						5680.0
+						7760.0
 					],
 					"Inputs": {
 						"B": "less"
@@ -2375,7 +2443,7 @@
 					"Type": "Operator.And",
 					"Position": [
 						1600.0,
-						5360.0
+						7440.0
 					]
 				},
 				{
@@ -2383,7 +2451,7 @@
 					"Type": "FormatString",
 					"Position": [
 						1280.0,
-						6000.0
+						8080.0
 					],
 					"Settings": {
 						"Format": "17 < 5: {First}, 5 < 17: {Second}"
@@ -2394,7 +2462,7 @@
 					"Type": "Function.Call",
 					"Position": [
 						1920.0,
-						5360.0
+						7440.0
 					],
 					"Settings": {
 						"Function": 29
@@ -2408,7 +2476,7 @@
 					"Type": "Literal",
 					"Position": [
 						0.0,
-						7120.0
+						9200.0
 					],
 					"Settings": {
 						"Type": "int",
@@ -2420,7 +2488,7 @@
 					"Type": "Convert",
 					"Position": [
 						320.0,
-						8240.0
+						10320.0
 					],
 					"Settings": {
 						"To": "float"
@@ -2431,7 +2499,7 @@
 					"Type": "Literal",
 					"Position": [
 						0.0,
-						7280.0
+						9360.0
 					],
 					"Settings": {
 						"Type": "string",
@@ -2443,7 +2511,7 @@
 					"Type": "Convert",
 					"Position": [
 						320.0,
-						8400.0
+						10480.0
 					],
 					"Settings": {
 						"To": "int"
@@ -2454,7 +2522,7 @@
 					"Type": "Literal",
 					"Position": [
 						0.0,
-						7440.0
+						9520.0
 					],
 					"Settings": {
 						"Type": "float",
@@ -2466,7 +2534,7 @@
 					"Type": "Convert",
 					"Position": [
 						320.0,
-						8560.0
+						10640.0
 					],
 					"Settings": {
 						"To": "int"
@@ -2477,7 +2545,7 @@
 					"Type": "Literal",
 					"Position": [
 						0.0,
-						7600.0
+						9680.0
 					],
 					"Settings": {
 						"Type": "Strada.ForceMode",
@@ -2489,7 +2557,7 @@
 					"Type": "Convert",
 					"Position": [
 						320.0,
-						8720.0
+						10800.0
 					],
 					"Settings": {
 						"To": "int"
@@ -2500,7 +2568,7 @@
 					"Type": "Operator.Equal",
 					"Position": [
 						640.0,
-						7120.0
+						9200.0
 					],
 					"Inputs": {
 						"B": 7.0
@@ -2511,7 +2579,7 @@
 					"Type": "Operator.Equal",
 					"Position": [
 						640.0,
-						7280.0
+						9360.0
 					],
 					"Inputs": {
 						"B": 42
@@ -2522,7 +2590,7 @@
 					"Type": "Operator.Equal",
 					"Position": [
 						640.0,
-						7440.0
+						9520.0
 					],
 					"Inputs": {
 						"B": -2
@@ -2533,7 +2601,7 @@
 					"Type": "Operator.Equal",
 					"Position": [
 						640.0,
-						7600.0
+						9680.0
 					],
 					"Inputs": {
 						"B": 3
@@ -2544,7 +2612,7 @@
 					"Type": "Operator.And",
 					"Position": [
 						960.0,
-						5840.0
+						7920.0
 					]
 				},
 				{
@@ -2552,7 +2620,7 @@
 					"Type": "Operator.And",
 					"Position": [
 						1280.0,
-						6160.0
+						8240.0
 					]
 				},
 				{
@@ -2560,7 +2628,7 @@
 					"Type": "Operator.And",
 					"Position": [
 						1600.0,
-						5520.0
+						7600.0
 					]
 				},
 				{
@@ -2568,7 +2636,7 @@
 					"Type": "FormatString",
 					"Position": [
 						640.0,
-						7760.0
+						9840.0
 					],
 					"Settings": {
 						"Format": "{Float} {Parsed} {Truncated} {Mode}"
@@ -2579,7 +2647,7 @@
 					"Type": "Function.Call",
 					"Position": [
 						1920.0,
-						5520.0
+						7600.0
 					],
 					"Settings": {
 						"Function": 29
@@ -2593,7 +2661,7 @@
 					"Type": "Literal",
 					"Position": [
 						0.0,
-						7760.0
+						9840.0
 					],
 					"Settings": {
 						"Type": "int",
@@ -2605,7 +2673,7 @@
 					"Type": "FormatString",
 					"Position": [
 						320.0,
-						8880.0
+						10960.0
 					],
 					"Settings": {
 						"Format": "{Count} x {Word} = {{done}}"
@@ -2619,7 +2687,7 @@
 					"Type": "Operator.Equal",
 					"Position": [
 						640.0,
-						7920.0
+						10000.0
 					],
 					"Inputs": {
 						"B": "3 x three = {done}"
@@ -2630,7 +2698,7 @@
 					"Type": "Function.Call",
 					"Position": [
 						960.0,
-						6000.0
+						8080.0
 					],
 					"Settings": {
 						"Function": 29
@@ -2644,7 +2712,7 @@
 					"Type": "Self",
 					"Position": [
 						0.0,
-						7920.0
+						10000.0
 					]
 				},
 				{
@@ -2652,7 +2720,7 @@
 					"Type": "Get:Strada.Entity.ID",
 					"Position": [
 						320.0,
-						9040.0
+						11120.0
 					]
 				},
 				{
@@ -2660,7 +2728,7 @@
 					"Type": "Call:Strada.Entity.FindByID(ulong)",
 					"Position": [
 						640.0,
-						8080.0
+						10160.0
 					]
 				},
 				{
@@ -2668,7 +2736,7 @@
 					"Type": "IsValid",
 					"Position": [
 						320.0,
-						9200.0
+						11280.0
 					]
 				},
 				{
@@ -2676,7 +2744,7 @@
 					"Type": "Variable.Get",
 					"Position": [
 						0.0,
-						8080.0
+						10160.0
 					],
 					"Settings": {
 						"Variable": 22
@@ -2687,7 +2755,7 @@
 					"Type": "IsValid",
 					"Position": [
 						320.0,
-						9360.0
+						11440.0
 					]
 				},
 				{
@@ -2695,7 +2763,7 @@
 					"Type": "Operator.Not",
 					"Position": [
 						640.0,
-						8240.0
+						10320.0
 					]
 				},
 				{
@@ -2703,7 +2771,7 @@
 					"Type": "Operator.Equal",
 					"Position": [
 						960.0,
-						6160.0
+						8240.0
 					]
 				},
 				{
@@ -2711,7 +2779,7 @@
 					"Type": "Operator.And",
 					"Position": [
 						960.0,
-						6320.0
+						8400.0
 					]
 				},
 				{
@@ -2719,7 +2787,7 @@
 					"Type": "Operator.And",
 					"Position": [
 						1280.0,
-						6320.0
+						8400.0
 					]
 				},
 				{
@@ -2727,7 +2795,7 @@
 					"Type": "Get:Strada.Entity.Name",
 					"Position": [
 						320.0,
-						9520.0
+						11600.0
 					]
 				},
 				{
@@ -2735,7 +2803,7 @@
 					"Type": "FormatString",
 					"Position": [
 						640.0,
-						8400.0
+						10480.0
 					],
 					"Settings": {
 						"Format": "Self is {Name}"
@@ -2746,7 +2814,7 @@
 					"Type": "Function.Call",
 					"Position": [
 						1600.0,
-						5680.0
+						7760.0
 					],
 					"Settings": {
 						"Function": 29
@@ -2760,7 +2828,7 @@
 					"Type": "Event.Send",
 					"Position": [
 						640.0,
-						8560.0
+						10640.0
 					],
 					"Settings": {
 						"Name": "Add",
@@ -2780,7 +2848,7 @@
 					"Type": "Variable.Get",
 					"Position": [
 						0.0,
-						8240.0
+						10320.0
 					],
 					"Settings": {
 						"Variable": 3
@@ -2791,7 +2859,7 @@
 					"Type": "Operator.Equal",
 					"Position": [
 						320.0,
-						9680.0
+						11760.0
 					],
 					"Inputs": {
 						"B": 5
@@ -2802,7 +2870,7 @@
 					"Type": "FormatString",
 					"Position": [
 						320.0,
-						9840.0
+						11920.0
 					],
 					"Settings": {
 						"Format": "Score is {Score}"
@@ -2813,7 +2881,7 @@
 					"Type": "Function.Call",
 					"Position": [
 						960.0,
-						6480.0
+						8560.0
 					],
 					"Settings": {
 						"Function": 29
@@ -2827,7 +2895,7 @@
 					"Type": "Function.Call",
 					"Position": [
 						0.0,
-						8400.0
+						10480.0
 					],
 					"Settings": {
 						"Function": 39
@@ -2842,7 +2910,7 @@
 					"Type": "Operator.Equal",
 					"Position": [
 						320.0,
-						10000.0
+						12080.0
 					],
 					"Inputs": {
 						"B": 4.5
@@ -2853,7 +2921,7 @@
 					"Type": "FormatString",
 					"Position": [
 						320.0,
-						10160.0
+						12240.0
 					],
 					"Settings": {
 						"Format": "the average of 2 and 7 is {Mean}"
@@ -2864,7 +2932,7 @@
 					"Type": "Function.Call",
 					"Position": [
 						640.0,
-						8720.0
+						10800.0
 					],
 					"Settings": {
 						"Function": 29
@@ -2878,7 +2946,7 @@
 					"Type": "Function.Call",
 					"Position": [
 						640.0,
-						8880.0
+						10960.0
 					],
 					"Settings": {
 						"Function": 44
@@ -2892,7 +2960,7 @@
 					"Type": "Operator.Equal",
 					"Position": [
 						960.0,
-						6640.0
+						8720.0
 					],
 					"Inputs": {
 						"B": 10
@@ -2903,7 +2971,7 @@
 					"Type": "FormatString",
 					"Position": [
 						960.0,
-						6800.0
+						8880.0
 					],
 					"Settings": {
 						"Format": "1 + 2 + 3 + 4 is {Total}"
@@ -2914,7 +2982,7 @@
 					"Type": "Function.Call",
 					"Position": [
 						1280.0,
-						6480.0
+						8560.0
 					],
 					"Settings": {
 						"Function": 29
@@ -2928,7 +2996,7 @@
 					"Type": "Flow.Switch",
 					"Position": [
 						640.0,
-						9040.0
+						11120.0
 					],
 					"Settings": {
 						"Type": "int",
@@ -2947,7 +3015,7 @@
 					"Type": "Flow.Switch",
 					"Position": [
 						960.0,
-						6960.0
+						9040.0
 					],
 					"Settings": {
 						"Type": "string",
@@ -2965,7 +3033,7 @@
 					"Type": "Flow.Switch",
 					"Position": [
 						1280.0,
-						6640.0
+						8720.0
 					],
 					"Settings": {
 						"Type": "Strada.ForceMode",
@@ -2983,7 +3051,7 @@
 					"Type": "Variable.Set",
 					"Position": [
 						1600.0,
-						5840.0
+						7920.0
 					],
 					"Settings": {
 						"Variable": 10
@@ -2997,7 +3065,7 @@
 					"Type": "Variable.Set",
 					"Position": [
 						1600.0,
-						6000.0
+						8080.0
 					],
 					"Settings": {
 						"Variable": 10
@@ -3011,7 +3079,7 @@
 					"Type": "Variable.Get",
 					"Position": [
 						0.0,
-						8560.0
+						10640.0
 					],
 					"Settings": {
 						"Variable": 10
@@ -3022,7 +3090,7 @@
 					"Type": "Operator.Equal",
 					"Position": [
 						320.0,
-						10320.0
+						12400.0
 					],
 					"Inputs": {
 						"B": "matched"
@@ -3033,7 +3101,7 @@
 					"Type": "Function.Call",
 					"Position": [
 						1920.0,
-						5680.0
+						7760.0
 					],
 					"Settings": {
 						"Function": 29
@@ -3047,7 +3115,7 @@
 					"Type": "Variable.Set",
 					"Position": [
 						640.0,
-						9200.0
+						11280.0
 					],
 					"Settings": {
 						"Variable": 9
@@ -3061,7 +3129,7 @@
 					"Type": "Flow.ForLoop",
 					"Position": [
 						960.0,
-						7120.0
+						9200.0
 					],
 					"Inputs": {
 						"First": 1,
@@ -3073,7 +3141,7 @@
 					"Type": "Variable.Get",
 					"Position": [
 						0.0,
-						8720.0
+						10800.0
 					],
 					"Settings": {
 						"Variable": 9
@@ -3084,7 +3152,7 @@
 					"Type": "Operator.Add",
 					"Position": [
 						1280.0,
-						6800.0
+						8880.0
 					]
 				},
 				{
@@ -3092,7 +3160,7 @@
 					"Type": "Variable.Set",
 					"Position": [
 						1600.0,
-						6160.0
+						8240.0
 					],
 					"Settings": {
 						"Variable": 9
@@ -3103,7 +3171,7 @@
 					"Type": "Operator.Equal",
 					"Position": [
 						1280.0,
-						6960.0
+						9040.0
 					],
 					"Inputs": {
 						"B": 4
@@ -3114,7 +3182,7 @@
 					"Type": "Flow.Branch",
 					"Position": [
 						1920.0,
-						5840.0
+						7920.0
 					]
 				},
 				{
@@ -3122,7 +3190,7 @@
 					"Type": "Variable.Get",
 					"Position": [
 						0.0,
-						8880.0
+						10960.0
 					],
 					"Settings": {
 						"Variable": 9
@@ -3133,7 +3201,7 @@
 					"Type": "Operator.Equal",
 					"Position": [
 						320.0,
-						10480.0
+						12560.0
 					],
 					"Inputs": {
 						"B": 10
@@ -3144,7 +3212,7 @@
 					"Type": "FormatString",
 					"Position": [
 						320.0,
-						10640.0
+						12720.0
 					],
 					"Settings": {
 						"Format": "the sum is {Sum}"
@@ -3155,7 +3223,7 @@
 					"Type": "Function.Call",
 					"Position": [
 						1280.0,
-						7120.0
+						9200.0
 					],
 					"Settings": {
 						"Function": 29
@@ -3169,7 +3237,7 @@
 					"Type": "Variable.Set",
 					"Position": [
 						640.0,
-						9360.0
+						11440.0
 					],
 					"Settings": {
 						"Variable": 9
@@ -3183,7 +3251,7 @@
 					"Type": "Variable.Get",
 					"Position": [
 						0.0,
-						9040.0
+						11120.0
 					],
 					"Settings": {
 						"Variable": 9
@@ -3194,7 +3262,7 @@
 					"Type": "Operator.Less",
 					"Position": [
 						320.0,
-						10800.0
+						12880.0
 					],
 					"Inputs": {
 						"B": 5
@@ -3205,7 +3273,7 @@
 					"Type": "Flow.While",
 					"Position": [
 						960.0,
-						7280.0
+						9360.0
 					]
 				},
 				{
@@ -3213,7 +3281,7 @@
 					"Type": "Variable.Get",
 					"Position": [
 						0.0,
-						9200.0
+						11280.0
 					],
 					"Settings": {
 						"Variable": 9
@@ -3224,7 +3292,7 @@
 					"Type": "Operator.Add",
 					"Position": [
 						320.0,
-						10960.0
+						13040.0
 					],
 					"Inputs": {
 						"B": 1
@@ -3235,7 +3303,7 @@
 					"Type": "Variable.Set",
 					"Position": [
 						1280.0,
-						7280.0
+						9360.0
 					],
 					"Settings": {
 						"Variable": 9
@@ -3246,7 +3314,7 @@
 					"Type": "Variable.Get",
 					"Position": [
 						0.0,
-						9360.0
+						11440.0
 					],
 					"Settings": {
 						"Variable": 9
@@ -3257,7 +3325,7 @@
 					"Type": "Operator.Equal",
 					"Position": [
 						320.0,
-						11120.0
+						13200.0
 					],
 					"Inputs": {
 						"B": 5
@@ -3268,7 +3336,7 @@
 					"Type": "FormatString",
 					"Position": [
 						320.0,
-						11280.0
+						13360.0
 					],
 					"Settings": {
 						"Format": "it ran {Count} times"
@@ -3279,7 +3347,7 @@
 					"Type": "Function.Call",
 					"Position": [
 						1280.0,
-						7440.0
+						9520.0
 					],
 					"Settings": {
 						"Function": 29
@@ -3293,7 +3361,7 @@
 					"Type": "Get:Strada.Entity.Parent",
 					"Position": [
 						0.0,
-						9520.0
+						11600.0
 					]
 				},
 				{
@@ -3301,7 +3369,7 @@
 					"Type": "IsValid",
 					"Position": [
 						320.0,
-						11440.0
+						13520.0
 					]
 				},
 				{
@@ -3309,7 +3377,7 @@
 					"Type": "Flow.Branch",
 					"Position": [
 						640.0,
-						9520.0
+						11600.0
 					]
 				},
 				{
@@ -3317,7 +3385,7 @@
 					"Type": "Variable.Set",
 					"Position": [
 						960.0,
-						7440.0
+						9520.0
 					],
 					"Settings": {
 						"Variable": 9
@@ -3331,7 +3399,7 @@
 					"Type": "Get:Strada.Entity.Children",
 					"Position": [
 						320.0,
-						11600.0
+						13680.0
 					]
 				},
 				{
@@ -3339,7 +3407,7 @@
 					"Type": "Flow.ForEach",
 					"Position": [
 						1280.0,
-						7600.0
+						9680.0
 					]
 				},
 				{
@@ -3347,7 +3415,7 @@
 					"Type": "Get:Strada.Entity.Parent",
 					"Position": [
 						1600.0,
-						6320.0
+						8400.0
 					]
 				},
 				{
@@ -3355,7 +3423,7 @@
 					"Type": "Operator.Equal",
 					"Position": [
 						1920.0,
-						6000.0
+						8080.0
 					]
 				},
 				{
@@ -3363,7 +3431,7 @@
 					"Type": "Flow.Branch",
 					"Position": [
 						2240.0,
-						5360.0
+						7440.0
 					]
 				},
 				{
@@ -3371,7 +3439,7 @@
 					"Type": "Variable.Get",
 					"Position": [
 						0.0,
-						9680.0
+						11760.0
 					],
 					"Settings": {
 						"Variable": 9
@@ -3382,7 +3450,7 @@
 					"Type": "Operator.Add",
 					"Position": [
 						320.0,
-						11760.0
+						13840.0
 					],
 					"Inputs": {
 						"B": 1
@@ -3393,7 +3461,7 @@
 					"Type": "Variable.Set",
 					"Position": [
 						2560.0,
-						5200.0
+						7280.0
 					],
 					"Settings": {
 						"Variable": 9
@@ -3404,7 +3472,7 @@
 					"Type": "Operator.Equal",
 					"Position": [
 						1600.0,
-						6480.0
+						8560.0
 					],
 					"Inputs": {
 						"B": 1
@@ -3415,7 +3483,7 @@
 					"Type": "Flow.Branch",
 					"Position": [
 						2880.0,
-						5040.0
+						7120.0
 					]
 				},
 				{
@@ -3423,7 +3491,7 @@
 					"Type": "Array.Length",
 					"Position": [
 						640.0,
-						9680.0
+						11760.0
 					]
 				},
 				{
@@ -3431,7 +3499,7 @@
 					"Type": "Array.Get",
 					"Position": [
 						640.0,
-						9840.0
+						11920.0
 					],
 					"Inputs": {
 						"Index": 0
@@ -3442,7 +3510,7 @@
 					"Type": "Variable.Get",
 					"Position": [
 						0.0,
-						9840.0
+						11920.0
 					],
 					"Settings": {
 						"Variable": 9
@@ -3453,7 +3521,7 @@
 					"Type": "Operator.Equal",
 					"Position": [
 						320.0,
-						11920.0
+						14000.0
 					],
 					"Inputs": {
 						"B": 2
@@ -3464,7 +3532,7 @@
 					"Type": "Operator.GreaterOrEqual",
 					"Position": [
 						960.0,
-						7600.0
+						9680.0
 					],
 					"Inputs": {
 						"B": 2
@@ -3475,7 +3543,7 @@
 					"Type": "Get:Strada.Entity.Parent",
 					"Position": [
 						960.0,
-						7760.0
+						9840.0
 					]
 				},
 				{
@@ -3483,7 +3551,7 @@
 					"Type": "Operator.Equal",
 					"Position": [
 						1280.0,
-						7760.0
+						9840.0
 					]
 				},
 				{
@@ -3491,7 +3559,7 @@
 					"Type": "Operator.And",
 					"Position": [
 						1280.0,
-						7920.0
+						10000.0
 					]
 				},
 				{
@@ -3499,7 +3567,7 @@
 					"Type": "Operator.And",
 					"Position": [
 						1600.0,
-						6640.0
+						8720.0
 					]
 				},
 				{
@@ -3507,7 +3575,7 @@
 					"Type": "FormatString",
 					"Position": [
 						960.0,
-						7920.0
+						10000.0
 					],
 					"Settings": {
 						"Format": "{Count} of {Length} children before the break"
@@ -3518,7 +3586,7 @@
 					"Type": "Function.Call",
 					"Position": [
 						1920.0,
-						6160.0
+						8240.0
 					],
 					"Settings": {
 						"Function": 29
@@ -3532,7 +3600,7 @@
 					"Type": "Function.Call",
 					"Position": [
 						960.0,
-						8080.0
+						10160.0
 					],
 					"Settings": {
 						"Function": 29
@@ -3548,7 +3616,7 @@
 					"Type": "Variable.Set",
 					"Position": [
 						640.0,
-						10000.0
+						12080.0
 					],
 					"Settings": {
 						"Variable": 9
@@ -3562,7 +3630,7 @@
 					"Type": "Flow.DoOnce",
 					"Position": [
 						1600.0,
-						6800.0
+						8880.0
 					]
 				},
 				{
@@ -3570,7 +3638,7 @@
 					"Type": "Variable.Get",
 					"Position": [
 						0.0,
-						10000.0
+						12080.0
 					],
 					"Settings": {
 						"Variable": 9
@@ -3581,7 +3649,7 @@
 					"Type": "Operator.Add",
 					"Position": [
 						320.0,
-						12080.0
+						14160.0
 					],
 					"Inputs": {
 						"B": 1
@@ -3592,7 +3660,7 @@
 					"Type": "Variable.Set",
 					"Position": [
 						1920.0,
-						6320.0
+						8400.0
 					],
 					"Settings": {
 						"Variable": 9
@@ -3603,7 +3671,7 @@
 					"Type": "Flow.ForLoop",
 					"Position": [
 						1280.0,
-						8080.0
+						10160.0
 					],
 					"Inputs": {
 						"First": 1,
@@ -3615,7 +3683,7 @@
 					"Type": "Flow.Sequence",
 					"Position": [
 						960.0,
-						8240.0
+						10320.0
 					],
 					"Settings": {
 						"Count": 4
@@ -3626,7 +3694,7 @@
 					"Type": "Variable.Get",
 					"Position": [
 						0.0,
-						10160.0
+						12240.0
 					],
 					"Settings": {
 						"Variable": 9
@@ -3637,7 +3705,7 @@
 					"Type": "Operator.Equal",
 					"Position": [
 						320.0,
-						12240.0
+						14320.0
 					],
 					"Inputs": {
 						"B": 2
@@ -3648,7 +3716,7 @@
 					"Type": "FormatString",
 					"Position": [
 						320.0,
-						12400.0
+						14480.0
 					],
 					"Settings": {
 						"Format": "it ran {Count} times"
@@ -3659,7 +3727,7 @@
 					"Type": "Function.Call",
 					"Position": [
 						1280.0,
-						8240.0
+						10320.0
 					],
 					"Settings": {
 						"Function": 29
@@ -3673,7 +3741,7 @@
 					"Type": "Variable.Set",
 					"Position": [
 						640.0,
-						10160.0
+						12240.0
 					],
 					"Settings": {
 						"Variable": 9
@@ -3687,7 +3755,7 @@
 					"Type": "Flow.DoN",
 					"Position": [
 						1280.0,
-						8400.0
+						10480.0
 					],
 					"Inputs": {
 						"N": 2
@@ -3698,7 +3766,7 @@
 					"Type": "Variable.Get",
 					"Position": [
 						0.0,
-						10320.0
+						12400.0
 					],
 					"Settings": {
 						"Variable": 9
@@ -3709,7 +3777,7 @@
 					"Type": "Operator.Add",
 					"Position": [
 						320.0,
-						12560.0
+						14640.0
 					],
 					"Inputs": {
 						"B": 1
@@ -3720,7 +3788,7 @@
 					"Type": "Variable.Set",
 					"Position": [
 						1600.0,
-						6960.0
+						9040.0
 					],
 					"Settings": {
 						"Variable": 9
@@ -3731,7 +3799,7 @@
 					"Type": "Flow.ForLoop",
 					"Position": [
 						960.0,
-						8400.0
+						10480.0
 					],
 					"Inputs": {
 						"First": 1,
@@ -3743,7 +3811,7 @@
 					"Type": "Variable.Get",
 					"Position": [
 						0.0,
-						10480.0
+						12560.0
 					],
 					"Settings": {
 						"Variable": 9
@@ -3754,7 +3822,7 @@
 					"Type": "Operator.Equal",
 					"Position": [
 						320.0,
-						12720.0
+						14800.0
 					],
 					"Inputs": {
 						"B": 2
@@ -3765,7 +3833,7 @@
 					"Type": "Operator.Equal",
 					"Position": [
 						1600.0,
-						7120.0
+						9200.0
 					],
 					"Inputs": {
 						"B": 2
@@ -3776,7 +3844,7 @@
 					"Type": "Operator.And",
 					"Position": [
 						1920.0,
-						6480.0
+						8560.0
 					]
 				},
 				{
@@ -3784,7 +3852,7 @@
 					"Type": "FormatString",
 					"Position": [
 						320.0,
-						12880.0
+						14960.0
 					],
 					"Settings": {
 						"Format": "it ran {Count} times"
@@ -3795,7 +3863,7 @@
 					"Type": "Function.Call",
 					"Position": [
 						2240.0,
-						5520.0
+						7600.0
 					],
 					"Settings": {
 						"Function": 29
@@ -3809,7 +3877,7 @@
 					"Type": "Variable.Set",
 					"Position": [
 						640.0,
-						10320.0
+						12400.0
 					],
 					"Settings": {
 						"Variable": 10
@@ -3823,7 +3891,7 @@
 					"Type": "Flow.FlipFlop",
 					"Position": [
 						1280.0,
-						8560.0
+						10640.0
 					]
 				},
 				{
@@ -3831,7 +3899,7 @@
 					"Type": "Flow.ForLoop",
 					"Position": [
 						960.0,
-						8560.0
+						10640.0
 					],
 					"Inputs": {
 						"First": 1,
@@ -3843,7 +3911,7 @@
 					"Type": "Variable.Get",
 					"Position": [
 						0.0,
-						10640.0
+						12720.0
 					],
 					"Settings": {
 						"Variable": 10
@@ -3854,7 +3922,7 @@
 					"Type": "FormatString",
 					"Position": [
 						320.0,
-						13040.0
+						15120.0
 					],
 					"Settings": {
 						"Format": "{Text}A"
@@ -3865,7 +3933,7 @@
 					"Type": "Variable.Set",
 					"Position": [
 						1600.0,
-						7280.0
+						9360.0
 					],
 					"Settings": {
 						"Variable": 10
@@ -3876,7 +3944,7 @@
 					"Type": "Variable.Get",
 					"Position": [
 						0.0,
-						10800.0
+						12880.0
 					],
 					"Settings": {
 						"Variable": 10
@@ -3887,7 +3955,7 @@
 					"Type": "FormatString",
 					"Position": [
 						320.0,
-						13200.0
+						15280.0
 					],
 					"Settings": {
 						"Format": "{Text}B"
@@ -3898,7 +3966,7 @@
 					"Type": "Variable.Set",
 					"Position": [
 						1600.0,
-						7440.0
+						9520.0
 					],
 					"Settings": {
 						"Variable": 10
@@ -3909,7 +3977,7 @@
 					"Type": "Variable.Get",
 					"Position": [
 						0.0,
-						10960.0
+						13040.0
 					],
 					"Settings": {
 						"Variable": 10
@@ -3920,7 +3988,7 @@
 					"Type": "Operator.Equal",
 					"Position": [
 						320.0,
-						13360.0
+						15440.0
 					],
 					"Inputs": {
 						"B": "ABA"
@@ -3931,7 +3999,7 @@
 					"Type": "Operator.And",
 					"Position": [
 						1600.0,
-						7600.0
+						9680.0
 					]
 				},
 				{
@@ -3939,7 +4007,7 @@
 					"Type": "Function.Call",
 					"Position": [
 						1920.0,
-						6640.0
+						8720.0
 					],
 					"Settings": {
 						"Function": 29
@@ -3953,7 +4021,7 @@
 					"Type": "Variable.Set",
 					"Position": [
 						640.0,
-						10480.0
+						12560.0
 					],
 					"Settings": {
 						"Variable": 9
@@ -3967,7 +4035,7 @@
 					"Type": "Flow.Gate",
 					"Position": [
 						1280.0,
-						8720.0
+						10800.0
 					],
 					"Settings": {
 						"StartOpen": false
@@ -3978,7 +4046,7 @@
 					"Type": "Variable.Get",
 					"Position": [
 						0.0,
-						11120.0
+						13200.0
 					],
 					"Settings": {
 						"Variable": 9
@@ -3989,7 +4057,7 @@
 					"Type": "Operator.Add",
 					"Position": [
 						320.0,
-						13520.0
+						15600.0
 					],
 					"Inputs": {
 						"B": 1
@@ -4000,7 +4068,7 @@
 					"Type": "Variable.Set",
 					"Position": [
 						1600.0,
-						7760.0
+						9840.0
 					],
 					"Settings": {
 						"Variable": 9
@@ -4011,7 +4079,7 @@
 					"Type": "Flow.Sequence",
 					"Position": [
 						960.0,
-						8720.0
+						10800.0
 					],
 					"Settings": {
 						"Count": 9
@@ -4022,7 +4090,7 @@
 					"Type": "Variable.Get",
 					"Position": [
 						0.0,
-						11280.0
+						13360.0
 					],
 					"Settings": {
 						"Variable": 9
@@ -4033,7 +4101,7 @@
 					"Type": "Operator.Equal",
 					"Position": [
 						320.0,
-						13680.0
+						15760.0
 					],
 					"Inputs": {
 						"B": 2
@@ -4044,7 +4112,7 @@
 					"Type": "FormatString",
 					"Position": [
 						320.0,
-						13840.0
+						15920.0
 					],
 					"Settings": {
 						"Format": "it let {Count} through"
@@ -4055,7 +4123,7 @@
 					"Type": "Function.Call",
 					"Position": [
 						1280.0,
-						8880.0
+						10960.0
 					],
 					"Settings": {
 						"Function": 29
@@ -4069,7 +4137,7 @@
 					"Type": "Literal",
 					"Position": [
 						0.0,
-						11440.0
+						13520.0
 					],
 					"Settings": {
 						"Type": "int",
@@ -4081,7 +4149,7 @@
 					"Type": "Literal",
 					"Position": [
 						0.0,
-						11600.0
+						13680.0
 					],
 					"Settings": {
 						"Type": "int",
@@ -4093,7 +4161,7 @@
 					"Type": "Expression",
 					"Position": [
 						320.0,
-						14000.0
+						16080.0
 					],
 					"Settings": {
 						"Formula": "a * b + 2"
@@ -4104,7 +4172,7 @@
 					"Type": "Expression",
 					"Position": [
 						0.0,
-						11760.0
+						13840.0
 					],
 					"Settings": {
 						"Formula": "lerp(a, b, 0.25) + sqrt(c)"
@@ -4120,7 +4188,7 @@
 					"Type": "Literal",
 					"Position": [
 						0.0,
-						11920.0
+						14000.0
 					],
 					"Settings": {
 						"Type": "Strada.Vector3",
@@ -4136,7 +4204,7 @@
 					"Type": "Literal",
 					"Position": [
 						0.0,
-						12080.0
+						14160.0
 					],
 					"Settings": {
 						"Type": "Strada.Vector3",
@@ -4152,7 +4220,7 @@
 					"Type": "Expression",
 					"Position": [
 						320.0,
-						14160.0
+						16240.0
 					],
 					"Settings": {
 						"Formula": "pos + dir * speed"
@@ -4166,7 +4234,7 @@
 					"Type": "Expression",
 					"Position": [
 						640.0,
-						10640.0
+						12720.0
 					],
 					"Settings": {
 						"Formula": "v.y * 2 > 7 && v.x < 2"
@@ -4177,7 +4245,7 @@
 					"Type": "Operator.Equal",
 					"Position": [
 						640.0,
-						10800.0
+						12880.0
 					],
 					"Inputs": {
 						"B": 22
@@ -4188,7 +4256,7 @@
 					"Type": "Operator.Equal",
 					"Position": [
 						320.0,
-						14320.0
+						16400.0
 					],
 					"Inputs": {
 						"B": 6.0
@@ -4199,7 +4267,7 @@
 					"Type": "Literal",
 					"Position": [
 						0.0,
-						12240.0
+						14320.0
 					],
 					"Settings": {
 						"Type": "Strada.Vector3",
@@ -4215,7 +4283,7 @@
 					"Type": "Operator.Equal",
 					"Position": [
 						640.0,
-						10960.0
+						13040.0
 					]
 				},
 				{
@@ -4223,7 +4291,7 @@
 					"Type": "Operator.And",
 					"Position": [
 						960.0,
-						8880.0
+						10960.0
 					]
 				},
 				{
@@ -4231,7 +4299,7 @@
 					"Type": "Operator.And",
 					"Position": [
 						1280.0,
-						9040.0
+						11120.0
 					]
 				},
 				{
@@ -4239,7 +4307,7 @@
 					"Type": "Operator.And",
 					"Position": [
 						1600.0,
-						7920.0
+						10000.0
 					]
 				},
 				{
@@ -4247,7 +4315,7 @@
 					"Type": "FormatString",
 					"Position": [
 						640.0,
-						11120.0
+						13200.0
 					],
 					"Settings": {
 						"Format": "{Int}, {Float}, {Vector}"
@@ -4258,7 +4326,7 @@
 					"Type": "Function.Call",
 					"Position": [
 						1920.0,
-						6800.0
+						8880.0
 					],
 					"Settings": {
 						"Function": 29
@@ -4272,7 +4340,7 @@
 					"Type": "Literal",
 					"Position": [
 						0.0,
-						12400.0
+						14480.0
 					],
 					"Settings": {
 						"Type": "string",
@@ -4284,7 +4352,7 @@
 					"Type": "String.Trim",
 					"Position": [
 						320.0,
-						14480.0
+						16560.0
 					]
 				},
 				{
@@ -4292,7 +4360,7 @@
 					"Type": "String.Split",
 					"Position": [
 						0.0,
-						12560.0
+						14640.0
 					],
 					"Inputs": {
 						"Text": "a,b,,c",
@@ -4304,7 +4372,7 @@
 					"Type": "String.Join",
 					"Position": [
 						320.0,
-						14640.0
+						16720.0
 					],
 					"Inputs": {
 						"Separator": "+"
@@ -4315,7 +4383,7 @@
 					"Type": "String.ToInt",
 					"Position": [
 						0.0,
-						12720.0
+						14800.0
 					],
 					"Inputs": {
 						"Text": "42"
@@ -4326,7 +4394,7 @@
 					"Type": "String.ToFloat",
 					"Position": [
 						0.0,
-						12880.0
+						14960.0
 					],
 					"Inputs": {
 						"Text": "2.5"
@@ -4337,7 +4405,7 @@
 					"Type": "String.ToUpper",
 					"Position": [
 						640.0,
-						11280.0
+						13360.0
 					]
 				},
 				{
@@ -4345,7 +4413,7 @@
 					"Type": "String.ToLower",
 					"Position": [
 						640.0,
-						11440.0
+						13520.0
 					]
 				},
 				{
@@ -4353,7 +4421,7 @@
 					"Type": "String.Length",
 					"Position": [
 						640.0,
-						11600.0
+						13680.0
 					]
 				},
 				{
@@ -4361,7 +4429,7 @@
 					"Type": "String.IndexOf",
 					"Position": [
 						640.0,
-						11760.0
+						13840.0
 					],
 					"Inputs": {
 						"Substring": ","
@@ -4372,7 +4440,7 @@
 					"Type": "String.Substring",
 					"Position": [
 						640.0,
-						11920.0
+						14000.0
 					],
 					"Inputs": {
 						"Start": 8,
@@ -4384,7 +4452,7 @@
 					"Type": "String.Replace",
 					"Position": [
 						640.0,
-						12080.0
+						14160.0
 					],
 					"Inputs": {
 						"Old": ", ",
@@ -4396,7 +4464,7 @@
 					"Type": "Operator.Equal",
 					"Position": [
 						960.0,
-						9040.0
+						11120.0
 					],
 					"Inputs": {
 						"B": "STRADA, ENGINE"
@@ -4407,7 +4475,7 @@
 					"Type": "Operator.Equal",
 					"Position": [
 						960.0,
-						9200.0
+						11280.0
 					],
 					"Inputs": {
 						"B": "strada, engine"
@@ -4418,7 +4486,7 @@
 					"Type": "Operator.Equal",
 					"Position": [
 						960.0,
-						9360.0
+						11440.0
 					],
 					"Inputs": {
 						"B": 14
@@ -4429,7 +4497,7 @@
 					"Type": "Operator.Equal",
 					"Position": [
 						960.0,
-						9520.0
+						11600.0
 					],
 					"Inputs": {
 						"B": 6
@@ -4440,7 +4508,7 @@
 					"Type": "Operator.Equal",
 					"Position": [
 						960.0,
-						9680.0
+						11760.0
 					],
 					"Inputs": {
 						"B": "Engine"
@@ -4451,7 +4519,7 @@
 					"Type": "Operator.Equal",
 					"Position": [
 						960.0,
-						9840.0
+						11920.0
 					],
 					"Inputs": {
 						"B": "Strada-Engine"
@@ -4462,7 +4530,7 @@
 					"Type": "Operator.Equal",
 					"Position": [
 						640.0,
-						12240.0
+						14320.0
 					],
 					"Inputs": {
 						"B": "a+b+c"
@@ -4473,7 +4541,7 @@
 					"Type": "String.Contains",
 					"Position": [
 						640.0,
-						12400.0
+						14480.0
 					],
 					"Inputs": {
 						"Substring": "Eng"
@@ -4484,7 +4552,7 @@
 					"Type": "String.StartsWith",
 					"Position": [
 						640.0,
-						12560.0
+						14640.0
 					],
 					"Inputs": {
 						"Prefix": "Str"
@@ -4495,7 +4563,7 @@
 					"Type": "String.EndsWith",
 					"Position": [
 						640.0,
-						12720.0
+						14800.0
 					],
 					"Inputs": {
 						"Suffix": "ine"
@@ -4506,7 +4574,7 @@
 					"Type": "String.IsEmpty",
 					"Position": [
 						0.0,
-						13040.0
+						15120.0
 					],
 					"Inputs": {
 						"Text": ""
@@ -4517,7 +4585,7 @@
 					"Type": "String.IsEmpty",
 					"Position": [
 						640.0,
-						12880.0
+						14960.0
 					]
 				},
 				{
@@ -4525,7 +4593,7 @@
 					"Type": "Operator.Not",
 					"Position": [
 						960.0,
-						10000.0
+						12080.0
 					]
 				},
 				{
@@ -4533,7 +4601,7 @@
 					"Type": "Operator.Equal",
 					"Position": [
 						320.0,
-						14800.0
+						16880.0
 					],
 					"Inputs": {
 						"B": 42
@@ -4544,7 +4612,7 @@
 					"Type": "Operator.Equal",
 					"Position": [
 						320.0,
-						14960.0
+						17040.0
 					],
 					"Inputs": {
 						"B": 2.5
@@ -4555,7 +4623,7 @@
 					"Type": "Operator.And",
 					"Position": [
 						1280.0,
-						9200.0
+						11280.0
 					]
 				},
 				{
@@ -4563,7 +4631,7 @@
 					"Type": "Operator.And",
 					"Position": [
 						1600.0,
-						8080.0
+						10160.0
 					]
 				},
 				{
@@ -4571,7 +4639,7 @@
 					"Type": "Operator.And",
 					"Position": [
 						1920.0,
-						6960.0
+						9040.0
 					]
 				},
 				{
@@ -4579,7 +4647,7 @@
 					"Type": "Operator.And",
 					"Position": [
 						2240.0,
-						5680.0
+						7760.0
 					]
 				},
 				{
@@ -4587,7 +4655,7 @@
 					"Type": "Operator.And",
 					"Position": [
 						2560.0,
-						5360.0
+						7440.0
 					]
 				},
 				{
@@ -4595,7 +4663,7 @@
 					"Type": "Operator.And",
 					"Position": [
 						2880.0,
-						5200.0
+						7280.0
 					]
 				},
 				{
@@ -4603,7 +4671,7 @@
 					"Type": "Operator.And",
 					"Position": [
 						3200.0,
-						5040.0
+						7120.0
 					]
 				},
 				{
@@ -4611,7 +4679,7 @@
 					"Type": "Operator.And",
 					"Position": [
 						3520.0,
-						4880.0
+						6960.0
 					]
 				},
 				{
@@ -4619,7 +4687,7 @@
 					"Type": "Operator.And",
 					"Position": [
 						3840.0,
-						4880.0
+						6960.0
 					]
 				},
 				{
@@ -4627,7 +4695,7 @@
 					"Type": "Operator.And",
 					"Position": [
 						4160.0,
-						4560.0
+						6640.0
 					]
 				},
 				{
@@ -4635,7 +4703,7 @@
 					"Type": "Operator.And",
 					"Position": [
 						4480.0,
-						4560.0
+						6640.0
 					]
 				},
 				{
@@ -4643,7 +4711,7 @@
 					"Type": "Operator.And",
 					"Position": [
 						4800.0,
-						4560.0
+						6640.0
 					]
 				},
 				{
@@ -4651,7 +4719,7 @@
 					"Type": "Operator.And",
 					"Position": [
 						5120.0,
-						4560.0
+						6640.0
 					]
 				},
 				{
@@ -4659,7 +4727,7 @@
 					"Type": "Operator.And",
 					"Position": [
 						5440.0,
-						4560.0
+						6640.0
 					]
 				},
 				{
@@ -4667,7 +4735,7 @@
 					"Type": "Operator.And",
 					"Position": [
 						5760.0,
-						4560.0
+						6640.0
 					]
 				},
 				{
@@ -4675,7 +4743,7 @@
 					"Type": "FormatString",
 					"Position": [
 						960.0,
-						10160.0
+						12240.0
 					],
 					"Settings": {
 						"Format": "{Upper}|{Lower}|{Length}|{Comma}|{Word}|{Joined}|{List}"
@@ -4686,7 +4754,7 @@
 					"Type": "Function.Call",
 					"Position": [
 						6080.0,
-						4560.0
+						6640.0
 					],
 					"Settings": {
 						"Function": 29
@@ -4700,7 +4768,7 @@
 					"Type": "Array.Make",
 					"Position": [
 						0.0,
-						13200.0
+						15280.0
 					],
 					"Settings": {
 						"Type": "int",
@@ -4717,7 +4785,7 @@
 					"Type": "Array.Set",
 					"Position": [
 						320.0,
-						15120.0
+						17200.0
 					],
 					"Inputs": {
 						"Index": 1,
@@ -4729,7 +4797,7 @@
 					"Type": "Array.Add",
 					"Position": [
 						640.0,
-						13040.0
+						15120.0
 					],
 					"Inputs": {
 						"Value": 9
@@ -4740,7 +4808,7 @@
 					"Type": "Array.RemoveAt",
 					"Position": [
 						960.0,
-						10320.0
+						12400.0
 					],
 					"Inputs": {
 						"Index": 0
@@ -4751,7 +4819,7 @@
 					"Type": "Array.Insert",
 					"Position": [
 						1280.0,
-						9360.0
+						11440.0
 					],
 					"Inputs": {
 						"Index": 1,
@@ -4763,7 +4831,7 @@
 					"Type": "Array.Make",
 					"Position": [
 						0.0,
-						13360.0
+						15440.0
 					],
 					"Settings": {
 						"Type": "int"
@@ -4778,7 +4846,7 @@
 					"Type": "Array.Append",
 					"Position": [
 						1600.0,
-						8240.0
+						10320.0
 					]
 				},
 				{
@@ -4786,7 +4854,7 @@
 					"Type": "String.Join",
 					"Position": [
 						1920.0,
-						7120.0
+						9200.0
 					],
 					"Inputs": {
 						"Separator": ","
@@ -4797,7 +4865,7 @@
 					"Type": "Literal",
 					"Position": [
 						0.0,
-						13520.0
+						15600.0
 					],
 					"Settings": {
 						"Type": "float",
@@ -4809,7 +4877,7 @@
 					"Type": "Literal",
 					"Position": [
 						0.0,
-						13680.0
+						15760.0
 					],
 					"Settings": {
 						"Type": "float",
@@ -4821,7 +4889,7 @@
 					"Type": "Array.Make",
 					"Position": [
 						320.0,
-						15280.0
+						17360.0
 					]
 				},
 				{
@@ -4829,7 +4897,7 @@
 					"Type": "Operator.Equal",
 					"Position": [
 						2240.0,
-						5840.0
+						7920.0
 					],
 					"Inputs": {
 						"B": "5,7,4,9,1,2"
@@ -4840,7 +4908,7 @@
 					"Type": "Array.Contains",
 					"Position": [
 						1920.0,
-						7280.0
+						9360.0
 					],
 					"Inputs": {
 						"Value": 9
@@ -4851,7 +4919,7 @@
 					"Type": "Array.Contains",
 					"Position": [
 						1920.0,
-						7440.0
+						9520.0
 					],
 					"Inputs": {
 						"Value": 3
@@ -4862,7 +4930,7 @@
 					"Type": "Operator.Not",
 					"Position": [
 						2240.0,
-						6000.0
+						8080.0
 					]
 				},
 				{
@@ -4870,7 +4938,7 @@
 					"Type": "Array.IndexOf",
 					"Position": [
 						1920.0,
-						7600.0
+						9680.0
 					],
 					"Inputs": {
 						"Value": 4
@@ -4881,7 +4949,7 @@
 					"Type": "Operator.Equal",
 					"Position": [
 						2240.0,
-						6160.0
+						8240.0
 					],
 					"Inputs": {
 						"B": 2
@@ -4892,7 +4960,7 @@
 					"Type": "Array.Get",
 					"Position": [
 						640.0,
-						13200.0
+						15280.0
 					],
 					"Inputs": {
 						"Index": 1
@@ -4903,7 +4971,7 @@
 					"Type": "Operator.Equal",
 					"Position": [
 						960.0,
-						10480.0
+						12560.0
 					],
 					"Inputs": {
 						"B": 2.5
@@ -4914,7 +4982,7 @@
 					"Type": "Variable.Get",
 					"Position": [
 						0.0,
-						13840.0
+						15920.0
 					],
 					"Settings": {
 						"Variable": 23
@@ -4925,7 +4993,7 @@
 					"Type": "Array.Contains",
 					"Position": [
 						320.0,
-						15440.0
+						17520.0
 					],
 					"Inputs": {
 						"Value": 1.5
@@ -4936,7 +5004,7 @@
 					"Type": "Variable.Get",
 					"Position": [
 						0.0,
-						14000.0
+						16080.0
 					],
 					"Settings": {
 						"Variable": 23
@@ -4947,7 +5015,7 @@
 					"Type": "Array.Length",
 					"Position": [
 						320.0,
-						15600.0
+						17680.0
 					]
 				},
 				{
@@ -4955,7 +5023,7 @@
 					"Type": "Operator.Equal",
 					"Position": [
 						640.0,
-						13360.0
+						15440.0
 					],
 					"Inputs": {
 						"B": 2
@@ -4966,7 +5034,7 @@
 					"Type": "Operator.And",
 					"Position": [
 						2560.0,
-						5520.0
+						7600.0
 					]
 				},
 				{
@@ -4974,7 +5042,7 @@
 					"Type": "Operator.And",
 					"Position": [
 						2880.0,
-						5360.0
+						7440.0
 					]
 				},
 				{
@@ -4982,7 +5050,7 @@
 					"Type": "Operator.And",
 					"Position": [
 						3200.0,
-						5200.0
+						7280.0
 					]
 				},
 				{
@@ -4990,7 +5058,7 @@
 					"Type": "Operator.And",
 					"Position": [
 						3520.0,
-						5040.0
+						7120.0
 					]
 				},
 				{
@@ -4998,7 +5066,7 @@
 					"Type": "Operator.And",
 					"Position": [
 						3840.0,
-						5040.0
+						7120.0
 					]
 				},
 				{
@@ -5006,7 +5074,7 @@
 					"Type": "Operator.And",
 					"Position": [
 						4160.0,
-						4720.0
+						6800.0
 					]
 				},
 				{
@@ -5014,7 +5082,7 @@
 					"Type": "Function.Call",
 					"Position": [
 						4480.0,
-						4720.0
+						6800.0
 					],
 					"Settings": {
 						"Function": 29
@@ -5028,7 +5096,7 @@
 					"Type": "Literal",
 					"Position": [
 						0.0,
-						14160.0
+						16240.0
 					],
 					"Settings": {
 						"Type": "string",
@@ -5040,7 +5108,7 @@
 					"Type": "Literal",
 					"Position": [
 						0.0,
-						14320.0
+						16400.0
 					],
 					"Settings": {
 						"Type": "string",
@@ -5052,7 +5120,7 @@
 					"Type": "Call:FeatureTest.GameChoices.Either<T>(T,T,bool)",
 					"Position": [
 						320.0,
-						15760.0
+						17840.0
 					],
 					"Inputs": {
 						"TakeSecond": true
@@ -5063,7 +5131,7 @@
 					"Type": "Call:FeatureTest.GameChoices.Either<T>(T,T,bool)",
 					"Position": [
 						0.0,
-						14480.0
+						16560.0
 					],
 					"Settings": {
 						"TypeArguments": [
@@ -5081,7 +5149,7 @@
 					"Type": "Operator.Equal",
 					"Position": [
 						640.0,
-						13520.0
+						15600.0
 					],
 					"Inputs": {
 						"B": "second"
@@ -5092,7 +5160,7 @@
 					"Type": "Operator.Equal",
 					"Position": [
 						320.0,
-						15920.0
+						18000.0
 					],
 					"Inputs": {
 						"B": 1
@@ -5103,7 +5171,7 @@
 					"Type": "Operator.And",
 					"Position": [
 						960.0,
-						10640.0
+						12720.0
 					]
 				},
 				{
@@ -5111,7 +5179,7 @@
 					"Type": "FormatString",
 					"Position": [
 						640.0,
-						13680.0
+						15760.0
 					],
 					"Settings": {
 						"Format": "{Inferred} and {Named}"
@@ -5122,7 +5190,7 @@
 					"Type": "Function.Call",
 					"Position": [
 						1280.0,
-						9520.0
+						11600.0
 					],
 					"Settings": {
 						"Function": 29
@@ -5136,7 +5204,7 @@
 					"Type": "Call:FeatureTest.GameRules.Points(int)",
 					"Position": [
 						640.0,
-						13840.0
+						15920.0
 					],
 					"Inputs": {
 						"Strength": 6
@@ -5147,7 +5215,7 @@
 					"Type": "Get:FeatureTest.GameRules.Limit",
 					"Position": [
 						0.0,
-						14640.0
+						16720.0
 					]
 				},
 				{
@@ -5155,7 +5223,7 @@
 					"Type": "New:FeatureTest.Tally(int,int)",
 					"Position": [
 						960.0,
-						10800.0
+						12880.0
 					],
 					"Inputs": {
 						"Hits": 3
@@ -5166,7 +5234,7 @@
 					"Type": "Get:FeatureTest.VisualScriptTests.GraphVisits",
 					"Position": [
 						0.0,
-						14800.0
+						16880.0
 					]
 				},
 				{
@@ -5174,7 +5242,7 @@
 					"Type": "Operator.Add",
 					"Position": [
 						320.0,
-						16080.0
+						18160.0
 					],
 					"Inputs": {
 						"B": 1
@@ -5185,7 +5253,7 @@
 					"Type": "Set:FeatureTest.VisualScriptTests.GraphVisits",
 					"Position": [
 						960.0,
-						10960.0
+						13040.0
 					]
 				},
 				{
@@ -5193,7 +5261,7 @@
 					"Type": "Call:FeatureTest.VisualScriptTests.Award(FeatureTest.Tally)",
 					"Position": [
 						1280.0,
-						9680.0
+						11760.0
 					]
 				},
 				{
@@ -5201,7 +5269,7 @@
 					"Type": "Call:FeatureTest.VisualScriptTests.VisitsAnd(int)",
 					"Position": [
 						0.0,
-						14960.0
+						17040.0
 					],
 					"Inputs": {
 						"More": 2
@@ -5212,7 +5280,7 @@
 					"Type": "Get:FeatureTest.Tally.Hits",
 					"Position": [
 						1280.0,
-						9840.0
+						11920.0
 					]
 				},
 				{
@@ -5220,7 +5288,7 @@
 					"Type": "Get:FeatureTest.Tally.Points",
 					"Position": [
 						1280.0,
-						10000.0
+						12080.0
 					]
 				},
 				{
@@ -5228,7 +5296,7 @@
 					"Type": "Get:FeatureTest.Tally.Medal",
 					"Position": [
 						1280.0,
-						10160.0
+						12240.0
 					]
 				},
 				{
@@ -5236,7 +5304,7 @@
 					"Type": "Operator.Equal",
 					"Position": [
 						1600.0,
-						8400.0
+						10480.0
 					],
 					"Inputs": {
 						"B": 10
@@ -5247,7 +5315,7 @@
 					"Type": "Operator.Equal",
 					"Position": [
 						320.0,
-						16240.0
+						18320.0
 					],
 					"Inputs": {
 						"B": 10
@@ -5258,7 +5326,7 @@
 					"Type": "Operator.Equal",
 					"Position": [
 						1600.0,
-						8560.0
+						10640.0
 					],
 					"Inputs": {
 						"B": 3
@@ -5269,7 +5337,7 @@
 					"Type": "Operator.Equal",
 					"Position": [
 						1600.0,
-						8720.0
+						10800.0
 					],
 					"Inputs": {
 						"B": "Gold"
@@ -5280,7 +5348,7 @@
 					"Type": "Operator.Equal",
 					"Position": [
 						1600.0,
-						8880.0
+						10960.0
 					],
 					"Inputs": {
 						"B": "Gold"
@@ -5291,7 +5359,7 @@
 					"Type": "Operator.Equal",
 					"Position": [
 						320.0,
-						16400.0
+						18480.0
 					],
 					"Inputs": {
 						"B": 3
@@ -5302,7 +5370,7 @@
 					"Type": "Operator.And",
 					"Position": [
 						1920.0,
-						7760.0
+						9840.0
 					]
 				},
 				{
@@ -5310,7 +5378,7 @@
 					"Type": "Operator.And",
 					"Position": [
 						2240.0,
-						6320.0
+						8400.0
 					]
 				},
 				{
@@ -5318,7 +5386,7 @@
 					"Type": "Operator.And",
 					"Position": [
 						2560.0,
-						5680.0
+						7760.0
 					]
 				},
 				{
@@ -5326,7 +5394,7 @@
 					"Type": "Operator.And",
 					"Position": [
 						2880.0,
-						5520.0
+						7600.0
 					]
 				},
 				{
@@ -5334,7 +5402,7 @@
 					"Type": "Operator.And",
 					"Position": [
 						3200.0,
-						5360.0
+						7440.0
 					]
 				},
 				{
@@ -5342,7 +5410,7 @@
 					"Type": "FormatString",
 					"Position": [
 						1600.0,
-						9040.0
+						11120.0
 					],
 					"Settings": {
 						"Format": "{Points} of {Limit} points, {Hits} hits, {Medal}, {Visits} visits and more"
@@ -5353,7 +5421,7 @@
 					"Type": "Function.Call",
 					"Position": [
 						3520.0,
-						5200.0
+						7280.0
 					],
 					"Settings": {
 						"Function": 29
@@ -5367,7 +5435,7 @@
 					"Type": "Function.Call",
 					"Position": [
 						0.0,
-						15120.0
+						17200.0
 					],
 					"Settings": {
 						"Function": 1,
@@ -5384,7 +5452,7 @@
 					"Type": "Operator.Equal",
 					"Position": [
 						320.0,
-						16560.0
+						18640.0
 					],
 					"Inputs": {
 						"B": 3.0
@@ -5395,7 +5463,7 @@
 					"Type": "FormatString",
 					"Position": [
 						320.0,
-						16720.0
+						18800.0
 					],
 					"Settings": {
 						"Format": "Lerp gave {Value}"
@@ -5406,7 +5474,7 @@
 					"Type": "Function.Call",
 					"Position": [
 						640.0,
-						14000.0
+						16080.0
 					],
 					"Settings": {
 						"Function": 29
@@ -5420,7 +5488,7 @@
 					"Type": "Call:Strada.Entity.FindByName(string)",
 					"Position": [
 						0.0,
-						15280.0
+						17360.0
 					],
 					"Inputs": {
 						"Name": "Falling Box"
@@ -5431,7 +5499,7 @@
 					"Type": "Event.Send",
 					"Position": [
 						640.0,
-						14160.0
+						16240.0
 					],
 					"Settings": {
 						"Name": "Ping",
@@ -5452,7 +5520,7 @@
 					"Type": "RunsGraph",
 					"Position": [
 						320.0,
-						16880.0
+						18960.0
 					],
 					"Settings": {
 						"Graph": "5938021440186637523"
@@ -5463,7 +5531,7 @@
 					"Type": "Flow.Branch",
 					"Position": [
 						960.0,
-						11120.0
+						13200.0
 					]
 				},
 				{
@@ -5471,7 +5539,7 @@
 					"Type": "Variable.Get",
 					"Position": [
 						320.0,
-						17040.0
+						19120.0
 					],
 					"Settings": {
 						"Variable": 8,
@@ -5483,7 +5551,7 @@
 					"Type": "Variable.Set",
 					"Position": [
 						1280.0,
-						10320.0
+						12400.0
 					],
 					"Settings": {
 						"Variable": 24
@@ -5494,7 +5562,7 @@
 					"Type": "Variable.Set",
 					"Position": [
 						1600.0,
-						9200.0
+						11280.0
 					],
 					"Settings": {
 						"Variable": 8,
@@ -5509,7 +5577,7 @@
 					"Type": "Event.Broadcast",
 					"Position": [
 						1920.0,
-						7920.0
+						10000.0
 					],
 					"Settings": {
 						"Name": "Ping",
@@ -5530,7 +5598,7 @@
 					"Type": "Variable.Get",
 					"Position": [
 						320.0,
-						17200.0
+						19280.0
 					],
 					"Settings": {
 						"Variable": 8,
@@ -5542,7 +5610,7 @@
 					"Type": "Variable.Get",
 					"Position": [
 						0.0,
-						15440.0
+						17520.0
 					],
 					"Settings": {
 						"Variable": 24
@@ -5553,7 +5621,7 @@
 					"Type": "Operator.Equal",
 					"Position": [
 						320.0,
-						17360.0
+						19440.0
 					],
 					"Inputs": {
 						"B": 2
@@ -5564,7 +5632,7 @@
 					"Type": "Operator.Equal",
 					"Position": [
 						2240.0,
-						6480.0
+						8560.0
 					],
 					"Inputs": {
 						"B": 2
@@ -5575,7 +5643,7 @@
 					"Type": "Operator.Equal",
 					"Position": [
 						640.0,
-						14320.0
+						16400.0
 					],
 					"Inputs": {
 						"B": 11
@@ -5586,7 +5654,7 @@
 					"Type": "Operator.And",
 					"Position": [
 						2560.0,
-						5840.0
+						7920.0
 					]
 				},
 				{
@@ -5594,7 +5662,7 @@
 					"Type": "Operator.And",
 					"Position": [
 						2880.0,
-						5680.0
+						7760.0
 					]
 				},
 				{
@@ -5602,7 +5670,7 @@
 					"Type": "Variable.Get",
 					"Position": [
 						0.0,
-						15600.0
+						17680.0
 					],
 					"Settings": {
 						"Variable": 24
@@ -5613,7 +5681,7 @@
 					"Type": "FormatString",
 					"Position": [
 						2240.0,
-						6640.0
+						8720.0
 					],
 					"Settings": {
 						"Format": "the box had {Seen} pings, then {Now}; {Count} received the broadcast"
@@ -5624,7 +5692,7 @@
 					"Type": "Function.Call",
 					"Position": [
 						3200.0,
-						5520.0
+						7600.0
 					],
 					"Settings": {
 						"Function": 29
@@ -5638,7 +5706,7 @@
 					"Type": "Function.Call",
 					"Position": [
 						1280.0,
-						10480.0
+						12560.0
 					],
 					"Settings": {
 						"Function": 29
@@ -5654,7 +5722,7 @@
 					"Type": "Flow.Timeline",
 					"Position": [
 						960.0,
-						11280.0
+						13360.0
 					],
 					"Settings": {
 						"Timeline": {
@@ -5789,7 +5857,7 @@
 					"Type": "Variable.Set",
 					"Position": [
 						640.0,
-						14480.0
+						16560.0
 					],
 					"Settings": {
 						"Variable": 25
@@ -5803,7 +5871,7 @@
 					"Type": "Variable.Get",
 					"Position": [
 						0.0,
-						15760.0
+						17840.0
 					],
 					"Settings": {
 						"Variable": 25
@@ -5814,7 +5882,7 @@
 					"Type": "Operator.Add",
 					"Position": [
 						320.0,
-						17520.0
+						19600.0
 					],
 					"Inputs": {
 						"B": 1
@@ -5825,7 +5893,7 @@
 					"Type": "Variable.Set",
 					"Position": [
 						1280.0,
-						10640.0
+						12720.0
 					],
 					"Settings": {
 						"Variable": 25
@@ -5836,7 +5904,7 @@
 					"Type": "Variable.Get",
 					"Position": [
 						0.0,
-						15920.0
+						18000.0
 					],
 					"Settings": {
 						"Variable": 25
@@ -5847,7 +5915,7 @@
 					"Type": "Operator.Equal",
 					"Position": [
 						320.0,
-						17680.0
+						19760.0
 					],
 					"Inputs": {
 						"B": 3
@@ -5858,7 +5926,7 @@
 					"Type": "Operator.Equal",
 					"Position": [
 						1280.0,
-						10800.0
+						12880.0
 					],
 					"Inputs": {
 						"B": 2.5
@@ -5869,7 +5937,7 @@
 					"Type": "Literal",
 					"Position": [
 						0.0,
-						16080.0
+						18160.0
 					],
 					"Settings": {
 						"Type": "Strada.Vector2",
@@ -5884,7 +5952,7 @@
 					"Type": "Operator.Equal",
 					"Position": [
 						1280.0,
-						10960.0
+						13040.0
 					]
 				},
 				{
@@ -5892,7 +5960,7 @@
 					"Type": "Literal",
 					"Position": [
 						0.0,
-						16240.0
+						18320.0
 					],
 					"Settings": {
 						"Type": "Strada.Vector3",
@@ -5908,7 +5976,7 @@
 					"Type": "Operator.Equal",
 					"Position": [
 						1280.0,
-						11120.0
+						13200.0
 					]
 				},
 				{
@@ -5916,7 +5984,7 @@
 					"Type": "Literal",
 					"Position": [
 						0.0,
-						16400.0
+						18480.0
 					],
 					"Settings": {
 						"Type": "Strada.Vector4",
@@ -5933,7 +6001,7 @@
 					"Type": "Operator.Equal",
 					"Position": [
 						1280.0,
-						11280.0
+						13360.0
 					]
 				},
 				{
@@ -5941,7 +6009,7 @@
 					"Type": "Literal",
 					"Position": [
 						0.0,
-						16560.0
+						18640.0
 					],
 					"Settings": {
 						"Type": "Strada.Color",
@@ -5958,7 +6026,7 @@
 					"Type": "Operator.Equal",
 					"Position": [
 						1280.0,
-						11440.0
+						13520.0
 					]
 				},
 				{
@@ -5966,7 +6034,7 @@
 					"Type": "Operator.Equal",
 					"Position": [
 						1280.0,
-						11600.0
+						13680.0
 					],
 					"Inputs": {
 						"B": 0.2
@@ -5977,7 +6045,7 @@
 					"Type": "Operator.And",
 					"Position": [
 						1600.0,
-						9360.0
+						11440.0
 					]
 				},
 				{
@@ -5985,7 +6053,7 @@
 					"Type": "Operator.And",
 					"Position": [
 						1920.0,
-						8080.0
+						10160.0
 					]
 				},
 				{
@@ -5993,7 +6061,7 @@
 					"Type": "Operator.And",
 					"Position": [
 						2240.0,
-						6800.0
+						8880.0
 					]
 				},
 				{
@@ -6001,7 +6069,7 @@
 					"Type": "Operator.And",
 					"Position": [
 						2560.0,
-						6000.0
+						8080.0
 					]
 				},
 				{
@@ -6009,7 +6077,7 @@
 					"Type": "Operator.And",
 					"Position": [
 						2880.0,
-						5840.0
+						7920.0
 					]
 				},
 				{
@@ -6017,7 +6085,7 @@
 					"Type": "Operator.And",
 					"Position": [
 						3200.0,
-						5680.0
+						7760.0
 					]
 				},
 				{
@@ -6025,7 +6093,7 @@
 					"Type": "FormatString",
 					"Position": [
 						1280.0,
-						11760.0
+						13840.0
 					],
 					"Settings": {
 						"Format": "{Beats} beats, Lift {Lift}, Move {Move} at {Time}"
@@ -6036,7 +6104,7 @@
 					"Type": "Function.Call",
 					"Position": [
 						3520.0,
-						5360.0
+						7440.0
 					],
 					"Settings": {
 						"Function": 29
@@ -6050,7 +6118,7 @@
 					"Type": "Variable.Set",
 					"Position": [
 						3840.0,
-						5200.0
+						7280.0
 					],
 					"Settings": {
 						"Variable": 26
@@ -6064,7 +6132,7 @@
 					"Type": "Variable.Get",
 					"Position": [
 						0.0,
-						16720.0
+						18800.0
 					],
 					"Settings": {
 						"Variable": 5
@@ -6075,7 +6143,7 @@
 					"Type": "Variable.Set",
 					"Position": [
 						640.0,
-						14640.0
+						16720.0
 					],
 					"Settings": {
 						"Variable": 11
@@ -6086,7 +6154,7 @@
 					"Type": "Flow.Delay",
 					"Position": [
 						960.0,
-						11440.0
+						13520.0
 					],
 					"Inputs": {
 						"Duration": 0.1
@@ -6097,7 +6165,7 @@
 					"Type": "Variable.Get",
 					"Position": [
 						0.0,
-						16880.0
+						18960.0
 					],
 					"Settings": {
 						"Variable": 5
@@ -6108,7 +6176,7 @@
 					"Type": "Variable.Get",
 					"Position": [
 						0.0,
-						17040.0
+						19120.0
 					],
 					"Settings": {
 						"Variable": 11
@@ -6119,7 +6187,7 @@
 					"Type": "Operator.Subtract",
 					"Position": [
 						320.0,
-						17840.0
+						19920.0
 					]
 				},
 				{
@@ -6127,7 +6195,7 @@
 					"Type": "Operator.GreaterOrEqual",
 					"Position": [
 						640.0,
-						14800.0
+						16880.0
 					],
 					"Inputs": {
 						"B": 0.099
@@ -6138,7 +6206,7 @@
 					"Type": "FormatString",
 					"Position": [
 						640.0,
-						14960.0
+						17040.0
 					],
 					"Settings": {
 						"Format": "it waited {Seconds} s"
@@ -6149,7 +6217,7 @@
 					"Type": "Function.Call",
 					"Position": [
 						1280.0,
-						11920.0
+						14000.0
 					],
 					"Settings": {
 						"Function": 29
@@ -6163,7 +6231,7 @@
 					"Type": "Event.Send",
 					"Position": [
 						640.0,
-						15120.0
+						17200.0
 					],
 					"Settings": {
 						"Name": "Retrigger"
@@ -6174,7 +6242,7 @@
 					"Type": "Flow.WaitFrames",
 					"Position": [
 						960.0,
-						11600.0
+						13680.0
 					],
 					"Inputs": {
 						"Frames": 1
@@ -6185,7 +6253,7 @@
 					"Type": "Event.Send",
 					"Position": [
 						1280.0,
-						12080.0
+						14160.0
 					],
 					"Settings": {
 						"Name": "Retrigger"
@@ -6196,7 +6264,7 @@
 					"Type": "Variable.Get",
 					"Position": [
 						0.0,
-						17200.0
+						19280.0
 					],
 					"Settings": {
 						"Variable": 19
@@ -6207,7 +6275,7 @@
 					"Type": "Operator.Greater",
 					"Position": [
 						320.0,
-						18000.0
+						20080.0
 					],
 					"Inputs": {
 						"B": 0
@@ -6218,7 +6286,7 @@
 					"Type": "Flow.WaitUntil",
 					"Position": [
 						1600.0,
-						9520.0
+						11600.0
 					]
 				},
 				{
@@ -6226,7 +6294,7 @@
 					"Type": "Flow.WaitFrames",
 					"Position": [
 						1920.0,
-						8240.0
+						10320.0
 					],
 					"Inputs": {
 						"Frames": 3
@@ -6237,7 +6305,7 @@
 					"Type": "Variable.Get",
 					"Position": [
 						0.0,
-						17360.0
+						19440.0
 					],
 					"Settings": {
 						"Variable": 18
@@ -6248,7 +6316,7 @@
 					"Type": "Variable.Get",
 					"Position": [
 						0.0,
-						17520.0
+						19600.0
 					],
 					"Settings": {
 						"Variable": 19
@@ -6259,7 +6327,7 @@
 					"Type": "Variable.Get",
 					"Position": [
 						0.0,
-						17680.0
+						19760.0
 					],
 					"Settings": {
 						"Variable": 21
@@ -6270,7 +6338,7 @@
 					"Type": "Operator.Equal",
 					"Position": [
 						320.0,
-						18160.0
+						20240.0
 					],
 					"Inputs": {
 						"B": 2
@@ -6281,7 +6349,7 @@
 					"Type": "Operator.Equal",
 					"Position": [
 						320.0,
-						18320.0
+						20400.0
 					],
 					"Inputs": {
 						"B": 1
@@ -6292,7 +6360,7 @@
 					"Type": "Operator.GreaterOrEqual",
 					"Position": [
 						320.0,
-						18480.0
+						20560.0
 					],
 					"Inputs": {
 						"B": 0.199
@@ -6303,7 +6371,7 @@
 					"Type": "Operator.And",
 					"Position": [
 						640.0,
-						15280.0
+						17360.0
 					]
 				},
 				{
@@ -6311,7 +6379,7 @@
 					"Type": "Operator.And",
 					"Position": [
 						960.0,
-						11760.0
+						13840.0
 					]
 				},
 				{
@@ -6319,7 +6387,7 @@
 					"Type": "FormatString",
 					"Position": [
 						320.0,
-						18640.0
+						20720.0
 					],
 					"Settings": {
 						"Format": "{Runs} of {Entries} entries went on, {Waited} s after the latest"
@@ -6330,7 +6398,7 @@
 					"Type": "Function.Call",
 					"Position": [
 						2240.0,
-						6960.0
+						9040.0
 					],
 					"Settings": {
 						"Function": 29
@@ -6344,7 +6412,7 @@
 					"Type": "Variable.Get",
 					"Position": [
 						0.0,
-						17840.0
+						19920.0
 					],
 					"Settings": {
 						"Variable": 4
@@ -6355,7 +6423,7 @@
 					"Type": "Variable.Set",
 					"Position": [
 						640.0,
-						15440.0
+						17520.0
 					],
 					"Settings": {
 						"Variable": 12
@@ -6366,7 +6434,7 @@
 					"Type": "Flow.WaitFrames",
 					"Position": [
 						960.0,
-						11920.0
+						14000.0
 					],
 					"Inputs": {
 						"Frames": 3
@@ -6377,7 +6445,7 @@
 					"Type": "Variable.Get",
 					"Position": [
 						0.0,
-						18000.0
+						20080.0
 					],
 					"Settings": {
 						"Variable": 4
@@ -6388,7 +6456,7 @@
 					"Type": "Variable.Get",
 					"Position": [
 						0.0,
-						18160.0
+						20240.0
 					],
 					"Settings": {
 						"Variable": 12
@@ -6399,7 +6467,7 @@
 					"Type": "Operator.Subtract",
 					"Position": [
 						320.0,
-						18800.0
+						20880.0
 					]
 				},
 				{
@@ -6407,7 +6475,7 @@
 					"Type": "FormatString",
 					"Position": [
 						640.0,
-						15600.0
+						17680.0
 					],
 					"Settings": {
 						"Format": "it waited {Frames} frames"
@@ -6418,7 +6486,7 @@
 					"Type": "Operator.Equal",
 					"Position": [
 						640.0,
-						15760.0
+						17840.0
 					],
 					"Inputs": {
 						"B": 3
@@ -6429,7 +6497,7 @@
 					"Type": "Function.Call",
 					"Position": [
 						1280.0,
-						12240.0
+						14320.0
 					],
 					"Settings": {
 						"Function": 29
@@ -6443,7 +6511,7 @@
 					"Type": "Variable.Get",
 					"Position": [
 						0.0,
-						18320.0
+						20400.0
 					],
 					"Settings": {
 						"Variable": 4
@@ -6454,7 +6522,7 @@
 					"Type": "Variable.Set",
 					"Position": [
 						640.0,
-						15920.0
+						18000.0
 					],
 					"Settings": {
 						"Variable": 12
@@ -6465,7 +6533,7 @@
 					"Type": "Variable.Get",
 					"Position": [
 						0.0,
-						18480.0
+						20560.0
 					],
 					"Settings": {
 						"Variable": 4
@@ -6476,7 +6544,7 @@
 					"Type": "Variable.Get",
 					"Position": [
 						0.0,
-						18640.0
+						20720.0
 					],
 					"Settings": {
 						"Variable": 12
@@ -6487,7 +6555,7 @@
 					"Type": "Operator.Add",
 					"Position": [
 						320.0,
-						18960.0
+						21040.0
 					],
 					"Inputs": {
 						"B": 2
@@ -6498,7 +6566,7 @@
 					"Type": "Operator.GreaterOrEqual",
 					"Position": [
 						640.0,
-						16080.0
+						18160.0
 					]
 				},
 				{
@@ -6506,7 +6574,7 @@
 					"Type": "Flow.WaitUntil",
 					"Position": [
 						960.0,
-						12080.0
+						14160.0
 					]
 				},
 				{
@@ -6514,7 +6582,7 @@
 					"Type": "Variable.Get",
 					"Position": [
 						0.0,
-						18800.0
+						20880.0
 					],
 					"Settings": {
 						"Variable": 4
@@ -6525,7 +6593,7 @@
 					"Type": "Variable.Get",
 					"Position": [
 						0.0,
-						18960.0
+						21040.0
 					],
 					"Settings": {
 						"Variable": 12
@@ -6536,7 +6604,7 @@
 					"Type": "Operator.Subtract",
 					"Position": [
 						320.0,
-						19120.0
+						21200.0
 					]
 				},
 				{
@@ -6544,7 +6612,7 @@
 					"Type": "FormatString",
 					"Position": [
 						640.0,
-						16240.0
+						18320.0
 					],
 					"Settings": {
 						"Format": "it waited {Frames} frames"
@@ -6555,7 +6623,7 @@
 					"Type": "Operator.Equal",
 					"Position": [
 						640.0,
-						16400.0
+						18480.0
 					],
 					"Inputs": {
 						"B": 2
@@ -6566,7 +6634,7 @@
 					"Type": "Function.Call",
 					"Position": [
 						1280.0,
-						12400.0
+						14480.0
 					],
 					"Settings": {
 						"Function": 29
@@ -6580,7 +6648,7 @@
 					"Type": "Call:Strada.Input.SetActionOverride(string,float)",
 					"Position": [
 						640.0,
-						16560.0
+						18640.0
 					],
 					"Inputs": {
 						"Action": "Throttle",
@@ -6592,7 +6660,7 @@
 					"Type": "Variable.Get",
 					"Position": [
 						0.0,
-						19120.0
+						21200.0
 					],
 					"Settings": {
 						"Variable": 27
@@ -6603,7 +6671,7 @@
 					"Type": "Operator.Greater",
 					"Position": [
 						320.0,
-						19280.0
+						21360.0
 					],
 					"Inputs": {
 						"B": 0
@@ -6614,7 +6682,7 @@
 					"Type": "Flow.WaitUntil",
 					"Position": [
 						960.0,
-						12240.0
+						14320.0
 					]
 				},
 				{
@@ -6622,7 +6690,7 @@
 					"Type": "Variable.Get",
 					"Position": [
 						0.0,
-						19280.0
+						21360.0
 					],
 					"Settings": {
 						"Variable": 27
@@ -6633,7 +6701,7 @@
 					"Type": "Call:Strada.Input.GetAction(string)",
 					"Position": [
 						0.0,
-						19440.0
+						21520.0
 					],
 					"Inputs": {
 						"Action": "Throttle"
@@ -6644,7 +6712,7 @@
 					"Type": "Call:Strada.Input.GetActionVector(string)",
 					"Position": [
 						0.0,
-						19600.0
+						21680.0
 					],
 					"Inputs": {
 						"Action": "Throttle"
@@ -6655,7 +6723,7 @@
 					"Type": "Break",
 					"Position": [
 						320.0,
-						19440.0
+						21520.0
 					],
 					"Settings": {
 						"Type": "Strada.Vector2"
@@ -6666,7 +6734,7 @@
 					"Type": "Operator.Equal",
 					"Position": [
 						320.0,
-						19600.0
+						21680.0
 					],
 					"Inputs": {
 						"B": 1
@@ -6677,7 +6745,7 @@
 					"Type": "Operator.Equal",
 					"Position": [
 						320.0,
-						19760.0
+						21840.0
 					],
 					"Inputs": {
 						"B": -1.0
@@ -6688,7 +6756,7 @@
 					"Type": "Operator.Equal",
 					"Position": [
 						640.0,
-						16720.0
+						18800.0
 					],
 					"Inputs": {
 						"B": -1.0
@@ -6699,7 +6767,7 @@
 					"Type": "Call:Strada.Input.IsActionDown(string)",
 					"Position": [
 						0.0,
-						19760.0
+						21840.0
 					],
 					"Inputs": {
 						"Action": "Throttle"
@@ -6710,7 +6778,7 @@
 					"Type": "Call:Strada.Input.IsActionPressed(string)",
 					"Position": [
 						0.0,
-						19920.0
+						22000.0
 					],
 					"Inputs": {
 						"Action": "Throttle"
@@ -6721,7 +6789,7 @@
 					"Type": "Operator.And",
 					"Position": [
 						640.0,
-						16880.0
+						18960.0
 					]
 				},
 				{
@@ -6729,7 +6797,7 @@
 					"Type": "Operator.And",
 					"Position": [
 						960.0,
-						12400.0
+						14480.0
 					]
 				},
 				{
@@ -6737,7 +6805,7 @@
 					"Type": "Operator.And",
 					"Position": [
 						1280.0,
-						12560.0
+						14640.0
 					]
 				},
 				{
@@ -6745,7 +6813,7 @@
 					"Type": "Operator.And",
 					"Position": [
 						1600.0,
-						9680.0
+						11760.0
 					]
 				},
 				{
@@ -6753,7 +6821,7 @@
 					"Type": "FormatString",
 					"Position": [
 						320.0,
-						19920.0
+						22000.0
 					],
 					"Settings": {
 						"Format": "{Presses} presses, value {Value}"
@@ -6764,7 +6832,7 @@
 					"Type": "Function.Call",
 					"Position": [
 						1920.0,
-						8400.0
+						10480.0
 					],
 					"Settings": {
 						"Function": 29
@@ -6778,7 +6846,7 @@
 					"Type": "Call:Strada.Input.ClearActionOverride(string)",
 					"Position": [
 						640.0,
-						17040.0
+						19120.0
 					],
 					"Inputs": {
 						"Action": "Throttle"
@@ -6789,7 +6857,7 @@
 					"Type": "Variable.Get",
 					"Position": [
 						0.0,
-						20080.0
+						22160.0
 					],
 					"Settings": {
 						"Variable": 28
@@ -6800,7 +6868,7 @@
 					"Type": "Operator.Greater",
 					"Position": [
 						320.0,
-						20080.0
+						22160.0
 					],
 					"Inputs": {
 						"B": 0
@@ -6811,7 +6879,7 @@
 					"Type": "Flow.WaitUntil",
 					"Position": [
 						960.0,
-						12560.0
+						14640.0
 					]
 				},
 				{
@@ -6819,7 +6887,7 @@
 					"Type": "Variable.Get",
 					"Position": [
 						0.0,
-						20240.0
+						22320.0
 					],
 					"Settings": {
 						"Variable": 28
@@ -6830,7 +6898,7 @@
 					"Type": "Operator.Equal",
 					"Position": [
 						320.0,
-						20240.0
+						22320.0
 					],
 					"Inputs": {
 						"B": 1
@@ -6841,7 +6909,7 @@
 					"Type": "Variable.Get",
 					"Position": [
 						0.0,
-						20400.0
+						22480.0
 					],
 					"Settings": {
 						"Variable": 27
@@ -6852,7 +6920,7 @@
 					"Type": "Operator.Equal",
 					"Position": [
 						320.0,
-						20400.0
+						22480.0
 					],
 					"Inputs": {
 						"B": 1
@@ -6863,7 +6931,7 @@
 					"Type": "Call:Strada.Input.IsActionReleased(string)",
 					"Position": [
 						0.0,
-						20560.0
+						22640.0
 					],
 					"Inputs": {
 						"Action": "Throttle"
@@ -6874,7 +6942,7 @@
 					"Type": "Call:Strada.Input.IsActionDown(string)",
 					"Position": [
 						0.0,
-						20720.0
+						22800.0
 					],
 					"Inputs": {
 						"Action": "Throttle"
@@ -6885,7 +6953,7 @@
 					"Type": "Operator.Not",
 					"Position": [
 						320.0,
-						20560.0
+						22640.0
 					]
 				},
 				{
@@ -6893,7 +6961,7 @@
 					"Type": "Call:Strada.Input.GetAction(string)",
 					"Position": [
 						0.0,
-						20880.0
+						22960.0
 					],
 					"Inputs": {
 						"Action": "Throttle"
@@ -6904,7 +6972,7 @@
 					"Type": "Operator.Equal",
 					"Position": [
 						320.0,
-						20720.0
+						22800.0
 					],
 					"Inputs": {
 						"B": 0.0
@@ -6915,7 +6983,7 @@
 					"Type": "Operator.And",
 					"Position": [
 						640.0,
-						17200.0
+						19280.0
 					]
 				},
 				{
@@ -6923,7 +6991,7 @@
 					"Type": "Operator.And",
 					"Position": [
 						960.0,
-						12720.0
+						14800.0
 					]
 				},
 				{
@@ -6931,7 +6999,7 @@
 					"Type": "Operator.And",
 					"Position": [
 						1280.0,
-						12720.0
+						14800.0
 					]
 				},
 				{
@@ -6939,7 +7007,7 @@
 					"Type": "Operator.And",
 					"Position": [
 						1600.0,
-						9840.0
+						11920.0
 					]
 				},
 				{
@@ -6947,7 +7015,7 @@
 					"Type": "FormatString",
 					"Position": [
 						320.0,
-						20880.0
+						22960.0
 					],
 					"Settings": {
 						"Format": "{Releases} releases"
@@ -6958,7 +7026,7 @@
 					"Type": "Function.Call",
 					"Position": [
 						1920.0,
-						8560.0
+						10640.0
 					],
 					"Settings": {
 						"Function": 29
@@ -6972,7 +7040,7 @@
 					"Type": "Variable.Set",
 					"Position": [
 						640.0,
-						17360.0
+						19440.0
 					],
 					"Settings": {
 						"Variable": 13
@@ -6986,7 +7054,7 @@
 					"Type": "Variable.Get",
 					"Position": [
 						0.0,
-						21040.0
+						23120.0
 					],
 					"Settings": {
 						"Variable": 5
@@ -6997,7 +7065,7 @@
 					"Type": "Variable.Set",
 					"Position": [
 						960.0,
-						12880.0
+						14960.0
 					],
 					"Settings": {
 						"Variable": 11
@@ -7008,7 +7076,7 @@
 					"Type": "Flow.Tween",
 					"Position": [
 						1280.0,
-						12880.0
+						14960.0
 					],
 					"Settings": {
 						"Easing": "EaseOut"
@@ -7022,7 +7090,7 @@
 					"Type": "Variable.Get",
 					"Position": [
 						0.0,
-						21200.0
+						23280.0
 					],
 					"Settings": {
 						"Variable": 13
@@ -7033,7 +7101,7 @@
 					"Type": "Operator.Equal",
 					"Position": [
 						320.0,
-						21040.0
+						23120.0
 					],
 					"Inputs": {
 						"B": 0
@@ -7044,7 +7112,7 @@
 					"Type": "Flow.Branch",
 					"Position": [
 						1600.0,
-						10000.0
+						12080.0
 					]
 				},
 				{
@@ -7052,7 +7120,7 @@
 					"Type": "Variable.Set",
 					"Position": [
 						2560.0,
-						6160.0
+						8240.0
 					],
 					"Settings": {
 						"Variable": 15
@@ -7063,7 +7131,7 @@
 					"Type": "Variable.Set",
 					"Position": [
 						1920.0,
-						8720.0
+						10800.0
 					],
 					"Settings": {
 						"Variable": 16
@@ -7074,7 +7142,7 @@
 					"Type": "Variable.Get",
 					"Position": [
 						0.0,
-						21360.0
+						23440.0
 					],
 					"Settings": {
 						"Variable": 5
@@ -7085,7 +7153,7 @@
 					"Type": "Variable.Get",
 					"Position": [
 						0.0,
-						21520.0
+						23600.0
 					],
 					"Settings": {
 						"Variable": 11
@@ -7096,7 +7164,7 @@
 					"Type": "Operator.Subtract",
 					"Position": [
 						320.0,
-						21200.0
+						23280.0
 					]
 				},
 				{
@@ -7104,7 +7172,7 @@
 					"Type": "Operator.Divide",
 					"Position": [
 						640.0,
-						17520.0
+						19600.0
 					],
 					"Inputs": {
 						"B": 0.1
@@ -7115,7 +7183,7 @@
 					"Type": "Variable.Set",
 					"Position": [
 						2240.0,
-						7120.0
+						9200.0
 					],
 					"Settings": {
 						"Variable": 17
@@ -7126,7 +7194,7 @@
 					"Type": "Variable.Get",
 					"Position": [
 						0.0,
-						21680.0
+						23760.0
 					],
 					"Settings": {
 						"Variable": 13
@@ -7137,7 +7205,7 @@
 					"Type": "Operator.Add",
 					"Position": [
 						320.0,
-						21360.0
+						23440.0
 					],
 					"Inputs": {
 						"B": 1
@@ -7148,7 +7216,7 @@
 					"Type": "Variable.Set",
 					"Position": [
 						2880.0,
-						6000.0
+						8080.0
 					],
 					"Settings": {
 						"Variable": 13
@@ -7159,7 +7227,7 @@
 					"Type": "Variable.Get",
 					"Position": [
 						0.0,
-						21840.0
+						23920.0
 					],
 					"Settings": {
 						"Variable": 15
@@ -7170,7 +7238,7 @@
 					"Type": "Variable.Get",
 					"Position": [
 						0.0,
-						22000.0
+						24080.0
 					],
 					"Settings": {
 						"Variable": 13
@@ -7181,7 +7249,7 @@
 					"Type": "Variable.Get",
 					"Position": [
 						0.0,
-						22160.0
+						24240.0
 					],
 					"Settings": {
 						"Variable": 17
@@ -7192,7 +7260,7 @@
 					"Type": "Variable.Get",
 					"Position": [
 						0.0,
-						22320.0
+						24400.0
 					],
 					"Settings": {
 						"Variable": 16
@@ -7203,7 +7271,7 @@
 					"Type": "Operator.Subtract",
 					"Position": [
 						320.0,
-						21520.0
+						23600.0
 					],
 					"Inputs": {
 						"A": 1.0
@@ -7214,7 +7282,7 @@
 					"Type": "Operator.Multiply",
 					"Position": [
 						640.0,
-						17680.0
+						19760.0
 					]
 				},
 				{
@@ -7222,7 +7290,7 @@
 					"Type": "Operator.Subtract",
 					"Position": [
 						960.0,
-						13040.0
+						15120.0
 					],
 					"Inputs": {
 						"A": 1.0
@@ -7233,7 +7301,7 @@
 					"Type": "Operator.Subtract",
 					"Position": [
 						1280.0,
-						13040.0
+						15120.0
 					]
 				},
 				{
@@ -7241,7 +7309,7 @@
 					"Type": "Call:Strada.Mathf.Abs(float)",
 					"Position": [
 						1600.0,
-						10160.0
+						12240.0
 					]
 				},
 				{
@@ -7249,7 +7317,7 @@
 					"Type": "Operator.Equal",
 					"Position": [
 						320.0,
-						21680.0
+						23760.0
 					],
 					"Inputs": {
 						"B": 1.0
@@ -7260,7 +7328,7 @@
 					"Type": "Operator.Greater",
 					"Position": [
 						320.0,
-						21840.0
+						23920.0
 					],
 					"Inputs": {
 						"B": 1
@@ -7271,7 +7339,7 @@
 					"Type": "Operator.Less",
 					"Position": [
 						320.0,
-						22000.0
+						24080.0
 					],
 					"Inputs": {
 						"B": 1.0
@@ -7282,7 +7350,7 @@
 					"Type": "Operator.Less",
 					"Position": [
 						1920.0,
-						8880.0
+						10960.0
 					],
 					"Inputs": {
 						"B": 0.0001
@@ -7293,7 +7361,7 @@
 					"Type": "Operator.And",
 					"Position": [
 						640.0,
-						17840.0
+						19920.0
 					]
 				},
 				{
@@ -7301,7 +7369,7 @@
 					"Type": "Operator.And",
 					"Position": [
 						960.0,
-						13200.0
+						15280.0
 					]
 				},
 				{
@@ -7309,7 +7377,7 @@
 					"Type": "Operator.And",
 					"Position": [
 						2240.0,
-						7280.0
+						9360.0
 					]
 				},
 				{
@@ -7317,7 +7385,7 @@
 					"Type": "FormatString",
 					"Position": [
 						320.0,
-						22160.0
+						24240.0
 					],
 					"Settings": {
 						"Format": "{Ticks} ticks, alpha {First} at {Part} of the way, then {Alpha}"
@@ -7328,7 +7396,7 @@
 					"Type": "Function.Call",
 					"Position": [
 						2560.0,
-						6320.0
+						8400.0
 					],
 					"Settings": {
 						"Function": 29
@@ -7342,7 +7410,7 @@
 					"Type": "Variable.Set",
 					"Position": [
 						640.0,
-						18000.0
+						20080.0
 					],
 					"Settings": {
 						"Variable": 13
@@ -7356,7 +7424,7 @@
 					"Type": "Flow.Interval",
 					"Position": [
 						960.0,
-						13360.0
+						15440.0
 					],
 					"Inputs": {
 						"Interval": 0.02,
@@ -7368,7 +7436,7 @@
 					"Type": "Variable.Get",
 					"Position": [
 						0.0,
-						22480.0
+						24560.0
 					],
 					"Settings": {
 						"Variable": 13
@@ -7379,7 +7447,7 @@
 					"Type": "Operator.Add",
 					"Position": [
 						320.0,
-						22320.0
+						24400.0
 					],
 					"Inputs": {
 						"B": 1
@@ -7390,7 +7458,7 @@
 					"Type": "Variable.Set",
 					"Position": [
 						1280.0,
-						13200.0
+						15280.0
 					],
 					"Settings": {
 						"Variable": 13
@@ -7401,7 +7469,7 @@
 					"Type": "Variable.Set",
 					"Position": [
 						1600.0,
-						10320.0
+						12400.0
 					],
 					"Settings": {
 						"Variable": 14
@@ -7412,7 +7480,7 @@
 					"Type": "Variable.Get",
 					"Position": [
 						0.0,
-						22640.0
+						24720.0
 					],
 					"Settings": {
 						"Variable": 13
@@ -7423,7 +7491,7 @@
 					"Type": "Variable.Get",
 					"Position": [
 						0.0,
-						22800.0
+						24880.0
 					],
 					"Settings": {
 						"Variable": 14
@@ -7434,7 +7502,7 @@
 					"Type": "Operator.Equal",
 					"Position": [
 						320.0,
-						22480.0
+						24560.0
 					],
 					"Inputs": {
 						"B": 3
@@ -7445,7 +7513,7 @@
 					"Type": "Operator.Equal",
 					"Position": [
 						320.0,
-						22640.0
+						24720.0
 					],
 					"Inputs": {
 						"B": 2
@@ -7456,7 +7524,7 @@
 					"Type": "Operator.And",
 					"Position": [
 						640.0,
-						18160.0
+						20240.0
 					]
 				},
 				{
@@ -7464,7 +7532,7 @@
 					"Type": "FormatString",
 					"Position": [
 						320.0,
-						22800.0
+						24880.0
 					],
 					"Settings": {
 						"Format": "{Ticks} ticks, the last {Index}"
@@ -7475,7 +7543,7 @@
 					"Type": "Function.Call",
 					"Position": [
 						1280.0,
-						13360.0
+						15440.0
 					],
 					"Settings": {
 						"Function": 29
@@ -7489,7 +7557,7 @@
 					"Type": "Variable.Get",
 					"Position": [
 						0.0,
-						22960.0
+						25040.0
 					],
 					"Settings": {
 						"Variable": 5
@@ -7500,7 +7568,7 @@
 					"Type": "Variable.Set",
 					"Position": [
 						640.0,
-						18320.0
+						20400.0
 					],
 					"Settings": {
 						"Variable": 11
@@ -7511,7 +7579,7 @@
 					"Type": "Function.Call",
 					"Position": [
 						960.0,
-						13520.0
+						15600.0
 					],
 					"Settings": {
 						"Function": 53
@@ -7525,7 +7593,7 @@
 					"Type": "Variable.Get",
 					"Position": [
 						0.0,
-						23120.0
+						25200.0
 					],
 					"Settings": {
 						"Variable": 5
@@ -7536,7 +7604,7 @@
 					"Type": "Variable.Get",
 					"Position": [
 						0.0,
-						23280.0
+						25360.0
 					],
 					"Settings": {
 						"Variable": 11
@@ -7547,7 +7615,7 @@
 					"Type": "Operator.Subtract",
 					"Position": [
 						320.0,
-						22960.0
+						25040.0
 					]
 				},
 				{
@@ -7555,7 +7623,7 @@
 					"Type": "Operator.GreaterOrEqual",
 					"Position": [
 						640.0,
-						18480.0
+						20560.0
 					],
 					"Inputs": {
 						"B": 0.049
@@ -7566,7 +7634,7 @@
 					"Type": "FormatString",
 					"Position": [
 						640.0,
-						18640.0
+						20720.0
 					],
 					"Settings": {
 						"Format": "it waited {Seconds} s"
@@ -7577,7 +7645,7 @@
 					"Type": "Function.Call",
 					"Position": [
 						1280.0,
-						13520.0
+						15600.0
 					],
 					"Settings": {
 						"Function": 29
@@ -7591,7 +7659,7 @@
 					"Type": "Variable.Get",
 					"Position": [
 						0.0,
-						23440.0
+						25520.0
 					],
 					"Settings": {
 						"Variable": 5
@@ -7602,7 +7670,7 @@
 					"Type": "Variable.Set",
 					"Position": [
 						640.0,
-						18800.0
+						20880.0
 					],
 					"Settings": {
 						"Variable": 11
@@ -7613,7 +7681,7 @@
 					"Type": "Function.Call",
 					"Position": [
 						960.0,
-						13680.0
+						15760.0
 					],
 					"Settings": {
 						"Function": 5,
@@ -7628,7 +7696,7 @@
 					"Type": "Variable.Get",
 					"Position": [
 						0.0,
-						23600.0
+						25680.0
 					],
 					"Settings": {
 						"Variable": 5
@@ -7639,7 +7707,7 @@
 					"Type": "Variable.Get",
 					"Position": [
 						0.0,
-						23760.0
+						25840.0
 					],
 					"Settings": {
 						"Variable": 11
@@ -7650,7 +7718,7 @@
 					"Type": "Operator.Subtract",
 					"Position": [
 						320.0,
-						23120.0
+						25200.0
 					]
 				},
 				{
@@ -7658,7 +7726,7 @@
 					"Type": "Operator.GreaterOrEqual",
 					"Position": [
 						640.0,
-						18960.0
+						21040.0
 					],
 					"Inputs": {
 						"B": 0.049
@@ -7669,7 +7737,7 @@
 					"Type": "FormatString",
 					"Position": [
 						640.0,
-						19120.0
+						21200.0
 					],
 					"Settings": {
 						"Format": "it waited {Seconds} s"
@@ -7680,7 +7748,7 @@
 					"Type": "Function.Call",
 					"Position": [
 						1280.0,
-						13680.0
+						15760.0
 					],
 					"Settings": {
 						"Function": 29
@@ -7694,7 +7762,7 @@
 					"Type": "Variable.Get",
 					"Position": [
 						0.0,
-						23920.0
+						26000.0
 					],
 					"Settings": {
 						"Variable": 26
@@ -7705,7 +7773,7 @@
 					"Type": "Flow.WaitUntil",
 					"Position": [
 						640.0,
-						19280.0
+						21360.0
 					]
 				},
 				{
@@ -7713,7 +7781,7 @@
 					"Type": "Literal",
 					"Position": [
 						0.0,
-						24080.0
+						26160.0
 					],
 					"Settings": {
 						"Type": "Strada.Curve",
@@ -7725,7 +7793,7 @@
 					"Type": "Call:Strada.Assets.Load<T>(string)",
 					"Position": [
 						0.0,
-						24240.0
+						26320.0
 					],
 					"Settings": {
 						"TypeArguments": [
@@ -7741,7 +7809,7 @@
 					"Type": "Call:Strada.Curve.Evaluate(float)",
 					"Position": [
 						320.0,
-						23280.0
+						25360.0
 					],
 					"Inputs": {
 						"Time": 0.375
@@ -7752,7 +7820,7 @@
 					"Type": "Call:Strada.Curve.Evaluate(float)",
 					"Position": [
 						320.0,
-						23440.0
+						25520.0
 					],
 					"Inputs": {
 						"Time": -1.0
@@ -7763,7 +7831,7 @@
 					"Type": "Call:Strada.Curve.Evaluate(float)",
 					"Position": [
 						320.0,
-						23600.0
+						25680.0
 					],
 					"Inputs": {
 						"Time": 2.25
@@ -7774,7 +7842,7 @@
 					"Type": "Operator.Equal",
 					"Position": [
 						320.0,
-						23760.0
+						25840.0
 					]
 				},
 				{
@@ -7782,7 +7850,7 @@
 					"Type": "Operator.Equal",
 					"Position": [
 						640.0,
-						19440.0
+						21520.0
 					],
 					"Inputs": {
 						"B": 0.3125
@@ -7793,7 +7861,7 @@
 					"Type": "Operator.Equal",
 					"Position": [
 						640.0,
-						19600.0
+						21680.0
 					],
 					"Inputs": {
 						"B": -0.5
@@ -7804,7 +7872,7 @@
 					"Type": "Operator.Equal",
 					"Position": [
 						640.0,
-						19760.0
+						21840.0
 					],
 					"Inputs": {
 						"B": 0.125
@@ -7815,7 +7883,7 @@
 					"Type": "Operator.And",
 					"Position": [
 						960.0,
-						13840.0
+						15920.0
 					]
 				},
 				{
@@ -7823,7 +7891,7 @@
 					"Type": "Operator.And",
 					"Position": [
 						1280.0,
-						13840.0
+						15920.0
 					]
 				},
 				{
@@ -7831,7 +7899,7 @@
 					"Type": "Operator.And",
 					"Position": [
 						1600.0,
-						10480.0
+						12560.0
 					]
 				},
 				{
@@ -7839,7 +7907,7 @@
 					"Type": "FormatString",
 					"Position": [
 						640.0,
-						19920.0
+						22000.0
 					],
 					"Settings": {
 						"Format": "{Inside} inside, {Before} before, {After} after"
@@ -7850,7 +7918,7 @@
 					"Type": "Function.Call",
 					"Position": [
 						1920.0,
-						9040.0
+						11120.0
 					],
 					"Settings": {
 						"Function": 29
@@ -7864,7 +7932,7 @@
 					"Type": "Literal",
 					"Position": [
 						0.0,
-						24400.0
+						26480.0
 					],
 					"Settings": {
 						"Type": "Strada.PhysicsMaterial",
@@ -7876,7 +7944,7 @@
 					"Type": "Call:Strada.Assets.Load<T>(string)",
 					"Position": [
 						0.0,
-						24560.0
+						26640.0
 					],
 					"Settings": {
 						"TypeArguments": [
@@ -7892,7 +7960,7 @@
 					"Type": "Get:Strada.PhysicsMaterial.Friction",
 					"Position": [
 						320.0,
-						23920.0
+						26000.0
 					]
 				},
 				{
@@ -7900,7 +7968,7 @@
 					"Type": "Get:Strada.PhysicsMaterial.Restitution",
 					"Position": [
 						320.0,
-						24080.0
+						26160.0
 					]
 				},
 				{
@@ -7908,7 +7976,7 @@
 					"Type": "Get:Strada.PhysicsMaterial.FrictionCombine",
 					"Position": [
 						320.0,
-						24240.0
+						26320.0
 					]
 				},
 				{
@@ -7916,7 +7984,7 @@
 					"Type": "Get:Strada.PhysicsMaterial.RestitutionCombine",
 					"Position": [
 						320.0,
-						24400.0
+						26480.0
 					]
 				},
 				{
@@ -7924,7 +7992,7 @@
 					"Type": "Get:Strada.PhysicsMaterial.RollingResistance",
 					"Position": [
 						320.0,
-						24560.0
+						26640.0
 					]
 				},
 				{
@@ -7932,7 +8000,7 @@
 					"Type": "Get:Strada.PhysicsMaterial.Surface",
 					"Position": [
 						320.0,
-						24720.0
+						26800.0
 					]
 				},
 				{
@@ -7940,7 +8008,7 @@
 					"Type": "Get:Strada.PhysicsMaterial.ImpactSound",
 					"Position": [
 						320.0,
-						24880.0
+						26960.0
 					]
 				},
 				{
@@ -7948,7 +8016,7 @@
 					"Type": "Get:Strada.PhysicsMaterial.ImpactParticles",
 					"Position": [
 						320.0,
-						25040.0
+						27120.0
 					]
 				},
 				{
@@ -7956,7 +8024,7 @@
 					"Type": "Call:Strada.Physics.Raycast(Strada.Vector3,Strada.Vector3,float,out Strada.RaycastHit,uint)",
 					"Position": [
 						640.0,
-						20080.0
+						22160.0
 					],
 					"Inputs": {
 						"Origin": [
@@ -7977,7 +8045,7 @@
 					"Type": "Get:Strada.RaycastHit.Material",
 					"Position": [
 						960.0,
-						14000.0
+						16080.0
 					]
 				},
 				{
@@ -7985,7 +8053,7 @@
 					"Type": "Get:Strada.PhysicsMaterial.Surface",
 					"Position": [
 						1280.0,
-						14000.0
+						16080.0
 					]
 				},
 				{
@@ -7993,7 +8061,7 @@
 					"Type": "Operator.Equal",
 					"Position": [
 						320.0,
-						25200.0
+						27280.0
 					]
 				},
 				{
@@ -8001,7 +8069,7 @@
 					"Type": "Operator.Equal",
 					"Position": [
 						640.0,
-						20240.0
+						22320.0
 					],
 					"Inputs": {
 						"B": 1.1
@@ -8012,7 +8080,7 @@
 					"Type": "Operator.Equal",
 					"Position": [
 						640.0,
-						20400.0
+						22480.0
 					],
 					"Inputs": {
 						"B": 0.35
@@ -8023,7 +8091,7 @@
 					"Type": "Operator.Equal",
 					"Position": [
 						640.0,
-						20560.0
+						22640.0
 					],
 					"Inputs": {
 						"B": "Maximum"
@@ -8034,7 +8102,7 @@
 					"Type": "Operator.Equal",
 					"Position": [
 						640.0,
-						20720.0
+						22800.0
 					],
 					"Inputs": {
 						"B": "Average"
@@ -8045,7 +8113,7 @@
 					"Type": "Operator.Equal",
 					"Position": [
 						640.0,
-						20880.0
+						22960.0
 					],
 					"Inputs": {
 						"B": 0.015
@@ -8056,7 +8124,7 @@
 					"Type": "Operator.Equal",
 					"Position": [
 						640.0,
-						21040.0
+						23120.0
 					],
 					"Inputs": {
 						"B": "Rubber"
@@ -8067,7 +8135,7 @@
 					"Type": "Literal",
 					"Position": [
 						0.0,
-						24720.0
+						26800.0
 					],
 					"Settings": {
 						"Type": "Strada.AudioClip",
@@ -8079,7 +8147,7 @@
 					"Type": "Operator.Equal",
 					"Position": [
 						640.0,
-						21200.0
+						23280.0
 					]
 				},
 				{
@@ -8087,7 +8155,7 @@
 					"Type": "Literal",
 					"Position": [
 						0.0,
-						24880.0
+						26960.0
 					],
 					"Settings": {
 						"Type": "Strada.Prefab",
@@ -8099,7 +8167,7 @@
 					"Type": "Operator.Equal",
 					"Position": [
 						640.0,
-						21360.0
+						23440.0
 					]
 				},
 				{
@@ -8107,7 +8175,7 @@
 					"Type": "Operator.Equal",
 					"Position": [
 						1280.0,
-						14160.0
+						16240.0
 					]
 				},
 				{
@@ -8115,7 +8183,7 @@
 					"Type": "Operator.Equal",
 					"Position": [
 						1600.0,
-						10640.0
+						12720.0
 					],
 					"Inputs": {
 						"B": "Rubber"
@@ -8126,7 +8194,7 @@
 					"Type": "Operator.And",
 					"Position": [
 						960.0,
-						14160.0
+						16240.0
 					]
 				},
 				{
@@ -8134,7 +8202,7 @@
 					"Type": "Operator.And",
 					"Position": [
 						1280.0,
-						14320.0
+						16400.0
 					]
 				},
 				{
@@ -8142,7 +8210,7 @@
 					"Type": "Operator.And",
 					"Position": [
 						1600.0,
-						10800.0
+						12880.0
 					]
 				},
 				{
@@ -8150,7 +8218,7 @@
 					"Type": "Operator.And",
 					"Position": [
 						1920.0,
-						9200.0
+						11280.0
 					]
 				},
 				{
@@ -8158,7 +8226,7 @@
 					"Type": "Operator.And",
 					"Position": [
 						2240.0,
-						7440.0
+						9520.0
 					]
 				},
 				{
@@ -8166,7 +8234,7 @@
 					"Type": "Operator.And",
 					"Position": [
 						2560.0,
-						6480.0
+						8560.0
 					]
 				},
 				{
@@ -8174,7 +8242,7 @@
 					"Type": "Operator.And",
 					"Position": [
 						2880.0,
-						6160.0
+						8240.0
 					]
 				},
 				{
@@ -8182,7 +8250,7 @@
 					"Type": "Operator.And",
 					"Position": [
 						3200.0,
-						5840.0
+						7920.0
 					]
 				},
 				{
@@ -8190,7 +8258,7 @@
 					"Type": "Operator.And",
 					"Position": [
 						3520.0,
-						5520.0
+						7600.0
 					]
 				},
 				{
@@ -8198,7 +8266,7 @@
 					"Type": "Operator.And",
 					"Position": [
 						3840.0,
-						5360.0
+						7440.0
 					]
 				},
 				{
@@ -8206,7 +8274,7 @@
 					"Type": "Operator.And",
 					"Position": [
 						4160.0,
-						4880.0
+						6960.0
 					]
 				},
 				{
@@ -8214,7 +8282,7 @@
 					"Type": "FormatString",
 					"Position": [
 						1600.0,
-						10960.0
+						13040.0
 					],
 					"Settings": {
 						"Format": "{Surface}: friction {Friction} ({Mode}), the ray hit {Hit}"
@@ -8225,7 +8293,7 @@
 					"Type": "Function.Call",
 					"Position": [
 						4480.0,
-						4880.0
+						6960.0
 					],
 					"Settings": {
 						"Function": 29
@@ -8239,7 +8307,7 @@
 					"Type": "Call:Strada.Physics.SphereCast(Strada.Vector3,float,Strada.Vector3,float,out Strada.ShapeCastHit,uint,bool)",
 					"Position": [
 						640.0,
-						21520.0
+						23600.0
 					],
 					"Inputs": {
 						"Origin": [
@@ -8261,7 +8329,7 @@
 					"Type": "Call:Strada.Physics.BoxCast(Strada.Vector3,Strada.Vector3,Strada.Quaternion,Strada.Vector3,float,out Strada.ShapeCastHit,uint,bool)",
 					"Position": [
 						960.0,
-						14320.0
+						16400.0
 					],
 					"Inputs": {
 						"Origin": [
@@ -8287,7 +8355,7 @@
 					"Type": "Call:Strada.Physics.CapsuleCast(Strada.Vector3,float,float,Strada.Quaternion,Strada.Vector3,float,out Strada.ShapeCastHit,uint,bool)",
 					"Position": [
 						1280.0,
-						14480.0
+						16560.0
 					],
 					"Inputs": {
 						"Origin": [
@@ -8310,7 +8378,7 @@
 					"Type": "Break",
 					"Position": [
 						960.0,
-						14480.0
+						16560.0
 					],
 					"Settings": {
 						"Type": "Strada.ShapeCastHit"
@@ -8321,7 +8389,7 @@
 					"Type": "Get:Strada.Entity.Name",
 					"Position": [
 						1280.0,
-						14640.0
+						16720.0
 					]
 				},
 				{
@@ -8329,7 +8397,7 @@
 					"Type": "Operator.Subtract",
 					"Position": [
 						1280.0,
-						14800.0
+						16880.0
 					],
 					"Inputs": {
 						"B": 4.75
@@ -8340,7 +8408,7 @@
 					"Type": "Call:Strada.Mathf.Abs(float)",
 					"Position": [
 						1600.0,
-						11120.0
+						13200.0
 					]
 				},
 				{
@@ -8348,7 +8416,7 @@
 					"Type": "Get:Strada.Vector3.Y",
 					"Position": [
 						1280.0,
-						14960.0
+						17040.0
 					]
 				},
 				{
@@ -8356,7 +8424,7 @@
 					"Type": "Get:Strada.Vector3.Y",
 					"Position": [
 						1280.0,
-						15120.0
+						17200.0
 					]
 				},
 				{
@@ -8364,7 +8432,7 @@
 					"Type": "Operator.Equal",
 					"Position": [
 						1600.0,
-						11280.0
+						13360.0
 					],
 					"Inputs": {
 						"B": "Physics Material Probe"
@@ -8375,7 +8443,7 @@
 					"Type": "Operator.Less",
 					"Position": [
 						1920.0,
-						9360.0
+						11440.0
 					],
 					"Inputs": {
 						"B": 0.001
@@ -8386,7 +8454,7 @@
 					"Type": "Operator.Greater",
 					"Position": [
 						1600.0,
-						11440.0
+						13520.0
 					],
 					"Inputs": {
 						"B": 4.999
@@ -8397,7 +8465,7 @@
 					"Type": "Operator.Less",
 					"Position": [
 						1600.0,
-						11600.0
+						13680.0
 					],
 					"Inputs": {
 						"B": 5.001
@@ -8408,7 +8476,7 @@
 					"Type": "Operator.Greater",
 					"Position": [
 						1600.0,
-						11760.0
+						13840.0
 					],
 					"Inputs": {
 						"B": 0.999
@@ -8419,7 +8487,7 @@
 					"Type": "Operator.Equal",
 					"Position": [
 						1280.0,
-						15280.0
+						17360.0
 					]
 				},
 				{
@@ -8427,7 +8495,7 @@
 					"Type": "Break",
 					"Position": [
 						1280.0,
-						15440.0
+						17520.0
 					],
 					"Settings": {
 						"Type": "Strada.ShapeCastHit"
@@ -8438,7 +8506,7 @@
 					"Type": "Get:Strada.Entity.Name",
 					"Position": [
 						1600.0,
-						11920.0
+						14000.0
 					]
 				},
 				{
@@ -8446,7 +8514,7 @@
 					"Type": "Operator.Subtract",
 					"Position": [
 						1600.0,
-						12080.0
+						14160.0
 					],
 					"Inputs": {
 						"B": 4.7
@@ -8457,7 +8525,7 @@
 					"Type": "Call:Strada.Mathf.Abs(float)",
 					"Position": [
 						1920.0,
-						9520.0
+						11600.0
 					]
 				},
 				{
@@ -8465,7 +8533,7 @@
 					"Type": "Get:Strada.Vector3.Y",
 					"Position": [
 						1600.0,
-						12240.0
+						14320.0
 					]
 				},
 				{
@@ -8473,7 +8541,7 @@
 					"Type": "Get:Strada.Vector3.Y",
 					"Position": [
 						1600.0,
-						12400.0
+						14480.0
 					]
 				},
 				{
@@ -8481,7 +8549,7 @@
 					"Type": "Operator.Equal",
 					"Position": [
 						1920.0,
-						9680.0
+						11760.0
 					],
 					"Inputs": {
 						"B": "Physics Material Probe"
@@ -8492,7 +8560,7 @@
 					"Type": "Operator.Less",
 					"Position": [
 						2240.0,
-						7600.0
+						9680.0
 					],
 					"Inputs": {
 						"B": 0.001
@@ -8503,7 +8571,7 @@
 					"Type": "Operator.Greater",
 					"Position": [
 						1920.0,
-						9840.0
+						11920.0
 					],
 					"Inputs": {
 						"B": 4.999
@@ -8514,7 +8582,7 @@
 					"Type": "Operator.Less",
 					"Position": [
 						1920.0,
-						10000.0
+						12080.0
 					],
 					"Inputs": {
 						"B": 5.001
@@ -8525,7 +8593,7 @@
 					"Type": "Operator.Greater",
 					"Position": [
 						1920.0,
-						10160.0
+						12240.0
 					],
 					"Inputs": {
 						"B": 0.999
@@ -8536,7 +8604,7 @@
 					"Type": "Operator.Equal",
 					"Position": [
 						1600.0,
-						12560.0
+						14640.0
 					]
 				},
 				{
@@ -8544,7 +8612,7 @@
 					"Type": "Break",
 					"Position": [
 						1600.0,
-						12720.0
+						14800.0
 					],
 					"Settings": {
 						"Type": "Strada.ShapeCastHit"
@@ -8555,7 +8623,7 @@
 					"Type": "Get:Strada.Entity.Name",
 					"Position": [
 						1920.0,
-						10320.0
+						12400.0
 					]
 				},
 				{
@@ -8563,7 +8631,7 @@
 					"Type": "Operator.Subtract",
 					"Position": [
 						1920.0,
-						10480.0
+						12560.0
 					],
 					"Inputs": {
 						"B": 4.5
@@ -8574,7 +8642,7 @@
 					"Type": "Call:Strada.Mathf.Abs(float)",
 					"Position": [
 						2240.0,
-						7760.0
+						9840.0
 					]
 				},
 				{
@@ -8582,7 +8650,7 @@
 					"Type": "Get:Strada.Vector3.Y",
 					"Position": [
 						1920.0,
-						10640.0
+						12720.0
 					]
 				},
 				{
@@ -8590,7 +8658,7 @@
 					"Type": "Get:Strada.Vector3.Y",
 					"Position": [
 						1920.0,
-						10800.0
+						12880.0
 					]
 				},
 				{
@@ -8598,7 +8666,7 @@
 					"Type": "Operator.Equal",
 					"Position": [
 						2240.0,
-						7920.0
+						10000.0
 					],
 					"Inputs": {
 						"B": "Physics Material Probe"
@@ -8609,7 +8677,7 @@
 					"Type": "Operator.Less",
 					"Position": [
 						2560.0,
-						6640.0
+						8720.0
 					],
 					"Inputs": {
 						"B": 0.001
@@ -8620,7 +8688,7 @@
 					"Type": "Operator.Greater",
 					"Position": [
 						2240.0,
-						8080.0
+						10160.0
 					],
 					"Inputs": {
 						"B": 4.999
@@ -8631,7 +8699,7 @@
 					"Type": "Operator.Less",
 					"Position": [
 						2240.0,
-						8240.0
+						10320.0
 					],
 					"Inputs": {
 						"B": 5.001
@@ -8642,7 +8710,7 @@
 					"Type": "Operator.Greater",
 					"Position": [
 						2240.0,
-						8400.0
+						10480.0
 					],
 					"Inputs": {
 						"B": 0.999
@@ -8653,7 +8721,7 @@
 					"Type": "Operator.Equal",
 					"Position": [
 						1920.0,
-						10960.0
+						13040.0
 					]
 				},
 				{
@@ -8661,7 +8729,7 @@
 					"Type": "Break",
 					"Position": [
 						960.0,
-						14640.0
+						16720.0
 					],
 					"Settings": {
 						"Type": "Strada.ShapeCastHit"
@@ -8672,7 +8740,7 @@
 					"Type": "Make",
 					"Position": [
 						1280.0,
-						15600.0
+						17680.0
 					],
 					"Settings": {
 						"Type": "Strada.ShapeCastHit"
@@ -8696,7 +8764,7 @@
 					"Type": "Break",
 					"Position": [
 						1600.0,
-						12880.0
+						14960.0
 					],
 					"Settings": {
 						"Type": "Strada.ShapeCastHit"
@@ -8707,7 +8775,7 @@
 					"Type": "Operator.Equal",
 					"Position": [
 						1920.0,
-						11120.0
+						13200.0
 					],
 					"Inputs": {
 						"B": 4.5
@@ -8718,7 +8786,7 @@
 					"Type": "Operator.Equal",
 					"Position": [
 						1920.0,
-						11280.0
+						13360.0
 					]
 				},
 				{
@@ -8726,7 +8794,7 @@
 					"Type": "Get:Strada.Entity.Name",
 					"Position": [
 						1920.0,
-						11440.0
+						13520.0
 					]
 				},
 				{
@@ -8734,7 +8802,7 @@
 					"Type": "Operator.Equal",
 					"Position": [
 						2240.0,
-						8560.0
+						10640.0
 					],
 					"Inputs": {
 						"B": "Physics Material Probe"
@@ -8745,7 +8813,7 @@
 					"Type": "Operator.And",
 					"Position": [
 						1920.0,
-						11600.0
+						13680.0
 					]
 				},
 				{
@@ -8753,7 +8821,7 @@
 					"Type": "Operator.And",
 					"Position": [
 						2240.0,
-						8720.0
+						10800.0
 					]
 				},
 				{
@@ -8761,7 +8829,7 @@
 					"Type": "Operator.And",
 					"Position": [
 						2560.0,
-						6800.0
+						8880.0
 					]
 				},
 				{
@@ -8769,7 +8837,7 @@
 					"Type": "Operator.And",
 					"Position": [
 						2880.0,
-						6320.0
+						8400.0
 					]
 				},
 				{
@@ -8777,7 +8845,7 @@
 					"Type": "Operator.And",
 					"Position": [
 						3200.0,
-						6000.0
+						8080.0
 					]
 				},
 				{
@@ -8785,7 +8853,7 @@
 					"Type": "Operator.And",
 					"Position": [
 						3520.0,
-						5680.0
+						7760.0
 					]
 				},
 				{
@@ -8793,7 +8861,7 @@
 					"Type": "Operator.And",
 					"Position": [
 						3840.0,
-						5520.0
+						7600.0
 					]
 				},
 				{
@@ -8801,7 +8869,7 @@
 					"Type": "Operator.And",
 					"Position": [
 						4160.0,
-						5040.0
+						7120.0
 					]
 				},
 				{
@@ -8809,7 +8877,7 @@
 					"Type": "Operator.And",
 					"Position": [
 						4480.0,
-						5040.0
+						7120.0
 					]
 				},
 				{
@@ -8817,7 +8885,7 @@
 					"Type": "Operator.And",
 					"Position": [
 						4800.0,
-						4720.0
+						6800.0
 					]
 				},
 				{
@@ -8825,7 +8893,7 @@
 					"Type": "Operator.And",
 					"Position": [
 						5120.0,
-						4720.0
+						6800.0
 					]
 				},
 				{
@@ -8833,7 +8901,7 @@
 					"Type": "Operator.And",
 					"Position": [
 						5440.0,
-						4720.0
+						6800.0
 					]
 				},
 				{
@@ -8841,7 +8909,7 @@
 					"Type": "Operator.And",
 					"Position": [
 						5760.0,
-						4720.0
+						6800.0
 					]
 				},
 				{
@@ -8849,7 +8917,7 @@
 					"Type": "Operator.And",
 					"Position": [
 						6080.0,
-						4720.0
+						6800.0
 					]
 				},
 				{
@@ -8857,7 +8925,7 @@
 					"Type": "Operator.And",
 					"Position": [
 						6400.0,
-						4560.0
+						6640.0
 					]
 				},
 				{
@@ -8865,7 +8933,7 @@
 					"Type": "Operator.And",
 					"Position": [
 						6720.0,
-						4560.0
+						6640.0
 					]
 				},
 				{
@@ -8873,7 +8941,7 @@
 					"Type": "Operator.And",
 					"Position": [
 						7040.0,
-						4560.0
+						6640.0
 					]
 				},
 				{
@@ -8881,7 +8949,7 @@
 					"Type": "Operator.And",
 					"Position": [
 						7360.0,
-						4560.0
+						6640.0
 					]
 				},
 				{
@@ -8889,7 +8957,7 @@
 					"Type": "Operator.And",
 					"Position": [
 						7680.0,
-						4560.0
+						6640.0
 					]
 				},
 				{
@@ -8897,7 +8965,7 @@
 					"Type": "Operator.And",
 					"Position": [
 						8000.0,
-						4560.0
+						6640.0
 					]
 				},
 				{
@@ -8905,7 +8973,7 @@
 					"Type": "Operator.And",
 					"Position": [
 						8320.0,
-						4560.0
+						6640.0
 					]
 				},
 				{
@@ -8913,7 +8981,7 @@
 					"Type": "Operator.And",
 					"Position": [
 						8640.0,
-						4560.0
+						6640.0
 					]
 				},
 				{
@@ -8921,7 +8989,7 @@
 					"Type": "Operator.And",
 					"Position": [
 						8960.0,
-						4560.0
+						6640.0
 					]
 				},
 				{
@@ -8929,7 +8997,7 @@
 					"Type": "FormatString",
 					"Position": [
 						1920.0,
-						11760.0
+						13840.0
 					],
 					"Settings": {
 						"Format": "the casts touched after {D0}, {D1} and {D2} m"
@@ -8940,7 +9008,7 @@
 					"Type": "Function.Call",
 					"Position": [
 						9280.0,
-						4560.0
+						6640.0
 					],
 					"Settings": {
 						"Function": 29
@@ -8954,7 +9022,7 @@
 					"Type": "Literal",
 					"Position": [
 						0.0,
-						25040.0
+						27120.0
 					],
 					"Settings": {
 						"Type": "Strada.Mixer",
@@ -8966,7 +9034,7 @@
 					"Type": "Call:Strada.Assets.Load<T>(string)",
 					"Position": [
 						0.0,
-						25200.0
+						27280.0
 					],
 					"Settings": {
 						"TypeArguments": [
@@ -8982,7 +9050,7 @@
 					"Type": "Literal",
 					"Position": [
 						0.0,
-						25360.0
+						27440.0
 					],
 					"Settings": {
 						"Type": "Strada.AudioClip",
@@ -8994,7 +9062,7 @@
 					"Type": "Call:Strada.Entity.Create(string)",
 					"Position": [
 						640.0,
-						21680.0
+						23760.0
 					],
 					"Inputs": {
 						"Name": "Graph Speaker"
@@ -9005,7 +9073,7 @@
 					"Type": "Call:Strada.Entity.AddComponent<T>()",
 					"Position": [
 						960.0,
-						14800.0
+						16880.0
 					],
 					"Settings": {
 						"TypeArguments": [
@@ -9018,7 +9086,7 @@
 					"Type": "Set:Strada.AudioSourceComponent.Clip",
 					"Position": [
 						1280.0,
-						15760.0
+						17840.0
 					]
 				},
 				{
@@ -9026,7 +9094,7 @@
 					"Type": "Set:Strada.AudioSourceComponent.Bus",
 					"Position": [
 						1600.0,
-						13040.0
+						15120.0
 					],
 					"Inputs": {
 						"Value": "Voices"
@@ -9037,7 +9105,7 @@
 					"Type": "Set:Strada.AudioSourceComponent.Priority",
 					"Position": [
 						1920.0,
-						11920.0
+						14000.0
 					],
 					"Inputs": {
 						"Value": 200
@@ -9048,7 +9116,7 @@
 					"Type": "Set:Strada.AudioSourceComponent.MaxVoices",
 					"Position": [
 						2240.0,
-						8880.0
+						10960.0
 					],
 					"Inputs": {
 						"Value": 3
@@ -9059,7 +9127,7 @@
 					"Type": "Call:Strada.AudioSourceComponent.PlayOneShot(float)",
 					"Position": [
 						2560.0,
-						6960.0
+						9040.0
 					],
 					"Inputs": {
 						"Volume": 0.5
@@ -9070,7 +9138,7 @@
 					"Type": "Call:Strada.AudioSourceComponent.PlayOneShot(Strada.AudioClip,float)",
 					"Position": [
 						2880.0,
-						6480.0
+						8560.0
 					],
 					"Inputs": {
 						"Volume": 0.25
@@ -9081,7 +9149,7 @@
 					"Type": "Call:Strada.Audio.PlayClipAtPoint(Strada.AudioClip,Strada.Vector3,float,string)",
 					"Position": [
 						3200.0,
-						6160.0
+						8240.0
 					],
 					"Inputs": {
 						"Position": [
@@ -9098,7 +9166,7 @@
 					"Type": "Set:Strada.Audio.MasterVolume",
 					"Position": [
 						3520.0,
-						5840.0
+						7920.0
 					],
 					"Inputs": {
 						"Value": 0.9
@@ -9109,7 +9177,7 @@
 					"Type": "Call:Strada.Audio.SetBusVolume(string,float)",
 					"Position": [
 						3840.0,
-						5680.0
+						7760.0
 					],
 					"Inputs": {
 						"Bus": "voices",
@@ -9121,7 +9189,7 @@
 					"Type": "Call:Strada.Audio.SetBusMuted(string,bool)",
 					"Position": [
 						4160.0,
-						5200.0
+						7280.0
 					],
 					"Inputs": {
 						"Bus": "VOICES",
@@ -9133,7 +9201,7 @@
 					"Type": "Get:Strada.AudioSourceComponent.Bus",
 					"Position": [
 						960.0,
-						14960.0
+						17040.0
 					]
 				},
 				{
@@ -9141,7 +9209,7 @@
 					"Type": "Get:Strada.AudioSourceComponent.Priority",
 					"Position": [
 						960.0,
-						15120.0
+						17200.0
 					]
 				},
 				{
@@ -9149,7 +9217,7 @@
 					"Type": "Get:Strada.AudioSourceComponent.MaxVoices",
 					"Position": [
 						960.0,
-						15280.0
+						17360.0
 					]
 				},
 				{
@@ -9157,7 +9225,7 @@
 					"Type": "Get:Strada.Audio.ActiveVoiceCount",
 					"Position": [
 						0.0,
-						25520.0
+						27600.0
 					]
 				},
 				{
@@ -9165,7 +9233,7 @@
 					"Type": "Get:Strada.Audio.MasterVolume",
 					"Position": [
 						0.0,
-						25680.0
+						27760.0
 					]
 				},
 				{
@@ -9173,7 +9241,7 @@
 					"Type": "Call:Strada.Audio.GetBusVolume(string)",
 					"Position": [
 						0.0,
-						25840.0
+						27920.0
 					],
 					"Inputs": {
 						"Bus": "Voices"
@@ -9184,7 +9252,7 @@
 					"Type": "Call:Strada.Audio.IsBusMuted(string)",
 					"Position": [
 						0.0,
-						26000.0
+						28080.0
 					],
 					"Inputs": {
 						"Bus": "Voices"
@@ -9195,7 +9263,7 @@
 					"Type": "Get:Strada.Mixer.BusCount",
 					"Position": [
 						320.0,
-						25360.0
+						27440.0
 					]
 				},
 				{
@@ -9203,7 +9271,7 @@
 					"Type": "Call:Strada.Mixer.GetBusName(int)",
 					"Position": [
 						320.0,
-						25520.0
+						27600.0
 					],
 					"Inputs": {
 						"Index": 3
@@ -9214,7 +9282,7 @@
 					"Type": "Call:Strada.Mixer.GetBusParent(string)",
 					"Position": [
 						320.0,
-						25680.0
+						27760.0
 					],
 					"Inputs": {
 						"Bus": "voices"
@@ -9225,7 +9293,7 @@
 					"Type": "Call:Strada.Mixer.GetBusVolume(string)",
 					"Position": [
 						320.0,
-						25840.0
+						27920.0
 					],
 					"Inputs": {
 						"Bus": "Voices"
@@ -9236,7 +9304,7 @@
 					"Type": "Operator.Greater",
 					"Position": [
 						320.0,
-						26000.0
+						28080.0
 					],
 					"Inputs": {
 						"B": 0
@@ -9247,7 +9315,7 @@
 					"Type": "Operator.Equal",
 					"Position": [
 						1280.0,
-						15920.0
+						18000.0
 					],
 					"Inputs": {
 						"B": "Voices"
@@ -9258,7 +9326,7 @@
 					"Type": "Operator.Equal",
 					"Position": [
 						1280.0,
-						16080.0
+						18160.0
 					],
 					"Inputs": {
 						"B": 200
@@ -9269,7 +9337,7 @@
 					"Type": "Operator.Equal",
 					"Position": [
 						1280.0,
-						16240.0
+						18320.0
 					],
 					"Inputs": {
 						"B": 3
@@ -9280,7 +9348,7 @@
 					"Type": "Operator.Equal",
 					"Position": [
 						320.0,
-						26160.0
+						28240.0
 					],
 					"Inputs": {
 						"B": 0.9
@@ -9291,7 +9359,7 @@
 					"Type": "Operator.Equal",
 					"Position": [
 						320.0,
-						26320.0
+						28400.0
 					],
 					"Inputs": {
 						"B": -9.0
@@ -9302,7 +9370,7 @@
 					"Type": "Operator.Equal",
 					"Position": [
 						320.0,
-						26480.0
+						28560.0
 					]
 				},
 				{
@@ -9310,7 +9378,7 @@
 					"Type": "Operator.Equal",
 					"Position": [
 						640.0,
-						21840.0
+						23920.0
 					],
 					"Inputs": {
 						"B": 4
@@ -9321,7 +9389,7 @@
 					"Type": "Operator.Equal",
 					"Position": [
 						640.0,
-						22000.0
+						24080.0
 					],
 					"Inputs": {
 						"B": "Voices"
@@ -9332,7 +9400,7 @@
 					"Type": "Operator.Equal",
 					"Position": [
 						640.0,
-						22160.0
+						24240.0
 					],
 					"Inputs": {
 						"B": "Effects"
@@ -9343,7 +9411,7 @@
 					"Type": "Operator.Equal",
 					"Position": [
 						640.0,
-						22320.0
+						24400.0
 					],
 					"Inputs": {
 						"B": 3.0
@@ -9354,7 +9422,7 @@
 					"Type": "Call:Strada.Mixer.HasBus(string)",
 					"Position": [
 						320.0,
-						26640.0
+						28720.0
 					],
 					"Inputs": {
 						"Bus": "MUSIC"
@@ -9365,7 +9433,7 @@
 					"Type": "Call:Strada.Mixer.IsBusMuted(string)",
 					"Position": [
 						320.0,
-						26800.0
+						28880.0
 					],
 					"Inputs": {
 						"Bus": "Effects"
@@ -9376,7 +9444,7 @@
 					"Type": "Operator.And",
 					"Position": [
 						3200.0,
-						6320.0
+						8400.0
 					]
 				},
 				{
@@ -9384,7 +9452,7 @@
 					"Type": "Operator.And",
 					"Position": [
 						3520.0,
-						6000.0
+						8080.0
 					]
 				},
 				{
@@ -9392,7 +9460,7 @@
 					"Type": "Operator.And",
 					"Position": [
 						3840.0,
-						5840.0
+						7920.0
 					]
 				},
 				{
@@ -9400,7 +9468,7 @@
 					"Type": "Operator.And",
 					"Position": [
 						4160.0,
-						5360.0
+						7440.0
 					]
 				},
 				{
@@ -9408,7 +9476,7 @@
 					"Type": "Operator.And",
 					"Position": [
 						4480.0,
-						5200.0
+						7280.0
 					]
 				},
 				{
@@ -9416,7 +9484,7 @@
 					"Type": "Operator.And",
 					"Position": [
 						4800.0,
-						4880.0
+						6960.0
 					]
 				},
 				{
@@ -9424,7 +9492,7 @@
 					"Type": "Operator.And",
 					"Position": [
 						5120.0,
-						4880.0
+						6960.0
 					]
 				},
 				{
@@ -9432,7 +9500,7 @@
 					"Type": "Operator.And",
 					"Position": [
 						5440.0,
-						4880.0
+						6960.0
 					]
 				},
 				{
@@ -9440,7 +9508,7 @@
 					"Type": "Operator.And",
 					"Position": [
 						5760.0,
-						4880.0
+						6960.0
 					]
 				},
 				{
@@ -9448,7 +9516,7 @@
 					"Type": "Operator.And",
 					"Position": [
 						6080.0,
-						4880.0
+						6960.0
 					]
 				},
 				{
@@ -9456,7 +9524,7 @@
 					"Type": "Operator.And",
 					"Position": [
 						6400.0,
-						4720.0
+						6800.0
 					]
 				},
 				{
@@ -9464,7 +9532,7 @@
 					"Type": "Operator.And",
 					"Position": [
 						6720.0,
-						4720.0
+						6800.0
 					]
 				},
 				{
@@ -9472,7 +9540,7 @@
 					"Type": "Operator.And",
 					"Position": [
 						7040.0,
-						4720.0
+						6800.0
 					]
 				},
 				{
@@ -9480,7 +9548,7 @@
 					"Type": "Operator.And",
 					"Position": [
 						7360.0,
-						4720.0
+						6800.0
 					]
 				},
 				{
@@ -9488,7 +9556,7 @@
 					"Type": "Operator.And",
 					"Position": [
 						7680.0,
-						4720.0
+						6800.0
 					]
 				},
 				{
@@ -9496,7 +9564,7 @@
 					"Type": "Operator.And",
 					"Position": [
 						8000.0,
-						4720.0
+						6800.0
 					]
 				},
 				{
@@ -9504,7 +9572,7 @@
 					"Type": "FormatString",
 					"Position": [
 						640.0,
-						22480.0
+						24560.0
 					],
 					"Settings": {
 						"Format": "{Voices} voices; Voices at {Volume} dB, {Buses} buses"
@@ -9515,7 +9583,7 @@
 					"Type": "Function.Call",
 					"Position": [
 						8320.0,
-						4720.0
+						6800.0
 					],
 					"Settings": {
 						"Function": 29
@@ -9529,7 +9597,7 @@
 					"Type": "Set:Strada.Audio.MasterVolume",
 					"Position": [
 						8640.0,
-						4720.0
+						6800.0
 					],
 					"Inputs": {
 						"Value": 1.0
@@ -9540,7 +9608,7 @@
 					"Type": "Call:Strada.Audio.SetBusVolume(string,float)",
 					"Position": [
 						8960.0,
-						4720.0
+						6800.0
 					],
 					"Inputs": {
 						"Bus": "Voices",
@@ -9552,7 +9620,7 @@
 					"Type": "Call:Strada.Audio.SetBusMuted(string,bool)",
 					"Position": [
 						9280.0,
-						4720.0
+						6800.0
 					],
 					"Inputs": {
 						"Bus": "Voices",
@@ -9564,7 +9632,7 @@
 					"Type": "Call:Strada.Telemetry.Mark(string)",
 					"Position": [
 						640.0,
-						22640.0
+						24720.0
 					],
 					"Inputs": {
 						"Label": "Features"
@@ -9575,7 +9643,7 @@
 					"Type": "Call:Strada.Telemetry.MarkStep(string,ulong)",
 					"Position": [
 						960.0,
-						15440.0
+						17520.0
 					],
 					"Inputs": {
 						"Label": "Features.Step",
@@ -9587,7 +9655,7 @@
 					"Type": "Get:Strada.Telemetry.IsRecording",
 					"Position": [
 						0.0,
-						26160.0
+						28240.0
 					]
 				},
 				{
@@ -9595,7 +9663,7 @@
 					"Type": "Get:Strada.Application.IsEditor",
 					"Position": [
 						0.0,
-						26320.0
+						28400.0
 					]
 				},
 				{
@@ -9603,7 +9671,7 @@
 					"Type": "Operator.Not",
 					"Position": [
 						320.0,
-						26960.0
+						29040.0
 					]
 				},
 				{
@@ -9611,7 +9679,7 @@
 					"Type": "Operator.Or",
 					"Position": [
 						640.0,
-						22800.0
+						24880.0
 					]
 				},
 				{
@@ -9619,7 +9687,7 @@
 					"Type": "Function.Call",
 					"Position": [
 						1280.0,
-						16400.0
+						18480.0
 					],
 					"Settings": {
 						"Function": 29
@@ -9634,7 +9702,7 @@
 					"Type": "Variable.Get",
 					"Position": [
 						0.0,
-						26480.0
+						28560.0
 					],
 					"Settings": {
 						"Variable": 4
@@ -9645,7 +9713,7 @@
 					"Type": "Variable.Get",
 					"Position": [
 						0.0,
-						26640.0
+						28720.0
 					],
 					"Settings": {
 						"Variable": 6
@@ -9656,7 +9724,7 @@
 					"Type": "Operator.Greater",
 					"Position": [
 						320.0,
-						27120.0
+						29200.0
 					],
 					"Inputs": {
 						"B": 0
@@ -9667,7 +9735,7 @@
 					"Type": "Variable.Get",
 					"Position": [
 						0.0,
-						26800.0
+						28880.0
 					],
 					"Settings": {
 						"Variable": 5
@@ -9678,7 +9746,7 @@
 					"Type": "Operator.Greater",
 					"Position": [
 						320.0,
-						27280.0
+						29360.0
 					],
 					"Inputs": {
 						"B": 0.0
@@ -9689,7 +9757,7 @@
 					"Type": "Operator.Greater",
 					"Position": [
 						320.0,
-						27440.0
+						29520.0
 					],
 					"Inputs": {
 						"B": 0
@@ -9700,7 +9768,7 @@
 					"Type": "Variable.Get",
 					"Position": [
 						0.0,
-						26960.0
+						29040.0
 					],
 					"Settings": {
 						"Variable": 7
@@ -9711,7 +9779,7 @@
 					"Type": "Get:Strada.Time.FixedDeltaTime",
 					"Position": [
 						0.0,
-						27120.0
+						29200.0
 					]
 				},
 				{
@@ -9719,7 +9787,7 @@
 					"Type": "Operator.Equal",
 					"Position": [
 						320.0,
-						27600.0
+						29680.0
 					]
 				},
 				{
@@ -9727,7 +9795,7 @@
 					"Type": "Operator.And",
 					"Position": [
 						640.0,
-						22960.0
+						25040.0
 					]
 				},
 				{
@@ -9735,7 +9803,7 @@
 					"Type": "Operator.And",
 					"Position": [
 						960.0,
-						15600.0
+						17680.0
 					]
 				},
 				{
@@ -9743,7 +9811,7 @@
 					"Type": "Operator.And",
 					"Position": [
 						1280.0,
-						16560.0
+						18640.0
 					]
 				},
 				{
@@ -9751,7 +9819,7 @@
 					"Type": "FormatString",
 					"Position": [
 						320.0,
-						27760.0
+						29840.0
 					],
 					"Settings": {
 						"Format": "{Frames} updates, {Steps} fixed steps"
@@ -9762,7 +9830,7 @@
 					"Type": "Function.Call",
 					"Position": [
 						1600.0,
-						13200.0
+						15280.0
 					],
 					"Settings": {
 						"Function": 29
@@ -9776,7 +9844,7 @@
 					"Type": "Variable.Get",
 					"Position": [
 						0.0,
-						27280.0
+						29360.0
 					],
 					"Settings": {
 						"Variable": 892
@@ -9787,7 +9855,7 @@
 					"Type": "Array.Length",
 					"Position": [
 						320.0,
-						27920.0
+						30000.0
 					]
 				},
 				{
@@ -9795,7 +9863,7 @@
 					"Type": "Operator.Equal",
 					"Position": [
 						640.0,
-						23120.0
+						25200.0
 					],
 					"Inputs": {
 						"B": 3
@@ -9806,7 +9874,7 @@
 					"Type": "Array.Get",
 					"Position": [
 						320.0,
-						28080.0
+						30160.0
 					],
 					"Inputs": {
 						"Index": 2
@@ -9817,7 +9885,7 @@
 					"Type": "Operator.Equal",
 					"Position": [
 						640.0,
-						23280.0
+						25360.0
 					],
 					"Inputs": {
 						"B": 1.25
@@ -9828,7 +9896,7 @@
 					"Type": "Operator.And",
 					"Position": [
 						960.0,
-						15760.0
+						17840.0
 					]
 				},
 				{
@@ -9836,7 +9904,7 @@
 					"Type": "String.Join",
 					"Position": [
 						320.0,
-						28240.0
+						30320.0
 					],
 					"Inputs": {
 						"Separator": ","
@@ -9847,7 +9915,7 @@
 					"Type": "Function.Call",
 					"Position": [
 						1280.0,
-						16720.0
+						18800.0
 					],
 					"Settings": {
 						"Function": 29
@@ -9857,11 +9925,856 @@
 					}
 				},
 				{
-					"ID": 901,
+					"ID": 912,
+					"Type": "Call:Strada.Entity.FindByName(string)",
+					"Position": [
+						0.0,
+						1040.0
+					],
+					"Inputs": {
+						"Name": "Bike"
+					}
+				},
+				{
+					"ID": 913,
+					"Type": "Variable.Get",
+					"Position": [
+						0.0,
+						1200.0
+					],
+					"Settings": {
+						"Variable": 901
+					}
+				},
+				{
+					"ID": 914,
+					"Type": "Flow.Branch",
+					"Position": [
+						1600.0,
+						560.0
+					]
+				},
+				{
+					"ID": 915,
+					"Type": "Variable.Get",
+					"Position": [
+						0.0,
+						1360.0
+					],
+					"Settings": {
+						"Variable": 902
+					}
+				},
+				{
+					"ID": 916,
+					"Type": "Operator.Add",
+					"Position": [
+						320.0,
+						720.0
+					],
+					"Inputs": {
+						"B": 1
+					}
+				},
+				{
+					"ID": 917,
+					"Type": "Variable.Set",
+					"Position": [
+						1920.0,
+						560.0
+					],
+					"Settings": {
+						"Variable": 902
+					}
+				},
+				{
+					"ID": 918,
+					"Type": "Variable.Get",
+					"Position": [
+						0.0,
+						1520.0
+					],
+					"Settings": {
+						"Variable": 902
+					}
+				},
+				{
+					"ID": 919,
+					"Type": "Operator.LessOrEqual",
+					"Position": [
+						320.0,
+						880.0
+					],
+					"Inputs": {
+						"B": 60
+					}
+				},
+				{
+					"ID": 920,
+					"Type": "Literal",
+					"Position": [
+						0.0,
+						1680.0
+					],
+					"Settings": {
+						"Type": "float",
+						"Value": 0.4
+					}
+				},
+				{
+					"ID": 921,
+					"Type": "Literal",
+					"Position": [
+						0.0,
+						1840.0
+					],
+					"Settings": {
+						"Type": "float",
+						"Value": 0.0
+					}
+				},
+				{
+					"ID": 922,
+					"Type": "Select",
+					"Position": [
+						640.0,
+						720.0
+					]
+				},
+				{
+					"ID": 923,
+					"Type": "Literal",
+					"Position": [
+						0.0,
+						2000.0
+					],
+					"Settings": {
+						"Type": "float",
+						"Value": 0.0
+					}
+				},
+				{
+					"ID": 924,
+					"Type": "Literal",
+					"Position": [
+						0.0,
+						2160.0
+					],
+					"Settings": {
+						"Type": "float",
+						"Value": 1.0
+					}
+				},
+				{
+					"ID": 925,
+					"Type": "Select",
+					"Position": [
+						640.0,
+						880.0
+					]
+				},
+				{
+					"ID": 926,
+					"Type": "Literal",
+					"Position": [
+						0.0,
+						2320.0
+					],
+					"Settings": {
+						"Type": "float",
+						"Value": 0.0
+					}
+				},
+				{
+					"ID": 927,
+					"Type": "Literal",
+					"Position": [
+						0.0,
+						2480.0
+					],
+					"Settings": {
+						"Type": "float",
+						"Value": 0.5
+					}
+				},
+				{
+					"ID": 928,
+					"Type": "Select",
+					"Position": [
+						640.0,
+						1040.0
+					]
+				},
+				{
+					"ID": 929,
+					"Type": "Call:Strada.VehicleComponent.SetDriverInput(float,float,float,float)",
+					"Position": [
+						2240.0,
+						560.0
+					],
+					"Inputs": {
+						"Lean": 0.0
+					}
+				},
+				{
+					"ID": 930,
+					"Type": "Variable.Get",
+					"Position": [
+						0.0,
+						2640.0
+					],
+					"Settings": {
+						"Variable": 902
+					}
+				},
+				{
+					"ID": 931,
+					"Type": "Operator.Equal",
+					"Position": [
+						320.0,
+						1040.0
+					],
+					"Inputs": {
+						"B": 1
+					}
+				},
+				{
+					"ID": 932,
+					"Type": "Flow.Branch",
+					"Position": [
+						2560.0,
+						560.0
+					]
+				},
+				{
+					"ID": 933,
+					"Type": "Call:Strada.VehicleComponent.ShiftUp()",
+					"Position": [
+						2880.0,
+						560.0
+					]
+				},
+				{
+					"ID": 934,
+					"Type": "Variable.Get",
+					"Position": [
+						0.0,
+						2800.0
+					],
+					"Settings": {
+						"Variable": 902
+					}
+				},
+				{
+					"ID": 935,
+					"Type": "Operator.Equal",
+					"Position": [
+						320.0,
+						1200.0
+					],
+					"Inputs": {
+						"B": 61
+					}
+				},
+				{
+					"ID": 936,
+					"Type": "Flow.Branch",
+					"Position": [
+						3200.0,
+						560.0
+					]
+				},
+				{
+					"ID": 937,
+					"Type": "Call:Strada.VehicleComponent.GetWheelState(int)",
+					"Position": [
+						320.0,
+						1360.0
+					],
+					"Inputs": {
+						"Index": 0
+					}
+				},
+				{
+					"ID": 938,
+					"Type": "Call:Strada.VehicleComponent.GetWheelState(int)",
+					"Position": [
+						320.0,
+						1520.0
+					],
+					"Inputs": {
+						"Index": 1
+					}
+				},
+				{
+					"ID": 939,
+					"Type": "Break",
+					"Position": [
+						640.0,
+						1200.0
+					],
+					"Settings": {
+						"Type": "Strada.VehicleWheelState"
+					}
+				},
+				{
+					"ID": 940,
+					"Type": "Break",
+					"Position": [
+						640.0,
+						1360.0
+					],
+					"Settings": {
+						"Type": "Strada.VehicleWheelState"
+					}
+				},
+				{
+					"ID": 941,
+					"Type": "Get:Strada.VehicleComponent.ForwardSpeed",
+					"Position": [
+						320.0,
+						1680.0
+					]
+				},
+				{
+					"ID": 942,
+					"Type": "Variable.Set",
+					"Position": [
+						3520.0,
+						560.0
+					],
+					"Settings": {
+						"Variable": 904
+					}
+				},
+				{
+					"ID": 943,
+					"Type": "Get:Strada.VehicleComponent.EngineSpeed",
+					"Position": [
+						320.0,
+						1840.0
+					]
+				},
+				{
+					"ID": 944,
+					"Type": "Variable.Set",
+					"Position": [
+						3840.0,
+						560.0
+					],
+					"Settings": {
+						"Variable": 905
+					}
+				},
+				{
+					"ID": 945,
+					"Type": "Get:Strada.VehicleComponent.Gear",
+					"Position": [
+						320.0,
+						2000.0
+					]
+				},
+				{
+					"ID": 946,
+					"Type": "Variable.Set",
+					"Position": [
+						4160.0,
+						560.0
+					],
+					"Settings": {
+						"Variable": 906
+					}
+				},
+				{
+					"ID": 947,
+					"Type": "Get:Strada.VehicleComponent.Throttle",
+					"Position": [
+						320.0,
+						2160.0
+					]
+				},
+				{
+					"ID": 948,
+					"Type": "Variable.Set",
+					"Position": [
+						4480.0,
+						560.0
+					],
+					"Settings": {
+						"Variable": 907
+					}
+				},
+				{
+					"ID": 949,
+					"Type": "Operator.And",
+					"Position": [
+						960.0,
+						720.0
+					]
+				},
+				{
+					"ID": 950,
+					"Type": "Variable.Set",
+					"Position": [
+						4800.0,
+						560.0
+					],
+					"Settings": {
+						"Variable": 908
+					}
+				},
+				{
+					"ID": 951,
+					"Type": "Variable.Set",
+					"Position": [
+						5120.0,
+						560.0
+					],
+					"Settings": {
+						"Variable": 909
+					}
+				},
+				{
+					"ID": 952,
+					"Type": "Get:Strada.VehicleWheelState.Surface",
+					"Position": [
+						640.0,
+						1520.0
+					]
+				},
+				{
+					"ID": 953,
+					"Type": "Variable.Set",
+					"Position": [
+						5440.0,
+						560.0
+					],
+					"Settings": {
+						"Variable": 910
+					}
+				},
+				{
+					"ID": 954,
+					"Type": "Variable.Get",
+					"Position": [
+						0.0,
+						2960.0
+					],
+					"Settings": {
+						"Variable": 902
+					}
+				},
+				{
+					"ID": 955,
+					"Type": "Operator.Equal",
+					"Position": [
+						320.0,
+						2320.0
+					],
+					"Inputs": {
+						"B": 150
+					}
+				},
+				{
+					"ID": 956,
+					"Type": "Flow.Branch",
+					"Position": [
+						3520.0,
+						720.0
+					]
+				},
+				{
+					"ID": 957,
+					"Type": "Get:Strada.VehicleComponent.ForwardSpeed",
+					"Position": [
+						320.0,
+						2480.0
+					]
+				},
+				{
+					"ID": 958,
+					"Type": "Call:Strada.Mathf.Abs(float)",
+					"Position": [
+						640.0,
+						1680.0
+					]
+				},
+				{
+					"ID": 959,
+					"Type": "Variable.Set",
+					"Position": [
+						3840.0,
+						720.0
+					],
+					"Settings": {
+						"Variable": 911
+					}
+				},
+				{
+					"ID": 960,
+					"Type": "Call:Strada.VehicleComponent.SetDriverInput(float,float,float,float)",
+					"Position": [
+						4160.0,
+						720.0
+					],
+					"Inputs": {
+						"Throttle": 0.0,
+						"FrontBrake": 0.0,
+						"RearBrake": 0.0,
+						"Lean": 0.0
+					}
+				},
+				{
+					"ID": 961,
+					"Type": "Call:Strada.VehicleComponent.ShiftDown()",
+					"Position": [
+						4480.0,
+						720.0
+					]
+				},
+				{
+					"ID": 962,
+					"Type": "Variable.Set",
+					"Position": [
+						4800.0,
+						720.0
+					],
+					"Settings": {
+						"Variable": 901
+					},
+					"Inputs": {
+						"Value": false
+					}
+				},
+				{
+					"ID": 963,
+					"Type": "Variable.Set",
+					"Position": [
+						5120.0,
+						720.0
+					],
+					"Settings": {
+						"Variable": 903
+					},
+					"Inputs": {
+						"Value": true
+					}
+				},
+				{
+					"ID": 964,
 					"Type": "Variable.Set",
 					"Position": [
 						640.0,
-						23440.0
+						25520.0
+					],
+					"Settings": {
+						"Variable": 901
+					},
+					"Inputs": {
+						"Value": true
+					}
+				},
+				{
+					"ID": 965,
+					"Type": "Variable.Get",
+					"Position": [
+						0.0,
+						29520.0
+					],
+					"Settings": {
+						"Variable": 903
+					}
+				},
+				{
+					"ID": 966,
+					"Type": "Flow.WaitUntil",
+					"Position": [
+						640.0,
+						25680.0
+					]
+				},
+				{
+					"ID": 967,
+					"Type": "Variable.Get",
+					"Position": [
+						0.0,
+						29680.0
+					],
+					"Settings": {
+						"Variable": 904
+					}
+				},
+				{
+					"ID": 968,
+					"Type": "Variable.Get",
+					"Position": [
+						0.0,
+						29840.0
+					],
+					"Settings": {
+						"Variable": 906
+					}
+				},
+				{
+					"ID": 969,
+					"Type": "Variable.Get",
+					"Position": [
+						0.0,
+						30000.0
+					],
+					"Settings": {
+						"Variable": 905
+					}
+				},
+				{
+					"ID": 970,
+					"Type": "Variable.Get",
+					"Position": [
+						0.0,
+						30160.0
+					],
+					"Settings": {
+						"Variable": 911
+					}
+				},
+				{
+					"ID": 971,
+					"Type": "Operator.GreaterOrEqual",
+					"Position": [
+						320.0,
+						30480.0
+					],
+					"Inputs": {
+						"B": 1
+					}
+				},
+				{
+					"ID": 972,
+					"Type": "Operator.Greater",
+					"Position": [
+						320.0,
+						30640.0
+					],
+					"Inputs": {
+						"B": 1.0
+					}
+				},
+				{
+					"ID": 973,
+					"Type": "Operator.Greater",
+					"Position": [
+						320.0,
+						30800.0
+					],
+					"Inputs": {
+						"B": 1500.0
+					}
+				},
+				{
+					"ID": 974,
+					"Type": "Variable.Get",
+					"Position": [
+						0.0,
+						30320.0
+					],
+					"Settings": {
+						"Variable": 907
+					}
+				},
+				{
+					"ID": 975,
+					"Type": "Operator.Equal",
+					"Position": [
+						320.0,
+						30960.0
+					],
+					"Inputs": {
+						"B": 0.4
+					}
+				},
+				{
+					"ID": 976,
+					"Type": "Variable.Get",
+					"Position": [
+						0.0,
+						30480.0
+					],
+					"Settings": {
+						"Variable": 908
+					}
+				},
+				{
+					"ID": 977,
+					"Type": "Variable.Get",
+					"Position": [
+						0.0,
+						30640.0
+					],
+					"Settings": {
+						"Variable": 909
+					}
+				},
+				{
+					"ID": 978,
+					"Type": "Operator.Greater",
+					"Position": [
+						320.0,
+						31120.0
+					],
+					"Inputs": {
+						"B": 0.25
+					}
+				},
+				{
+					"ID": 979,
+					"Type": "Variable.Get",
+					"Position": [
+						0.0,
+						30800.0
+					],
+					"Settings": {
+						"Variable": 909
+					}
+				},
+				{
+					"ID": 980,
+					"Type": "Operator.Less",
+					"Position": [
+						320.0,
+						31280.0
+					],
+					"Inputs": {
+						"B": 0.45
+					}
+				},
+				{
+					"ID": 981,
+					"Type": "Variable.Get",
+					"Position": [
+						0.0,
+						30960.0
+					],
+					"Settings": {
+						"Variable": 910
+					}
+				},
+				{
+					"ID": 982,
+					"Type": "Operator.Equal",
+					"Position": [
+						320.0,
+						31440.0
+					],
+					"Inputs": {
+						"B": ""
+					}
+				},
+				{
+					"ID": 983,
+					"Type": "Operator.Less",
+					"Position": [
+						320.0,
+						31600.0
+					],
+					"Inputs": {
+						"B": 0.3
+					}
+				},
+				{
+					"ID": 984,
+					"Type": "Operator.And",
+					"Position": [
+						640.0,
+						25840.0
+					]
+				},
+				{
+					"ID": 985,
+					"Type": "Operator.And",
+					"Position": [
+						960.0,
+						18000.0
+					]
+				},
+				{
+					"ID": 986,
+					"Type": "Operator.And",
+					"Position": [
+						1280.0,
+						18960.0
+					]
+				},
+				{
+					"ID": 987,
+					"Type": "Operator.And",
+					"Position": [
+						1600.0,
+						15440.0
+					]
+				},
+				{
+					"ID": 988,
+					"Type": "Operator.And",
+					"Position": [
+						1920.0,
+						14160.0
+					]
+				},
+				{
+					"ID": 989,
+					"Type": "Operator.And",
+					"Position": [
+						2240.0,
+						11120.0
+					]
+				},
+				{
+					"ID": 990,
+					"Type": "Operator.And",
+					"Position": [
+						2560.0,
+						9200.0
+					]
+				},
+				{
+					"ID": 991,
+					"Type": "Operator.And",
+					"Position": [
+						2880.0,
+						8720.0
+					]
+				},
+				{
+					"ID": 992,
+					"Type": "FormatString",
+					"Position": [
+						320.0,
+						31760.0
+					],
+					"Settings": {
+						"Format": "{Speed} m/s in gear {Gear} at {Engine} rpm, then {Stopped} m/s"
+					}
+				},
+				{
+					"ID": 993,
+					"Type": "Function.Call",
+					"Position": [
+						3200.0,
+						8560.0
+					],
+					"Settings": {
+						"Function": 29
+					},
+					"Inputs": {
+						"Name": "a graph rides a vehicle from its fixed steps: the throttle takes the first gear and speeds it up on both wheels, the brakes stop it"
+					}
+				},
+				{
+					"ID": 994,
+					"Type": "Variable.Set",
+					"Position": [
+						640.0,
+						26000.0
 					],
 					"Settings": {
 						"Variable": 2
@@ -9871,79 +10784,79 @@
 					}
 				},
 				{
-					"ID": 902,
+					"ID": 995,
 					"Type": "Variable.Get",
 					"Position": [
 						0.0,
-						27440.0
+						31120.0
 					],
 					"Settings": {
 						"Variable": 1
 					}
 				},
 				{
-					"ID": 903,
+					"ID": 996,
 					"Type": "FormatString",
 					"Position": [
 						320.0,
-						28400.0
+						31920.0
 					],
 					"Settings": {
 						"Format": "Features: {Checks} checks passed"
 					}
 				},
 				{
-					"ID": 904,
+					"ID": 997,
 					"Type": "Call:Strada.Log.Info(string)",
 					"Position": [
 						960.0,
-						15920.0
+						18160.0
 					]
 				},
 				{
-					"ID": 905,
+					"ID": 998,
 					"Type": "Event.Create",
 					"Position": [
 						0.0,
-						27600.0
+						31280.0
 					]
 				},
 				{
-					"ID": 906,
+					"ID": 999,
 					"Type": "Flow.Sequence",
 					"Position": [
 						320.0,
-						28560.0
+						32080.0
 					],
 					"Settings": {
-						"Count": 47
+						"Count": 49
 					}
 				},
 				{
-					"ID": 907,
+					"ID": 1000,
 					"Type": "Event.Destroy",
 					"Position": [
 						0.0,
-						28800.0
+						32320.0
 					]
 				},
 				{
-					"ID": 908,
+					"ID": 1001,
 					"Type": "Variable.Get",
 					"Position": [
 						0.0,
-						28960.0
+						32480.0
 					],
 					"Settings": {
 						"Variable": 2
 					}
 				},
 				{
-					"ID": 909,
+					"ID": 1002,
 					"Type": "Function.Call",
 					"Position": [
 						320.0,
-						28800.0
+						32320.0
 					],
 					"Settings": {
 						"Function": 29
@@ -20507,47 +21420,1037 @@
 				},
 				{
 					"From": [
-						902,
+						913,
 						"Value"
 					],
 					"To": [
-						903,
-						"Checks"
+						914,
+						"Condition"
 					]
 				},
 				{
 					"From": [
-						903,
+						70,
+						"Then"
+					],
+					"To": [
+						914,
+						"Execute"
+					]
+				},
+				{
+					"From": [
+						915,
+						"Value"
+					],
+					"To": [
+						916,
+						"A"
+					]
+				},
+				{
+					"From": [
+						916,
 						"Result"
 					],
 					"To": [
-						904,
+						917,
+						"Value"
+					]
+				},
+				{
+					"From": [
+						914,
+						"True"
+					],
+					"To": [
+						917,
+						"Execute"
+					]
+				},
+				{
+					"From": [
+						918,
+						"Value"
+					],
+					"To": [
+						919,
+						"A"
+					]
+				},
+				{
+					"From": [
+						919,
+						"Result"
+					],
+					"To": [
+						922,
+						"Condition"
+					]
+				},
+				{
+					"From": [
+						920,
+						"Value"
+					],
+					"To": [
+						922,
+						"True"
+					]
+				},
+				{
+					"From": [
+						921,
+						"Value"
+					],
+					"To": [
+						922,
+						"False"
+					]
+				},
+				{
+					"From": [
+						919,
+						"Result"
+					],
+					"To": [
+						925,
+						"Condition"
+					]
+				},
+				{
+					"From": [
+						923,
+						"Value"
+					],
+					"To": [
+						925,
+						"True"
+					]
+				},
+				{
+					"From": [
+						924,
+						"Value"
+					],
+					"To": [
+						925,
+						"False"
+					]
+				},
+				{
+					"From": [
+						919,
+						"Result"
+					],
+					"To": [
+						928,
+						"Condition"
+					]
+				},
+				{
+					"From": [
+						926,
+						"Value"
+					],
+					"To": [
+						928,
+						"True"
+					]
+				},
+				{
+					"From": [
+						927,
+						"Value"
+					],
+					"To": [
+						928,
+						"False"
+					]
+				},
+				{
+					"From": [
+						912,
+						"Result"
+					],
+					"To": [
+						929,
+						"Target"
+					]
+				},
+				{
+					"From": [
+						922,
+						"Result"
+					],
+					"To": [
+						929,
+						"Throttle"
+					]
+				},
+				{
+					"From": [
+						925,
+						"Result"
+					],
+					"To": [
+						929,
+						"FrontBrake"
+					]
+				},
+				{
+					"From": [
+						928,
+						"Result"
+					],
+					"To": [
+						929,
+						"RearBrake"
+					]
+				},
+				{
+					"From": [
+						917,
+						"Then"
+					],
+					"To": [
+						929,
+						"Execute"
+					]
+				},
+				{
+					"From": [
+						930,
+						"Value"
+					],
+					"To": [
+						931,
+						"A"
+					]
+				},
+				{
+					"From": [
+						931,
+						"Result"
+					],
+					"To": [
+						932,
+						"Condition"
+					]
+				},
+				{
+					"From": [
+						929,
+						"Then"
+					],
+					"To": [
+						932,
+						"Execute"
+					]
+				},
+				{
+					"From": [
+						912,
+						"Result"
+					],
+					"To": [
+						933,
+						"Target"
+					]
+				},
+				{
+					"From": [
+						932,
+						"True"
+					],
+					"To": [
+						933,
+						"Execute"
+					]
+				},
+				{
+					"From": [
+						934,
+						"Value"
+					],
+					"To": [
+						935,
+						"A"
+					]
+				},
+				{
+					"From": [
+						935,
+						"Result"
+					],
+					"To": [
+						936,
+						"Condition"
+					]
+				},
+				{
+					"From": [
+						932,
+						"False"
+					],
+					"To": [
+						936,
+						"Execute"
+					]
+				},
+				{
+					"From": [
+						933,
+						"Then"
+					],
+					"To": [
+						936,
+						"Execute"
+					]
+				},
+				{
+					"From": [
+						912,
+						"Result"
+					],
+					"To": [
+						937,
+						"Target"
+					]
+				},
+				{
+					"From": [
+						912,
+						"Result"
+					],
+					"To": [
+						938,
+						"Target"
+					]
+				},
+				{
+					"From": [
+						937,
+						"Result"
+					],
+					"To": [
+						939,
+						"Value"
+					]
+				},
+				{
+					"From": [
+						938,
+						"Result"
+					],
+					"To": [
+						940,
+						"Value"
+					]
+				},
+				{
+					"From": [
+						912,
+						"Result"
+					],
+					"To": [
+						941,
+						"Target"
+					]
+				},
+				{
+					"From": [
+						941,
+						"Value"
+					],
+					"To": [
+						942,
+						"Value"
+					]
+				},
+				{
+					"From": [
+						912,
+						"Result"
+					],
+					"To": [
+						943,
+						"Target"
+					]
+				},
+				{
+					"From": [
+						943,
+						"Value"
+					],
+					"To": [
+						944,
+						"Value"
+					]
+				},
+				{
+					"From": [
+						912,
+						"Result"
+					],
+					"To": [
+						945,
+						"Target"
+					]
+				},
+				{
+					"From": [
+						945,
+						"Value"
+					],
+					"To": [
+						946,
+						"Value"
+					]
+				},
+				{
+					"From": [
+						912,
+						"Result"
+					],
+					"To": [
+						947,
+						"Target"
+					]
+				},
+				{
+					"From": [
+						947,
+						"Value"
+					],
+					"To": [
+						948,
+						"Value"
+					]
+				},
+				{
+					"From": [
+						939,
+						"HasContact"
+					],
+					"To": [
+						949,
+						"A"
+					]
+				},
+				{
+					"From": [
+						940,
+						"HasContact"
+					],
+					"To": [
+						949,
+						"B"
+					]
+				},
+				{
+					"From": [
+						949,
+						"Result"
+					],
+					"To": [
+						950,
+						"Value"
+					]
+				},
+				{
+					"From": [
+						940,
+						"SuspensionLength"
+					],
+					"To": [
+						951,
+						"Value"
+					]
+				},
+				{
+					"From": [
+						937,
+						"Result"
+					],
+					"To": [
+						952,
+						"Target"
+					]
+				},
+				{
+					"From": [
+						952,
+						"Value"
+					],
+					"To": [
+						953,
+						"Value"
+					]
+				},
+				{
+					"From": [
+						936,
+						"True"
+					],
+					"To": [
+						942,
+						"Execute"
+					]
+				},
+				{
+					"From": [
+						942,
+						"Then"
+					],
+					"To": [
+						944,
+						"Execute"
+					]
+				},
+				{
+					"From": [
+						944,
+						"Then"
+					],
+					"To": [
+						946,
+						"Execute"
+					]
+				},
+				{
+					"From": [
+						946,
+						"Then"
+					],
+					"To": [
+						948,
+						"Execute"
+					]
+				},
+				{
+					"From": [
+						948,
+						"Then"
+					],
+					"To": [
+						950,
+						"Execute"
+					]
+				},
+				{
+					"From": [
+						950,
+						"Then"
+					],
+					"To": [
+						951,
+						"Execute"
+					]
+				},
+				{
+					"From": [
+						951,
+						"Then"
+					],
+					"To": [
+						953,
+						"Execute"
+					]
+				},
+				{
+					"From": [
+						954,
+						"Value"
+					],
+					"To": [
+						955,
+						"A"
+					]
+				},
+				{
+					"From": [
+						955,
+						"Result"
+					],
+					"To": [
+						956,
+						"Condition"
+					]
+				},
+				{
+					"From": [
+						936,
+						"False"
+					],
+					"To": [
+						956,
+						"Execute"
+					]
+				},
+				{
+					"From": [
+						912,
+						"Result"
+					],
+					"To": [
+						957,
+						"Target"
+					]
+				},
+				{
+					"From": [
+						957,
+						"Value"
+					],
+					"To": [
+						958,
+						"Value"
+					]
+				},
+				{
+					"From": [
+						958,
+						"Result"
+					],
+					"To": [
+						959,
+						"Value"
+					]
+				},
+				{
+					"From": [
+						912,
+						"Result"
+					],
+					"To": [
+						960,
+						"Target"
+					]
+				},
+				{
+					"From": [
+						912,
+						"Result"
+					],
+					"To": [
+						961,
+						"Target"
+					]
+				},
+				{
+					"From": [
+						956,
+						"True"
+					],
+					"To": [
+						959,
+						"Execute"
+					]
+				},
+				{
+					"From": [
+						959,
+						"Then"
+					],
+					"To": [
+						960,
+						"Execute"
+					]
+				},
+				{
+					"From": [
+						960,
+						"Then"
+					],
+					"To": [
+						961,
+						"Execute"
+					]
+				},
+				{
+					"From": [
+						961,
+						"Then"
+					],
+					"To": [
+						962,
+						"Execute"
+					]
+				},
+				{
+					"From": [
+						962,
+						"Then"
+					],
+					"To": [
+						963,
+						"Execute"
+					]
+				},
+				{
+					"From": [
+						965,
+						"Value"
+					],
+					"To": [
+						966,
+						"Condition"
+					]
+				},
+				{
+					"From": [
+						968,
+						"Value"
+					],
+					"To": [
+						971,
+						"A"
+					]
+				},
+				{
+					"From": [
+						967,
+						"Value"
+					],
+					"To": [
+						972,
+						"A"
+					]
+				},
+				{
+					"From": [
+						969,
+						"Value"
+					],
+					"To": [
+						973,
+						"A"
+					]
+				},
+				{
+					"From": [
+						974,
+						"Value"
+					],
+					"To": [
+						975,
+						"A"
+					]
+				},
+				{
+					"From": [
+						977,
+						"Value"
+					],
+					"To": [
+						978,
+						"A"
+					]
+				},
+				{
+					"From": [
+						979,
+						"Value"
+					],
+					"To": [
+						980,
+						"A"
+					]
+				},
+				{
+					"From": [
+						981,
+						"Value"
+					],
+					"To": [
+						982,
+						"A"
+					]
+				},
+				{
+					"From": [
+						970,
+						"Value"
+					],
+					"To": [
+						983,
+						"A"
+					]
+				},
+				{
+					"From": [
+						971,
+						"Result"
+					],
+					"To": [
+						984,
+						"A"
+					]
+				},
+				{
+					"From": [
+						972,
+						"Result"
+					],
+					"To": [
+						984,
+						"B"
+					]
+				},
+				{
+					"From": [
+						984,
+						"Result"
+					],
+					"To": [
+						985,
+						"A"
+					]
+				},
+				{
+					"From": [
+						973,
+						"Result"
+					],
+					"To": [
+						985,
+						"B"
+					]
+				},
+				{
+					"From": [
+						985,
+						"Result"
+					],
+					"To": [
+						986,
+						"A"
+					]
+				},
+				{
+					"From": [
+						975,
+						"Result"
+					],
+					"To": [
+						986,
+						"B"
+					]
+				},
+				{
+					"From": [
+						986,
+						"Result"
+					],
+					"To": [
+						987,
+						"A"
+					]
+				},
+				{
+					"From": [
+						976,
+						"Value"
+					],
+					"To": [
+						987,
+						"B"
+					]
+				},
+				{
+					"From": [
+						987,
+						"Result"
+					],
+					"To": [
+						988,
+						"A"
+					]
+				},
+				{
+					"From": [
+						978,
+						"Result"
+					],
+					"To": [
+						988,
+						"B"
+					]
+				},
+				{
+					"From": [
+						988,
+						"Result"
+					],
+					"To": [
+						989,
+						"A"
+					]
+				},
+				{
+					"From": [
+						980,
+						"Result"
+					],
+					"To": [
+						989,
+						"B"
+					]
+				},
+				{
+					"From": [
+						989,
+						"Result"
+					],
+					"To": [
+						990,
+						"A"
+					]
+				},
+				{
+					"From": [
+						982,
+						"Result"
+					],
+					"To": [
+						990,
+						"B"
+					]
+				},
+				{
+					"From": [
+						990,
+						"Result"
+					],
+					"To": [
+						991,
+						"A"
+					]
+				},
+				{
+					"From": [
+						983,
+						"Result"
+					],
+					"To": [
+						991,
+						"B"
+					]
+				},
+				{
+					"From": [
+						967,
+						"Value"
+					],
+					"To": [
+						992,
+						"Speed"
+					]
+				},
+				{
+					"From": [
+						968,
+						"Value"
+					],
+					"To": [
+						992,
+						"Gear"
+					]
+				},
+				{
+					"From": [
+						969,
+						"Value"
+					],
+					"To": [
+						992,
+						"Engine"
+					]
+				},
+				{
+					"From": [
+						970,
+						"Value"
+					],
+					"To": [
+						992,
+						"Stopped"
+					]
+				},
+				{
+					"From": [
+						991,
+						"Result"
+					],
+					"To": [
+						993,
+						"Passed"
+					]
+				},
+				{
+					"From": [
+						992,
+						"Result"
+					],
+					"To": [
+						993,
 						"Message"
 					]
 				},
 				{
 					"From": [
-						901,
-						"Then"
+						966,
+						"Completed"
 					],
 					"To": [
-						904,
+						993,
 						"Execute"
 					]
 				},
 				{
 					"From": [
-						905,
+						995,
+						"Value"
+					],
+					"To": [
+						996,
+						"Checks"
+					]
+				},
+				{
+					"From": [
+						996,
+						"Result"
+					],
+					"To": [
+						997,
+						"Message"
+					]
+				},
+				{
+					"From": [
+						994,
 						"Then"
 					],
 					"To": [
-						906,
+						997,
 						"Execute"
 					]
 				},
 				{
 					"From": [
-						906,
+						998,
+						"Then"
+					],
+					"To": [
+						999,
+						"Execute"
+					]
+				},
+				{
+					"From": [
+						999,
 						"Then0"
 					],
 					"To": [
@@ -20557,8 +22460,18 @@
 				},
 				{
 					"From": [
-						906,
+						999,
 						"Then1"
+					],
+					"To": [
+						964,
+						"Execute"
+					]
+				},
+				{
+					"From": [
+						999,
+						"Then2"
 					],
 					"To": [
 						130,
@@ -20567,8 +22480,8 @@
 				},
 				{
 					"From": [
-						906,
-						"Then2"
+						999,
+						"Then3"
 					],
 					"To": [
 						151,
@@ -20577,8 +22490,8 @@
 				},
 				{
 					"From": [
-						906,
-						"Then3"
+						999,
+						"Then4"
 					],
 					"To": [
 						162,
@@ -20587,8 +22500,8 @@
 				},
 				{
 					"From": [
-						906,
-						"Then4"
+						999,
+						"Then5"
 					],
 					"To": [
 						194,
@@ -20597,8 +22510,8 @@
 				},
 				{
 					"From": [
-						906,
-						"Then5"
+						999,
+						"Then6"
 					],
 					"To": [
 						204,
@@ -20607,8 +22520,8 @@
 				},
 				{
 					"From": [
-						906,
-						"Then6"
+						999,
+						"Then7"
 					],
 					"To": [
 						226,
@@ -20617,8 +22530,8 @@
 				},
 				{
 					"From": [
-						906,
-						"Then7"
+						999,
+						"Then8"
 					],
 					"To": [
 						230,
@@ -20627,8 +22540,8 @@
 				},
 				{
 					"From": [
-						906,
-						"Then8"
+						999,
+						"Then9"
 					],
 					"To": [
 						243,
@@ -20637,8 +22550,8 @@
 				},
 				{
 					"From": [
-						906,
-						"Then9"
+						999,
+						"Then10"
 					],
 					"To": [
 						244,
@@ -20647,8 +22560,8 @@
 				},
 				{
 					"From": [
-						906,
-						"Then10"
+						999,
+						"Then11"
 					],
 					"To": [
 						252,
@@ -20657,8 +22570,8 @@
 				},
 				{
 					"From": [
-						906,
-						"Then11"
+						999,
+						"Then12"
 					],
 					"To": [
 						253,
@@ -20667,8 +22580,8 @@
 				},
 				{
 					"From": [
-						906,
-						"Then12"
+						999,
+						"Then13"
 					],
 					"To": [
 						257,
@@ -20677,8 +22590,8 @@
 				},
 				{
 					"From": [
-						906,
-						"Then13"
+						999,
+						"Then14"
 					],
 					"To": [
 						265,
@@ -20687,8 +22600,8 @@
 				},
 				{
 					"From": [
-						906,
-						"Then14"
+						999,
+						"Then15"
 					],
 					"To": [
 						276,
@@ -20697,8 +22610,8 @@
 				},
 				{
 					"From": [
-						906,
-						"Then15"
+						999,
+						"Then16"
 					],
 					"To": [
 						289,
@@ -20707,8 +22620,8 @@
 				},
 				{
 					"From": [
-						906,
-						"Then16"
+						999,
+						"Then17"
 					],
 					"To": [
 						313,
@@ -20717,8 +22630,8 @@
 				},
 				{
 					"From": [
-						906,
-						"Then17"
+						999,
+						"Then18"
 					],
 					"To": [
 						324,
@@ -20727,8 +22640,8 @@
 				},
 				{
 					"From": [
-						906,
-						"Then18"
+						999,
+						"Then19"
 					],
 					"To": [
 						336,
@@ -20737,8 +22650,8 @@
 				},
 				{
 					"From": [
-						906,
-						"Then19"
+						999,
+						"Then20"
 					],
 					"To": [
 						349,
@@ -20747,8 +22660,8 @@
 				},
 				{
 					"From": [
-						906,
-						"Then20"
+						999,
+						"Then21"
 					],
 					"To": [
 						375,
@@ -20757,8 +22670,8 @@
 				},
 				{
 					"From": [
-						906,
-						"Then21"
+						999,
+						"Then22"
 					],
 					"To": [
 						419,
@@ -20767,8 +22680,8 @@
 				},
 				{
 					"From": [
-						906,
-						"Then22"
+						999,
+						"Then23"
 					],
 					"To": [
 						450,
@@ -20777,8 +22690,8 @@
 				},
 				{
 					"From": [
-						906,
-						"Then23"
+						999,
+						"Then24"
 					],
 					"To": [
 						459,
@@ -20787,8 +22700,8 @@
 				},
 				{
 					"From": [
-						906,
-						"Then24"
+						999,
+						"Then25"
 					],
 					"To": [
 						460,
@@ -20797,8 +22710,8 @@
 				},
 				{
 					"From": [
-						906,
-						"Then25"
+						999,
+						"Then26"
 					],
 					"To": [
 						487,
@@ -20807,8 +22720,8 @@
 				},
 				{
 					"From": [
-						906,
-						"Then26"
+						999,
+						"Then27"
 					],
 					"To": [
 						489,
@@ -20817,8 +22730,8 @@
 				},
 				{
 					"From": [
-						906,
-						"Then27"
+						999,
+						"Then28"
 					],
 					"To": [
 						508,
@@ -20827,8 +22740,8 @@
 				},
 				{
 					"From": [
-						906,
-						"Then28"
+						999,
+						"Then29"
 					],
 					"To": [
 						534,
@@ -20837,8 +22750,8 @@
 				},
 				{
 					"From": [
-						906,
-						"Then29"
+						999,
+						"Then30"
 					],
 					"To": [
 						542,
@@ -20847,8 +22760,8 @@
 				},
 				{
 					"From": [
-						906,
-						"Then30"
+						999,
+						"Then31"
 					],
 					"To": [
 						560,
@@ -20857,8 +22770,8 @@
 				},
 				{
 					"From": [
-						906,
-						"Then31"
+						999,
+						"Then32"
 					],
 					"To": [
 						569,
@@ -20867,8 +22780,8 @@
 				},
 				{
 					"From": [
-						906,
-						"Then32"
+						999,
+						"Then33"
 					],
 					"To": [
 						581,
@@ -20877,8 +22790,8 @@
 				},
 				{
 					"From": [
-						906,
-						"Then33"
+						999,
+						"Then34"
 					],
 					"To": [
 						600,
@@ -20887,8 +22800,8 @@
 				},
 				{
 					"From": [
-						906,
-						"Then34"
+						999,
+						"Then35"
 					],
 					"To": [
 						619,
@@ -20897,8 +22810,8 @@
 				},
 				{
 					"From": [
-						906,
-						"Then35"
+						999,
+						"Then36"
 					],
 					"To": [
 						654,
@@ -20907,8 +22820,8 @@
 				},
 				{
 					"From": [
-						906,
-						"Then36"
+						999,
+						"Then37"
 					],
 					"To": [
 						668,
@@ -20917,8 +22830,8 @@
 				},
 				{
 					"From": [
-						906,
-						"Then37"
+						999,
+						"Then38"
 					],
 					"To": [
 						677,
@@ -20927,8 +22840,8 @@
 				},
 				{
 					"From": [
-						906,
-						"Then38"
+						999,
+						"Then39"
 					],
 					"To": [
 						686,
@@ -20937,8 +22850,8 @@
 				},
 				{
 					"From": [
-						906,
-						"Then39"
+						999,
+						"Then40"
 					],
 					"To": [
 						700,
@@ -20947,8 +22860,8 @@
 				},
 				{
 					"From": [
-						906,
-						"Then40"
+						999,
+						"Then41"
 					],
 					"To": [
 						711,
@@ -20957,8 +22870,8 @@
 				},
 				{
 					"From": [
-						906,
-						"Then41"
+						999,
+						"Then42"
 					],
 					"To": [
 						740,
@@ -20967,8 +22880,8 @@
 				},
 				{
 					"From": [
-						906,
-						"Then42"
+						999,
+						"Then43"
 					],
 					"To": [
 						814,
@@ -20977,8 +22890,8 @@
 				},
 				{
 					"From": [
-						906,
-						"Then43"
+						999,
+						"Then44"
 					],
 					"To": [
 						871,
@@ -20987,8 +22900,8 @@
 				},
 				{
 					"From": [
-						906,
-						"Then44"
+						999,
+						"Then45"
 					],
 					"To": [
 						891,
@@ -20997,8 +22910,8 @@
 				},
 				{
 					"From": [
-						906,
-						"Then45"
+						999,
+						"Then46"
 					],
 					"To": [
 						900,
@@ -21007,31 +22920,41 @@
 				},
 				{
 					"From": [
-						906,
-						"Then46"
+						999,
+						"Then47"
 					],
 					"To": [
-						901,
+						966,
 						"Execute"
 					]
 				},
 				{
 					"From": [
-						908,
+						999,
+						"Then48"
+					],
+					"To": [
+						994,
+						"Execute"
+					]
+				},
+				{
+					"From": [
+						1001,
 						"Value"
 					],
 					"To": [
-						909,
+						1002,
 						"Passed"
 					]
 				},
 				{
 					"From": [
-						907,
+						1000,
 						"Then"
 					],
 					"To": [
-						909,
+						1002,
 						"Execute"
 					]
 				}

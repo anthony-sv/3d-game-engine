@@ -67,8 +67,9 @@ public sealed class McpServerTests
 		{
 			Assert.Matches($@"\b{word}\b", instructions);
 		}
-		// Vehicles, the motorcycle's data asset type, with the three tools its registration gives it.
-		foreach (string tool in new[] { "vehicle_create", "vehicle_get", "vehicle_set" })
+		// Vehicles, the motorcycle's data asset type, with the three tools its registration gives it, and the playing vehicles'
+		// state.
+		foreach (string tool in new[] { "vehicle_create", "vehicle_get", "vehicle_set", "vehicle_state" })
 		{
 			Assert.Matches($@"\b{tool}\b", instructions);
 		}

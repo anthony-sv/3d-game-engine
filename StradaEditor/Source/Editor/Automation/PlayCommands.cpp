@@ -7,6 +7,10 @@
 #include "Strada/Asset/DataAsset.h"
 #include "Strada/Asset/InputActionMap.h"
 #include "Strada/Asset/InputActionsAsset.h"
+#include "Strada/Asset/PhysicsMaterial.h"
+#include "Strada/Asset/PhysicsMaterialAsset.h"
+#include "Strada/Asset/Vehicle.h"
+#include "Strada/Asset/VehicleAsset.h"
 #include "Strada/Core/Input.h"
 #include "Strada/Core/InputActions.h"
 #include "Strada/Core/KeyCodes.h"
@@ -15,9 +19,11 @@
 #include "Strada/Physics/PhysicsTypes.h"
 #include "Strada/Project/Project.h"
 #include "Strada/Project/SceneRunner.h"
+#include "Strada/Scene/Components.h"
 #include "Strada/Scene/Entity.h"
 #include "Strada/Scene/UILayout.h"
 
+#include <glm/glm.hpp>
 #include <glm/gtc/quaternion.hpp>
 #include <spdlog/fmt/fmt.h>
 
@@ -740,6 +746,162 @@ namespace Strada
 			                     {"hits", std::move(hits)}});
 		}
 
+		// A material, or a definition, as an agent names it: its reference (a path, or the handle of an asset without one),
+		// null for none.
+		Json DescribeAsset(AssetHandle handle)
+		{
+			if (!handle.IsValid())
+			{
+				return Json();
+			}
+			return AssetManager::IsInitialized() ? Json(AssetManager::GetReference(handle)) : Json(handle.ToString());
+		}
+
+		Json DescribeVehicleInputs(VehicleInputs const& inputs)
+		{
+			return Json::object(
+				{{"throttle", inputs.Throttle}, {"frontBrake", inputs.FrontBrake}, {"rearBrake", inputs.RearBrake}, {"lean", inputs.Lean}});
+		}
+
+		// The name and the surface name of a definition's wheel and of a physics material, read from the assets as they are
+		// loaded (empty when they are not).
+		std::string GetVehicleWheelName(AssetHandle definition, size_t wheel)
+		{
+			if (!definition.IsValid() || !AssetManager::IsInitialized())
+			{
+				return std::string();
+			}
+			Result<Ref<TypedDataAsset<Vehicle>>> const asset = AssetManager::TryGetAsset<TypedDataAsset<Vehicle>>(definition);
+			if (!asset)
+			{
+				return std::string();
+			}
+			std::vector<VehicleWheelDefinition> const& wheels = asset.GetValue()->GetData().Wheels;
+			return wheel < wheels.size() ? wheels[wheel].Name : std::string();
+		}
+
+		std::string GetSurfaceName(AssetHandle material)
+		{
+			if (!material.IsValid() || !AssetManager::IsInitialized())
+			{
+				return std::string();
+			}
+			Result<Ref<TypedDataAsset<PhysicsMaterial>>> const asset = AssetManager::TryGetAsset<TypedDataAsset<PhysicsMaterial>>(material);
+			return asset ? asset.GetValue()->GetData().Surface : std::string();
+		}
+
+		Json DescribeVehicle(Scene& scene, Entity entity, VehicleState const& state)
+		{
+			AssetHandle const definition = entity.GetComponent<VehicleComponent>().Definition;
+			Json wheels = Json::array();
+			for (size_t index = 0; index < state.Wheels.size(); index++)
+			{
+				VehicleWheelState const& wheel = state.Wheels[index];
+				Json described = Json::object({{"index", index}, {"name", GetVehicleWheelName(definition, index)}});
+				described["contact"] = wheel.ContactEntity.IsValid() ? DescribeQueryEntity(scene, wheel.ContactEntity) : Json();
+				described["surface"] = DescribeAsset(wheel.Surface);
+				described["surfaceName"] = GetSurfaceName(wheel.Surface);
+				described["tyreGrip"] = wheel.TyreGrip;
+				described["rollingResistance"] = wheel.RollingResistance;
+				described["suspensionLength"] = wheel.SuspensionLength;
+				described["spin"] = wheel.AngularVelocity;
+				described["steerAngle"] = glm::degrees(wheel.SteerAngle);
+				described["longitudinalSlip"] = wheel.LongitudinalSlip;
+				described["lateralSlip"] = glm::degrees(wheel.LateralSlip);
+				described["contactPoint"] = ToJson(wheel.ContactPoint);
+				described["contactNormal"] = ToJson(wheel.ContactNormal);
+				wheels.push_back(std::move(described));
+			}
+			return Json::object({{"entity", entity.GetUUID().ToString()},
+			                     {"name", entity.GetName()},
+			                     {"definition", DescribeAsset(definition)},
+			                     {"inputs", DescribeVehicleInputs(state.Inputs)},
+			                     {"applied", DescribeVehicleInputs(state.AppliedInputs)},
+			                     {"engineSpeed", state.EngineSpeed},
+			                     {"engineTorque", state.EngineTorque},
+			                     {"gear", state.Gear},
+			                     {"clutch", state.ClutchFriction},
+			                     {"shifting", state.IsShifting},
+			                     {"forwardSpeed", state.ForwardSpeed},
+			                     {"leanAngle", glm::degrees(state.LeanAngle)},
+			                     {"targetLeanAngle", glm::degrees(state.TargetLeanAngle)},
+			                     {"wheels", std::move(wheels)}});
+		}
+
+		// vehicle.state: the playing scene's vehicles as their last step left them (as a script's reads see them).
+		CommandResult ReadVehicleState(PlayMode& playMode, EditorContext& context, Json const& params)
+		{
+			playMode.RefreshObserver();
+			if (!playMode.IsPlaying())
+			{
+				return MakeCommandError(AutomationErrorCode::InvalidOperation,
+				                        "nothing is playing: vehicle.state reads the playing scene's vehicles (play.start)");
+			}
+			Scene& scene = context.GetScene();
+			scene.ApplyPhysicsChanges();
+			PhysicsScene const* const physics = scene.GetPhysicsScene();
+			if (physics == nullptr)
+			{
+				return MakeCommandError(AutomationErrorCode::Unavailable,
+				                        "the playing scene has no physics world (physics is unavailable)");
+			}
+
+			Json vehicles = Json::array();
+			if (auto const entityParameter = params.find("entity"); entityParameter != params.end())
+			{
+				std::string const& text = entityParameter->get_ref<std::string const&>();
+				std::optional<UUID> const id = UUID::FromString(text);
+				if (!id || !id->IsValid())
+				{
+					CommandError error = MakeCommandError(AutomationErrorCode::InvalidParams, "'{}' is not a valid entity ID", text);
+					error.Data = Json::object({{"path", "entity"}});
+					return error;
+				}
+				Entity const entity = scene.GetEntityByUUID(*id);
+				if (!entity)
+				{
+					return MakeCommandError(AutomationErrorCode::EntityNotFound, "entity {} does not exist", *id);
+				}
+				if (!entity.HasComponent<VehicleComponent>())
+				{
+					return MakeCommandError(AutomationErrorCode::ComponentNotFound, "entity {} has no Vehicle component", *id);
+				}
+				std::optional<VehicleState> const state = physics->GetVehicleState(*id);
+				if (!state)
+				{
+					return MakeCommandError(AutomationErrorCode::InvalidOperation,
+					                        "entity {}'s Vehicle makes no vehicle: it needs a dynamic RigidBody, a collider and a "
+					                        "definition that loads (the log says which is missing)",
+					                        *id);
+				}
+				vehicles.push_back(DescribeVehicle(scene, entity, *state));
+			}
+			else
+			{
+				std::vector<std::pair<UUID, entt::entity>> found;
+				for (entt::entity const handle : scene.GetRegistry().view<VehicleComponent>())
+				{
+					found.emplace_back(Entity(handle, &scene).GetUUID(), handle);
+				}
+				std::sort(found.begin(), found.end(),
+				          [](auto const& first, auto const& second)
+				          {
+							  return first.first < second.first;
+						  });
+				for (auto const& [id, handle] : found)
+				{
+					if (std::optional<VehicleState> const state = physics->GetVehicleState(id))
+					{
+						vehicles.push_back(DescribeVehicle(scene, Entity(handle, &scene), *state));
+					}
+				}
+			}
+			return Json::object({{"state", GetEditorPlayStateName(context.GetPlayState())},
+			                     {"frame", scene.GetRuntimeFrame()},
+			                     {"step", physics->GetStepCount()},
+			                     {"vehicles", std::move(vehicles)}});
+		}
+
 		Result<void> Add(CommandRegistry& registry, std::string name, std::string description, Json parameters, bool readOnly,
 		                 CommandHandler handler)
 		{
@@ -1182,6 +1344,29 @@ namespace Strada
 						  return QueryPhysics(playMode, context, params);
 					  })
 				: result;
+		result = result
+		             ? Add(registry, "vehicle.state",
+		                   "Reads the playing scene's vehicles (play or simulate, paused or not) as their last physics step left them, "
+		                   "as a script's reads see them: every vehicle in the order of its entity's ID, or the one entity names. "
+		                   "Returns { state, frame, step (physics steps run), vehicles: [{ entity, name, definition (the .svehicle's "
+		                   "reference), inputs and applied ({ throttle, frontBrake, rearBrake, lean }: the latest given and those the "
+		                   "last step applied), engineSpeed (rpm), engineTorque (N m), gear (0 neutral), clutch (0 open to 1 "
+		                   "closed), shifting, forwardSpeed (m/s along the chassis's front), leanAngle and targetLeanAngle (degrees, "
+		                   "positive to the right), wheels: [{ index (0 front, 1 rear), name, contact ({ entity, name } or null), "
+		                   "surface (the physics material's reference or null), surfaceName, tyreGrip, rollingResistance, "
+		                   "suspensionLength (m), spin (rad/s), steerAngle (degrees), longitudinalSlip (ratio), lateralSlip "
+		                   "(degrees), contactPoint, contactNormal }] }] }. Read-only: not an undo step. InvalidOperation while "
+		                   "nothing plays and for an entity whose Vehicle makes no vehicle; EntityNotFound, ComponentNotFound (no "
+		                   "Vehicle); Unavailable without physics.",
+		                   SchemaBuilder::Object()
+		                       .Property("entity", SchemaBuilder::String("Entity ID of one vehicle (default every vehicle)").MinLength(1))
+		                       .Build(),
+		                   true,
+		                   [&playMode, &context](Json const& params) -> CommandResult
+		                   {
+							   return ReadVehicleState(playMode, context, params);
+						   })
+		             : result;
 		if (!result)
 		{
 			return result;

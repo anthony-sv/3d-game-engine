@@ -3,10 +3,14 @@
 
 #include "Strada/Math/Math.h"
 #include "Strada/Physics/PhysicsScene.h"
+#include "Strada/Physics/PhysicsTypes.h"
 #include "Strada/Scene/SceneCamera.h"
+
+#include <glm/glm.hpp>
 
 #include <algorithm>
 #include <cmath>
+#include <cstddef>
 #include <cstring>
 #include <optional>
 #include <string>
@@ -570,6 +574,143 @@ namespace Strada::ScriptGlue
 			}
 		}
 
+		// --- Vehicle: the live vehicle while the scene simulates it ---
+
+		// Strada.Interop.NativeVehicleWheel: a wheel as VehicleComponent_GetState copies it, its slip angle in degrees and the
+		// entity and the material 0 for none.
+		struct VehicleWheelValues
+		{
+			uint64_t Ground;
+			uint64_t Material;
+			Vector3 ContactPoint;
+			Vector3 ContactNormal;
+			float SuspensionLength;
+			float Spin;
+			float LongitudinalSlip;
+			float LateralSlip;
+			uint32_t HasContact;
+			uint32_t Reserved;
+		};
+
+		static_assert(sizeof(VehicleWheelValues) == 64 && offsetof(VehicleWheelValues, ContactPoint) == 16 &&
+		              offsetof(VehicleWheelValues, ContactNormal) == 28 && offsetof(VehicleWheelValues, SuspensionLength) == 40 &&
+		              offsetof(VehicleWheelValues, HasContact) == 56);
+
+		// Strada.Interop.NativeVehicleState: a vehicle as its last step left it, the inputs that step applied, its lean in degrees
+		// (positive to its right); all zero without a simulated vehicle.
+		struct VehicleStateValues
+		{
+			float Throttle;
+			float FrontBrake;
+			float RearBrake;
+			float Lean;
+			float EngineSpeed;
+			float ForwardSpeed;
+			float LeanAngle;
+			int32_t Gear;
+			VehicleWheelValues Front;
+			VehicleWheelValues Rear;
+		};
+
+		static_assert(VehicleWheelCount == 2, "VehicleStateValues holds the front and the rear wheel");
+		static_assert(sizeof(VehicleStateValues) == 160 && offsetof(VehicleStateValues, EngineSpeed) == 16 &&
+		              offsetof(VehicleStateValues, Gear) == 28 && offsetof(VehicleStateValues, Front) == 32 &&
+		              offsetof(VehicleStateValues, Rear) == 96);
+
+		// The entity's vehicle once pending physics changes are applied; null (logged) without one.
+		PhysicsScene* FindVehicle(uint64_t id, char const* function)
+		{
+			Entity const entity = FindEntity(id, function);
+			if (!entity || FindComponent<VehicleComponent>(id) == nullptr)
+			{
+				return nullptr;
+			}
+			Scene& scene = *entity.GetScene();
+			scene.ApplyPhysicsChanges();
+			PhysicsScene* const physics = scene.GetPhysicsScene();
+			if (physics == nullptr || !physics->HasVehicle(UUID(id)))
+			{
+				Log::GetScriptLogger().error("{}: entity {} has no vehicle (the scene is not simulating it: a vehicle needs a dynamic "
+				                             "body, a collider and a definition that loads)",
+				                             function, id);
+				return nullptr;
+			}
+			return physics;
+		}
+
+		VehicleWheelValues MakeWheelValues(VehicleWheelState const& wheel)
+		{
+			VehicleWheelValues values{};
+			values.Ground = wheel.ContactEntity.GetValue();
+			values.Material = wheel.Surface.GetUUID().GetValue();
+			values.ContactPoint = ToScript(wheel.ContactPoint);
+			values.ContactNormal = ToScript(wheel.ContactNormal);
+			values.SuspensionLength = wheel.SuspensionLength;
+			values.Spin = wheel.AngularVelocity;
+			values.LongitudinalSlip = wheel.LongitudinalSlip;
+			values.LateralSlip = glm::degrees(wheel.LateralSlip);
+			values.HasContact = wheel.ContactEntity.IsValid() ? 1u : 0u;
+			return values;
+		}
+
+		// What the live vehicle does as its last step left it; all zero (a vehicle at rest in neutral) when the scene does not
+		// simulate it.
+		void VehicleComponent_GetState(uint64_t id, VehicleStateValues* values)
+		{
+			*values = {};
+			Scene* const scene = FindComponent<VehicleComponent>(id) != nullptr ? ScriptEngine::GetSceneContext() : nullptr;
+			if (scene == nullptr)
+			{
+				return;
+			}
+			scene->ApplyPhysicsChanges();
+			PhysicsScene const* physics = scene->GetPhysicsScene();
+			std::optional<VehicleState> const state = physics != nullptr ? physics->GetVehicleState(UUID(id)) : std::nullopt;
+			if (!state)
+			{
+				return;
+			}
+			values->Throttle = state->AppliedInputs.Throttle;
+			values->FrontBrake = state->AppliedInputs.FrontBrake;
+			values->RearBrake = state->AppliedInputs.RearBrake;
+			values->Lean = state->AppliedInputs.Lean;
+			values->EngineSpeed = state->EngineSpeed;
+			values->ForwardSpeed = state->ForwardSpeed;
+			values->LeanAngle = glm::degrees(state->LeanAngle);
+			values->Gear = state->Gear;
+			values->Front = MakeWheelValues(state->Wheels[0]);
+			values->Rear = MakeWheelValues(state->Wheels[1]);
+		}
+
+		// The rider's inputs for the vehicle's next steps (the world clamps them to their ranges); values that are not finite
+		// are refused.
+		void VehicleComponent_SetDriverInput(uint64_t id, float throttle, float frontBrake, float rearBrake, float lean)
+		{
+			if (!CheckFinite("VehicleComponent.SetDriverInput", throttle, frontBrake, rearBrake, lean))
+			{
+				return;
+			}
+			if (PhysicsScene* physics = FindVehicle(id, "VehicleComponent.SetDriverInput"))
+			{
+				VehicleInputs inputs;
+				inputs.Throttle = throttle;
+				inputs.FrontBrake = frontBrake;
+				inputs.RearBrake = rearBrake;
+				inputs.Lean = lean;
+				physics->SetVehicleInputs(UUID(id), inputs);
+			}
+		}
+
+		// A Manual gearbox's next gear up (gears > 0) or down at the vehicle's next step.
+		void VehicleComponent_Shift(uint64_t id, int32_t gears)
+		{
+			char const* const function = gears > 0 ? "VehicleComponent.ShiftUp" : "VehicleComponent.ShiftDown";
+			if (PhysicsScene* physics = FindVehicle(id, function))
+			{
+				physics->RequestVehicleShift(UUID(id), gears > 0 ? 1 : -1);
+			}
+		}
+
 		// --- Particle systems ---
 
 		Entity FindParticleSystem(uint64_t id)
@@ -786,6 +927,11 @@ namespace Strada::ScriptGlue
 		table.Add("CharacterControllerComponent_IsGrounded", &CharacterControllerComponent_IsGrounded);
 		table.Add("CharacterControllerComponent_GetGroundNormal", &CharacterControllerComponent_GetGroundNormal);
 		table.Add("CharacterControllerComponent_Teleport", &CharacterControllerComponent_Teleport);
+
+		AddFieldBindings<&VehicleComponent::Definition, "VehicleComponent", "Definition">(table);
+		table.Add("VehicleComponent_GetState", &VehicleComponent_GetState);
+		table.Add("VehicleComponent_SetDriverInput", &VehicleComponent_SetDriverInput);
+		table.Add("VehicleComponent_Shift", &VehicleComponent_Shift);
 
 		AddFieldBindings<&AudioSourceComponent::Clip, "AudioSourceComponent", "Clip">(table);
 		AddFieldBindings<&AudioSourceComponent::Stream, "AudioSourceComponent", "Stream">(table);

@@ -961,6 +961,26 @@ namespace Strada
 		pending = std::clamp(pending + std::clamp(gears, -limit, limit), -limit, limit);
 	}
 
+	void VehicleWorld::AppendVehiclesOnMaterial(AssetHandle material, std::vector<std::pair<UUID, JPH::BodyID>>& vehicles) const
+	{
+		if (!material.IsValid())
+		{
+			return;
+		}
+		for (auto const& [entity, record] : m_Vehicles)
+		{
+			bool const touches = std::any_of(record.Surfaces.begin(), record.Surfaces.end(),
+			                                 [material](VehicleWheelSurface const& surface)
+			                                 {
+												 return surface.Material == material;
+											 });
+			if (touches)
+			{
+				vehicles.emplace_back(entity, record.Body);
+			}
+		}
+	}
+
 	std::optional<VehicleState> VehicleWorld::GetVehicleState(UUID entity) const
 	{
 		auto const it = m_Vehicles.find(entity);

@@ -28,6 +28,7 @@ internal static class DataAssets
 		InputActionsCache.Clear();
 		MixerCache.Clear();
 		PhysicsMaterialCache.Clear();
+		VehicleCache.Clear();
 		AssetTypes.Reset();
 	}
 }
@@ -507,4 +508,130 @@ internal static unsafe class CurveCache
 				(CurveExtrapolation)header.PostExtrapolation);
 		}
 	}
+}
+
+// The runtime's copies of vehicle definition assets' values, one per asset, shared by every reference (Strada.Vehicle).
+internal static unsafe class VehicleCache
+{
+	// A definition that loads has at most this many gears (the engine's MaxVehicleGears).
+	internal const int MaxGears = 16;
+
+	private static readonly Dictionary<ulong, Entry> s_Entries = [];
+
+	internal static int EntryCount => s_Entries.Count;
+
+	internal static Entry Find(AssetHandle handle)
+	{
+		if (!s_Entries.TryGetValue(handle.ID, out Entry? entry))
+		{
+			entry = new Entry(handle);
+			s_Entries.Add(handle.ID, entry);
+		}
+		return entry;
+	}
+
+	internal static void Clear()
+	{
+		s_Entries.Clear();
+	}
+
+	// A vehicle definition's values as scripts read them, with the version they were read at.
+	internal sealed class Entry
+	{
+		// The data asset epoch at which the engine was last asked; 0: never.
+		private ulong m_Epoch;
+
+		internal Entry(AssetHandle handle)
+		{
+			Handle = handle;
+		}
+
+		internal AssetHandle Handle { get; }
+
+		// The asset's version the values were read at; 0 for none (not read, or the read failed).
+		internal ulong Version { get; private set; }
+
+		internal VehicleValues Values { get; private set; } = VehicleValues.Default;
+
+		// The values as of the current epoch: the engine is asked first when data assets may have changed since it last was.
+		internal VehicleValues GetValues()
+		{
+			if (m_Epoch != DataAssets.Epoch)
+			{
+				Refresh();
+			}
+			return Values;
+		}
+
+		private void Refresh()
+		{
+			m_Epoch = DataAssets.Epoch;
+			NativeVehicle values = default;
+			float* ratios = stackalloc float[MaxGears];
+			switch ((VehicleReadStatus)InternalCalls.Vehicle_Read(Handle.ID, Version, &values, ratios, MaxGears))
+			{
+				case VehicleReadStatus.Unchanged:
+					break;
+				case VehicleReadStatus.Read:
+					Values = new VehicleValues(values, new ReadOnlySpan<float>(ratios, Math.Clamp(values.GearCount, 0, MaxGears)));
+					Version = values.Version;
+					break;
+				default:
+					// The engine logged why; the definition reads as a new one's until data assets change again.
+					Values = VehicleValues.Default;
+					Version = 0;
+					break;
+			}
+		}
+	}
+}
+
+// One version of a vehicle definition's values, made when the engine copies them, so that reading a member allocates
+// nothing.
+internal sealed class VehicleValues
+{
+	// A new definition's values (Vehicle.h's defaults): what a definition that cannot be loaded reads as.
+	internal static readonly VehicleValues Default = new();
+
+	private VehicleValues()
+	{
+		TransmissionMode = VehicleTransmissionMode.Automatic;
+		GearRatios = [2.27f, 1.63f, 1.3f, 1.09f, 0.96f, 0.88f];
+		FinalDrive = 4.825f;
+		MaxTorque = 150.0f;
+		MinRPM = 1000.0f;
+		MaxRPM = 10000.0f;
+		ShiftUpRPM = 8000.0f;
+		ShiftDownRPM = 2000.0f;
+		MaxLeanAngle = 45.0f;
+		FrontName = "Front";
+		RearName = "Rear";
+	}
+
+	internal unsafe VehicleValues(NativeVehicle values, ReadOnlySpan<float> gearRatios)
+	{
+		TransmissionMode = (VehicleTransmissionMode)values.TransmissionMode;
+		GearRatios = gearRatios.ToArray();
+		FinalDrive = values.FinalDrive;
+		MaxTorque = values.MaxTorque;
+		MinRPM = values.MinRPM;
+		MaxRPM = values.MaxRPM;
+		ShiftUpRPM = values.ShiftUpRPM;
+		ShiftDownRPM = values.ShiftDownRPM;
+		MaxLeanAngle = values.MaxLeanAngle;
+		FrontName = NativeString.FromUtf8(values.FrontName, values.FrontNameLength);
+		RearName = NativeString.FromUtf8(values.RearName, values.RearNameLength);
+	}
+
+	internal VehicleTransmissionMode TransmissionMode { get; }
+	internal float[] GearRatios { get; }
+	internal float FinalDrive { get; }
+	internal float MaxTorque { get; }
+	internal float MinRPM { get; }
+	internal float MaxRPM { get; }
+	internal float ShiftUpRPM { get; }
+	internal float ShiftDownRPM { get; }
+	internal float MaxLeanAngle { get; }
+	internal string FrontName { get; }
+	internal string RearName { get; }
 }

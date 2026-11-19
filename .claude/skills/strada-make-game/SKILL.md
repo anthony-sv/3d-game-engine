@@ -123,6 +123,15 @@ component and the whole scripting API.
   Collisions play each side's `ImpactSound` by themselves once the project's mixer names a bus in its `Impacts`
   (`mixer_set`); a `ReverbZone` component (a box or sphere, a `Bus` with a reverb, a `SendLevel`) makes the spatial
   sounds inside it echo.
+- Vehicles are motorcycles: `vehicle_create` with `path` (`Vehicles/Bike.svehicle`) writes a definition (its two wheels,
+  the front then the rear, with their suspension, brakes and tyre curves; its engine, gearbox (`Automatic` or `Manual`),
+  final drive and lean), `vehicle_get` and `vehicle_set` read and change it (an undo step, felt by a playing bike at its
+  next physics step). The bike is an entity with a dynamic `RigidBody`, a collider (its chassis, not its wheels) and a
+  `Vehicle` naming the definition; a child entity per wheel gets `VehicleWheel` with the wheel's name and is drawn where
+  the wheel is. A C# script or a graph rides it from its fixed step (`OnFixedUpdate`, `Event.FixedUpdate`) with
+  `VehicleComponent.SetDriverInput(throttle, frontBrake, rearBrake, lean)` and, in `Manual`, `ShiftUp()` and
+  `ShiftDown()`, and reads `EngineSpeed`, `Gear`, `ForwardSpeed`, `LeanAngle` and `GetWheelState(0 or 1)` (contact,
+  surface, suspension, spin, slips). Give the bike one writer of its inputs.
 - Look at the result in a windowed editor: `viewport_frame` points its camera at entities, `viewport_camera` sets the
   view, and `viewport_screenshot` returns an image of the editor. `viewport_overlays` sets what the scene view draws
   over the scene: `colliders` `all` shows every physics shape (check that colliders fit their meshes), `contacts` shows
@@ -478,6 +487,9 @@ graph_get {"graph":"asset://Scripts/Spinner.sgraph"}
   material); `raycastAll` every entity along the ray; `shapeCast` with `shape` (`sphere`, `box`, `capsule`) the first
   hit of the swept shape; `overlap` the entities a shape overlaps at `origin`. `mask` picks layers, `triggers` counts
   trigger colliders. A cast that starts inside a body hits that body.
+- `vehicle_state` reads the playing bikes as their last physics step left them: the inputs given and applied, the
+  engine's speed, the gear, the speed, the lean and each wheel's contact, surface, suspension and slips (`entity` for
+  one bike).
 - `audio_meters` reads the mix while the game plays: each bus of the project's mixer with its `peak` and `rms` (linear)
   and `peakDb` and `rmsDb` over the last block mixed, the `snapshot` the mix is at, and the voice counts. A bus that
   reads -80 dB is silent: check the source's `Bus`, the mixer's mutes and what ducks it.

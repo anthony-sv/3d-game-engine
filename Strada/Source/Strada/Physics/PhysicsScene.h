@@ -199,9 +199,11 @@ namespace Strada
 		// Gives every collider and submesh surface whose ColliderSurface::Material is this material the material's friction,
 		// restitution and modes, rolling resistance and tyre grip (an edit of the material while the world runs): their
 		// contacts and the wheels on them use them from the next step,
-		// contacts that persist included, and the bodies keep everything else. When the values differ from what a body had,
-		// it wakes (a sleeping body has no contacts to take them), and so does every non-static body whose bounds meet a
-		// static one's; in entity order. Returns how many surfaces name the material. Between steps: Jolt's worker threads
+		// contacts that persist included, and the bodies keep everything else. When the values contacts read differ from what
+		// a body had, it wakes (a sleeping body has no contacts to take them), and so does every non-static body whose bounds
+		// meet a static one's; when the tyre grip or the rolling resistance differ, the chassis of every vehicle one of whose
+		// wheels touched the material at its last step wakes, and no other body; in entity order. Returns how many surfaces
+		// name the material. Between steps: Jolt's worker threads
 		// read the surfaces during a step.
 		size_t SetMaterialValues(AssetHandle material, PhysicsMaterial const& values);
 

@@ -501,6 +501,71 @@ TEST_CASE("PhysicsScene: a coasting bike slows by about g times the rolling resi
 	CHECK(drag < 1.2f * expected);
 }
 
+TEST_CASE("PhysicsScene: an edit of the tyre grip alone wakes a bike asleep across a slope, which slides, and no other body")
+{
+	Testing::PhysicsSystemScope physics;
+	// A 10 degree slope falling towards -X (tan 10 = 0.18) of a material with friction 1, whose rolling resistance stops the
+	// wheels' creep along the contour; a bike asleep across it, its front along the contour (-Z), held by its tyres' sideways
+	// grip; and a box asleep on the same slope, held by its friction.
+	AssetHandle const slopeMaterial(UUID(7101));
+	glm::quat const tilt = glm::angleAxis(glm::radians(10.0f), glm::vec3(0.0f, 0.0f, 1.0f));
+	glm::vec3 const normal = tilt * glm::vec3(0.0f, 1.0f, 0.0f);
+	glm::vec3 const downhill = tilt * glm::vec3(-1.0f, 0.0f, 0.0f);
+	ColliderSurface surface = MakeSurface(slopeMaterial, 0.1f, 1.0f);
+	surface.Friction = 1.0f;
+	BodyDesc slope;
+	slope.Entity = GroundId;
+	slope.Type = RigidBodyType::Static;
+	slope.Position = -0.5f * normal;
+	slope.Rotation = tilt;
+	ColliderDesc slopeCollider;
+	slopeCollider.HalfExtents = glm::vec3(20.0f, 0.5f, 20.0f);
+	slopeCollider.Surface = surface;
+	slope.Colliders.push_back(slopeCollider);
+	UUID const boxId(311);
+	BodyDesc box;
+	box.Entity = boxId;
+	box.Type = RigidBodyType::Dynamic;
+	box.Position = 0.3f * normal + glm::vec3(0.0f, 0.0f, 5.0f);
+	box.Rotation = tilt;
+	ColliderDesc boxCollider;
+	boxCollider.HalfExtents = glm::vec3(0.25f);
+	boxCollider.Surface.Friction = 1.0f;
+	box.Colliders.push_back(boxCollider);
+	BodyDesc chassis = MakeChassis(BikeId, {0.0f, 0.1f, 0.0f});
+	chassis.AllowSleep = true;
+
+	Scope<PhysicsScene> world = CreateWorld();
+	RequireOk(world->AddBody(slope));
+	RequireOk(world->AddBody(box));
+	RequireOk(world->AddBody(chassis));
+	RequireOk(world->AddVehicle(MakeBike(BikeId, VehicleTransmissionMode::Automatic)));
+	for (int step = 0; step < 1200 && !(world->IsSleeping(BikeId) && world->IsSleeping(boxId)); step++)
+	{
+		world->Step(Step);
+	}
+	REQUIRE(world->IsSleeping(BikeId));
+	REQUIRE(world->IsSleeping(boxId));
+	VehicleState const asleep = StateOf(*world, BikeId);
+	CHECK(asleep.Wheels[0].Surface == slopeMaterial);
+	CHECK(asleep.Wheels[1].Surface == slopeMaterial);
+	glm::vec3 const start = world->GetBodyTransform(BikeId)->Position;
+
+	// The same values again wake nothing; the slope's tyre grip lowered wakes the bike alone, which slides down the slope.
+	PhysicsMaterial values;
+	values.Friction = 1.0f;
+	values.RollingResistance = 0.1f;
+	CHECK(world->SetMaterialValues(slopeMaterial, values) == 1);
+	CHECK(world->IsSleeping(BikeId));
+	values.TyreGrip = 0.05f;
+	CHECK(world->SetMaterialValues(slopeMaterial, values) == 1);
+	CHECK_FALSE(world->IsSleeping(BikeId));
+	CHECK(world->IsSleeping(boxId));
+	Simulate(*world, 60);
+	CHECK(glm::dot(world->GetBodyTransform(BikeId)->Position - start, downhill) > 0.1f);
+	CHECK(world->IsSleeping(boxId));
+}
+
 TEST_CASE("PhysicsScene: a positive lean input leans and turns the bike to its right, and a lower tyre grip runs it wider")
 {
 	Testing::PhysicsSystemScope physics;
