@@ -717,8 +717,8 @@ namespace Strada
 				JPH::CollisionEstimationResult estimate;
 				if (responds)
 				{
-					JPH::EstimateCollisionResponse(first, second, manifold, estimate, settings.mCombinedFriction,
-					                               settings.mCombinedRestitution, m_MinVelocityForRestitution, m_VelocitySteps);
+					JPH::EstimateCollisionResponse(first, second, manifold, estimate, settings, m_MinVelocityForRestitution,
+					                               m_VelocitySteps);
 				}
 				// Jolt's normal points from the first body to the second (the way to move the second out).
 				glm::vec3 const normal = -Jolt::ToGlm(manifold.mWorldSpaceNormal);

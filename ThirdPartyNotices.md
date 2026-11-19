@@ -19,7 +19,7 @@ pinned version and verified by SHA256 (see `cmake/StradaDependencies.cmake`). Th
 | cgltf | 1.15 | MIT | https://github.com/jkuhlmann/cgltf | Engine (glTF 2.0 import) |
 | ufbx | 0.23.1 | MIT or Unlicense | https://github.com/ufbx/ufbx | Engine (FBX and OBJ import) |
 | MikkTSpace | @ 3e895b4 | zlib | https://github.com/mmikk/MikkTSpace | Engine (tangent generation) |
-| Jolt Physics | 5.6.0 | MIT | https://github.com/jrouwe/JoltPhysics | Engine (physics) |
+| Jolt Physics | 5.7.0 | MIT | https://github.com/jrouwe/JoltPhysics | Engine (physics) |
 | miniaudio (with its libvorbis decoding backend) | 0.11.25 | Public Domain (Unlicense) or MIT No Attribution | https://github.com/mackron/miniaudio | Engine (audio playback; WAV, FLAC and MP3 decoding) |
 | verblib (Freeverb, in miniaudio's `extras/nodes/ma_reverb_node`) | 0.5 (miniaudio 0.11.25's copy) | MIT No Attribution or Public Domain (Unlicense) | https://github.com/mackron/miniaudio | Engine (the mixer's Reverb effect) |
 | libogg | 1.3.5 | BSD-3-Clause | https://github.com/xiph/ogg | Engine (Ogg container, for Vorbis) |
