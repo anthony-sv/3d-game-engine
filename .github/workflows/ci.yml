@@ -47,26 +47,67 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - { name: "Diag Windows Release player tests, SDK pinned to 10 (1)", os: windows-2025, config: release, allowNoGpu: "0",
-              testSuites: "StradaRuntimeTests", pinSdk: "1" }
-          - { name: "Diag Windows Release player tests, SDK pinned to 10 (2)", os: windows-2025, config: release, allowNoGpu: "0",
-              testSuites: "StradaRuntimeTests", pinSdk: "1" }
-          - { name: "Diag Windows Release player tests, SDK pinned to 10 (3)", os: windows-2025, config: release, allowNoGpu: "0",
-              testSuites: "StradaRuntimeTests", pinSdk: "1" }
-          - { name: "Diag Windows Release player tests, SDK pinned to 10 (4)", os: windows-2025, config: release, allowNoGpu: "0",
-              testSuites: "StradaRuntimeTests", pinSdk: "1" }
-          - { name: "Diag Windows Release player tests, SDK as found (1)", os: windows-2025, config: release, allowNoGpu: "0",
-              testSuites: "StradaRuntimeTests", pinSdk: "0" }
-          - { name: "Diag Windows Release player tests, SDK as found (2)", os: windows-2025, config: release, allowNoGpu: "0",
-              testSuites: "StradaRuntimeTests", pinSdk: "0" }
-          - { name: "Diag Windows Release player tests, SDK as found (3)", os: windows-2025, config: release, allowNoGpu: "0",
-              testSuites: "StradaRuntimeTests", pinSdk: "0" }
-          - { name: "Diag Windows Release player tests, SDK as found (4)", os: windows-2025, config: release, allowNoGpu: "0",
-              testSuites: "StradaRuntimeTests", pinSdk: "0" }
+          - { name: "Diag Debug player tests (1)", os: windows-2025, config: debug, allowNoGpu: "0",
+              testSuites: "StradaRuntimeTests" }
+          - { name: "Diag Debug player tests (2)", os: windows-2025, config: debug, allowNoGpu: "0",
+              testSuites: "StradaRuntimeTests" }
+          - { name: "Diag Debug player tests (3)", os: windows-2025, config: debug, allowNoGpu: "0",
+              testSuites: "StradaRuntimeTests" }
+          - { name: "Diag Debug player tests (4)", os: windows-2025, config: debug, allowNoGpu: "0",
+              testSuites: "StradaRuntimeTests" }
+          - { name: "Diag Debug player tests (5)", os: windows-2025, config: debug, allowNoGpu: "0",
+              testSuites: "StradaRuntimeTests" }
+          - { name: "Diag Debug player tests (6)", os: windows-2025, config: debug, allowNoGpu: "0",
+              testSuites: "StradaRuntimeTests" }
+          - { name: "Diag Debug player tests (7)", os: windows-2025, config: debug, allowNoGpu: "0",
+              testSuites: "StradaRuntimeTests" }
+          - { name: "Diag Debug player tests (8)", os: windows-2025, config: debug, allowNoGpu: "0",
+              testSuites: "StradaRuntimeTests" }
+          - { name: "Diag Debug player tests (9)", os: windows-2025, config: debug, allowNoGpu: "0",
+              testSuites: "StradaRuntimeTests" }
+          - { name: "Diag Debug player tests (10)", os: windows-2025, config: debug, allowNoGpu: "0",
+              testSuites: "StradaRuntimeTests" }
+          - { name: "Diag Debug player tests (11)", os: windows-2025, config: debug, allowNoGpu: "0",
+              testSuites: "StradaRuntimeTests" }
+          - { name: "Diag Debug player tests (12)", os: windows-2025, config: debug, allowNoGpu: "0",
+              testSuites: "StradaRuntimeTests" }
+          - { name: "Diag Release engine tests (1)", os: windows-2025, config: release, allowNoGpu: "0",
+              testSuites: "StradaTests" }
+          - { name: "Diag Release engine tests (2)", os: windows-2025, config: release, allowNoGpu: "0",
+              testSuites: "StradaTests" }
+          - { name: "Diag Release engine tests (3)", os: windows-2025, config: release, allowNoGpu: "0",
+              testSuites: "StradaTests" }
+          - { name: "Diag Release engine tests (4)", os: windows-2025, config: release, allowNoGpu: "0",
+              testSuites: "StradaTests" }
+          - { name: "Diag Release engine tests (5)", os: windows-2025, config: release, allowNoGpu: "0",
+              testSuites: "StradaTests" }
+          - { name: "Diag Release engine tests (6)", os: windows-2025, config: release, allowNoGpu: "0",
+              testSuites: "StradaTests" }
+          - { name: "Diag Release engine tests (7)", os: windows-2025, config: release, allowNoGpu: "0",
+              testSuites: "StradaTests" }
+          - { name: "Diag Release engine tests (8)", os: windows-2025, config: release, allowNoGpu: "0",
+              testSuites: "StradaTests" }
+          - { name: "Diag Release engine tests (9)", os: windows-2025, config: release, allowNoGpu: "0",
+              testSuites: "StradaTests" }
+          - { name: "Diag Release engine tests (10)", os: windows-2025, config: release, allowNoGpu: "0",
+              testSuites: "StradaTests" }
+          - { name: "Diag Release engine tests (11)", os: windows-2025, config: release, allowNoGpu: "0",
+              testSuites: "StradaTests" }
+          - { name: "Diag Release engine tests (12)", os: windows-2025, config: release, allowNoGpu: "0",
+              testSuites: "StradaTests" }
     env:
       STRADA_TESTS_ALLOW_NO_GPU: ${{ matrix.allowNoGpu }}
     steps:
       - uses: actions/checkout@v7
+
+      # Diagnostic only: a job on the old image has nothing to tell and ends here.
+      - name: Image guard
+        id: image
+        shell: bash
+        run: |
+          echo "ImageVersion=$ImageVersion ImageOS=$ImageOS"
+          case "$ImageVersion" in 20261103*) echo "old image: nothing to learn"; exit 1;; esac
+          dotnet --list-runtimes || true
 
       - uses: actions/setup-python@v7
         with:
@@ -158,16 +199,16 @@ jobs:
 
       # Diagnostic only: the samples' summaries with their physics state, printed whether the tests passed or not.
       - name: Diagnostic sample hashes
-        if: always()
+        if: always() && steps.image.outcome == 'success'
         shell: bash
         run: |
-          bin=build/windows-release/bin
+          bin=build/windows-${{ matrix.config }}/bin
           mkdir -p diag/Moto diag/Showcase/Scripts diag/user/Roaming diag/user/Local
           cp -r Projects/Moto/Assets diag/Moto/Assets
           cp Projects/Moto/Moto.sproj diag/Moto/
           cp -r Projects/Showcase/Assets diag/Showcase/Assets
           cp Projects/Showcase/Showcase.sproj diag/Showcase/
-          cp -r "$bin/Showcase" diag/Showcase/Scripts/Binaries
+          cp -r "$bin/Showcase" diag/Showcase/Scripts/Binaries || echo "no Showcase scripts in this job"
           export APPDATA="$PWD/diag/user/Roaming" LOCALAPPDATA="$PWD/diag/user/Local"
           echo "== Moto"
           "$bin/StradaRuntime.exe" --project "$PWD/diag/Moto/Moto.sproj" --scene Scenes/Tests.sscene --test --timeout 90 2>&1 | grep -E "Tests (passed|failed)|Test failed" || true
