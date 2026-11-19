@@ -205,6 +205,8 @@ set(STRADA_RENDERER_SOURCES
     Source/Strada/Renderer/InstanceMath.h
     Source/Strada/Renderer/QuadRenderer.cpp
     Source/Strada/Renderer/QuadRenderer.h
+    Source/Strada/Renderer/QualityPresets.cpp
+    Source/Strada/Renderer/QualityPresets.h
     Source/Strada/Renderer/Renderer.cpp
     Source/Strada/Renderer/Renderer.h
     Source/Strada/Renderer/SceneRenderer.cpp
@@ -255,7 +257,11 @@ set(STRADA_SCENE_SOURCES
 set(STRADA_SCRIPT_SOURCES
     Source/Strada/Script/DotNetHost.cpp
     Source/Strada/Script/DotNetHost.h
+    Source/Strada/Script/PlayerSettings.cpp
+    Source/Strada/Script/PlayerSettings.h
     Source/Strada/Script/ReplyReader.h
+    Source/Strada/Script/SaveSlots.cpp
+    Source/Strada/Script/SaveSlots.h
     Source/Strada/Script/ScriptBindings.cpp
     Source/Strada/Script/ScriptBindings.h
     Source/Strada/Script/ScriptBindingsApplication.cpp

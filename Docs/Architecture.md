@@ -120,17 +120,17 @@ executable with Project's reader before logging starts (§13.1).
 
 | Module | Responsibility | Key types |
 |--------|----------------|-----------|
-| Core | Base macros, logging, asserts, UUID, time, buffers, events, input, window, application loop (and its main-thread queue), layers, file system, OS queries (the user's Documents folder among them), the engine's layout (where its content lies), images, embedded resources, command line, the profiler's recorder (§4.4), the telemetry recorder (§4.5), the per-user folders and the game data service (§13.1), input actions' runtime and the capture that rebinds them (§7.4) | `Application`, `Layer`, `Window`, `Input`, `InputActionSet`, `InputActionState`, `InputControlCapture`, `Log`, `UUID`, `Timestep`, `Buffer`, `FileSystem`, `Platform`, `EngineLayout`, `Image`, `Result<T>`, `Profiler`, `Telemetry`, `UserDataLocations`, `GameData` |
+| Core | Base macros, logging, asserts, UUID, time, buffers, events, input, window, application loop (and its main-thread queue), layers, file system (atomic and durable writes, §13.1), OS queries (the user's Documents folder among them), the engine's layout (where its content lies), images, embedded resources, command line, the profiler's recorder (§4.4), the telemetry recorder (§4.5), the per-user folders and the game data service (§13.1), input actions' runtime and the capture that rebinds them (§7.4) | `Application`, `Layer`, `Window`, `Input`, `InputActionSet`, `InputActionState`, `InputControlCapture`, `Log`, `UUID`, `Timestep`, `Buffer`, `FileSystem`, `Platform`, `EngineLayout`, `Image`, `Result<T>`, `Profiler`, `Telemetry`, `UserDataLocations`, `GameData` |
 | Math | Transform compose/decompose, projections, sRGB transfer functions, bounding boxes, view frustums, curves (§6.5) | `Math::ComposeTransform`, `Math::DecomposeTransform`, `Math::PerspectiveReversedZ`, `AABB`, `Frustum`, `Curve`, `EvaluateCurveKeys` |
 | Serialization | JSON conversions for glm, UUIDs, enums and reflected structs; deserialization warnings; versioned documents of one struct, with migrations; profiler captures and telemetry's CSV exports (§7.3) | `JsonTraits<T>`, `EnumTraits<T>`, `StructTraits<T>`, `DeserializationContext`, `StructDocumentFormat`, `ProfilerCaptureSerializer`, `TelemetryCsvWriter` |
 | Platform | Child processes (reproc++): spawning, output capture, exit codes, termination | `Process` |
 | RHI | Vulkan instance/device creation, NVRHI device, swapchains (one per OS window), frame pacing, embedded shader library, texture readback | `GraphicsDevice`, `Swapchain`, `ShaderLibrary`, `ReadbackTexture` |
 | Asset | Asset handles and metadata, the persistent registry, the asset manager, CPU asset types, data asset types (one registration each, with their structs), model importers, built-in primitives, the visual script format and its layout, the player's rebound input bindings and their profile (§7.4) | `AssetHandle`, `AssetManager`, `AssetRegistry`, `MeshSource`, `MaterialAsset`, `TextureAsset`, `EnvironmentAsset`, `PrefabAsset`, `AudioClipAsset`, `FontAsset`, `VisualScriptAsset`, `VisualScriptSerializer`, `MeshImporter`, `DataAssetRegistry`, `DataAsset`, `TypedDataAsset<T>`, `DataAssetSerializer`, `PhysicsMaterial`, `InputActionMap`, `InputRebinding`, `InputBindingProfile` |
-| Renderer | GPU resources created from assets (meshes, textures, materials, environments, fonts), samplers and fallback textures, the scene renderer and its passes, environment processing, shadow math, text layout, sprites, picking, presentation blits | `Renderer`, `SceneRenderer`, `EnvironmentProcessor`, `QuadRenderer`, `FontAtlas`, `TextureBlitter` |
+| Renderer | GPU resources created from assets (meshes, textures, materials, environments, fonts), samplers and fallback textures, the scene renderer and its passes, environment processing, shadow math, the quality presets of the player's settings (§6.2), text layout, sprites, picking, presentation blits | `Renderer`, `SceneRenderer`, `QualityPreset`, `EnvironmentProcessor`, `QuadRenderer`, `FontAtlas`, `TextureBlitter` |
 | ImGui | ImGui context/layer, NVRHI renderer backend with multi-viewport support, UI helpers | `ImGuiLayer`, `ImGuiRenderer` |
 | Physics | Jolt init/shutdown, per-scene physics world, layers, contact events, queries | `PhysicsSystem`, `PhysicsScene` |
 | Audio | miniaudio engine, the audio queue, voices, buses and their effects (the mixer, §9), per-scene sound sources and listener, waveforms of clips | `AudioEngine`, `AudioScene`, `AudioMixer`, `AudioVoice`, `AudioBusNode`, `AudioEffect`, `ComputeAudioWaveform` |
-| Script | .NET runtime hosting (hostfxr), managed bridge, native bindings, script instances and fields, hot reload, the public variables of visual scripts as script fields, the visual scripts of the runtime (node library, analysis, programs, graph instances), the literal codec of visual scripts (the C++ forms of document literals: floats written as their shortest text that reads back exactly, integral floats as integers) | `ScriptEngine`, `DotNet::LoadAssembly`, `ScriptBinding`, `DescribeVisualScriptVariables`, `VisualScriptEngine`, `VisualScriptLibrary`, `DecodeVisualScriptLiteral`, `EncodeVisualScriptLiteral` |
+| Script | .NET runtime hosting (hostfxr), managed bridge, native bindings, script instances and fields, hot reload, the public variables of visual scripts as script fields, the visual scripts of the runtime (node library, analysis, programs, graph instances), the literal codec of visual scripts (the C++ forms of document literals: floats written as their shortest text that reads back exactly, integral floats as integers), the game's save slots and the player's settings (§13.1) | `ScriptEngine`, `DotNet::LoadAssembly`, `ScriptBinding`, `DescribeVisualScriptVariables`, `VisualScriptEngine`, `VisualScriptLibrary`, `DecodeVisualScriptLiteral`, `EncodeVisualScriptLiteral`, `SaveSlotStore`, `PlayerSettingsStore` |
 | Scene | ECS scene, entities, components, component registry/reflection, serialization, prefab instantiation, runtime lifecycle (C# scripts and visual scripts), post-process volume blending, screen-space UI layout and interaction, render submission | `Scene`, `Entity`, `ComponentRegistry`, `ComponentTraits`, `SceneSerializer`, `PostProcessVolumes`, `UILayout`, `RenderScene` |
 | Project | Project files and settings, the C# script project, the scene runner (play mode and the player), game export | `Project`, `ProjectSettings`, `ScriptProject`, `SceneRunner`, `GameExporter` |
 
@@ -158,7 +158,8 @@ state behind so tests can init/shutdown repeatedly.
   marshalled with `Application::SubmitToMainThread(std::function<void()>)`. The editor notices edited scripts by
   checking their modification times on the main thread once a second, and rescans the assets on the main thread when
   it gets the focus back.
-- The game data service (§13.1) is filled and emptied on the main thread and read from any.
+- The game data service (§13.1) is filled and emptied on the main thread and read from any. The save slot store is
+  stateless and any thread may call it; the player's settings are main-thread state.
 - The profiler (§4.4) and the telemetry recorder (§4.5) are the engine services every thread writes to: any thread
   records zones, and telemetry's values and marks, into a buffer of its own without allocating or locking, and only the
   main thread collects them (the profiler's at the end of each frame, telemetry's at the end of each fixed step).
@@ -973,6 +974,27 @@ bloom, ambient occlusion, color grading and lens effects for each frame: `Render
 camera's position (`PostProcessVolumes::Resolve`) before `BeginScene`, so the editor's scene view (the editor camera),
 its game view and the player all show them; the scene's own settings never change.
 
+**Quality presets.** The player's graphics quality (§13.1, "The player's settings") is a `QualityPreset`
+(`Strada/Renderer/QualityPresets.h`) that `RenderScene` applies to the resolved settings (`ApplyQualityPreset`, after
+`PostProcessVolumes::Resolve` and before `BeginScene`, when the view draws the world) as its options ask
+(`SceneRenderOptions::Quality`): the player's layer and the editor's Game View set it from the player's settings while
+a game runs; the Scene View, thumbnails and tests leave it at High, the identity, so they render as before by
+construction. Presets are made of the settings that exist and only lower them, each a minimum with the resolved value or
+a switch that can only turn off:
+
+| Setting | High | Medium | Low |
+|---|---|---|---|
+| `ShadowMapSize`, `LocalShadowMapSize` | as resolved | half, at least 256 | a quarter, at least 256 |
+| `CascadeCount` | as resolved | at most 3 | at most 2 |
+| `ShadowDistance` | as resolved | three quarters | half |
+| `SoftShadows`, `AmbientOcclusion`, `Bloom`, `FXAA` | as resolved | as resolved | off |
+
+Shadows themselves are never turned off, and exposure, tonemapping, grading, lens effects and dithering are the scene's
+at every preset. So High is the scene itself (goldens, captures and measured figures are High's), and a scene that turns
+something off keeps it off at every preset. The renderer recreates the shadow maps a changed size or cascade count needs
+from one frame to the next, as it does when a volume changes them. A preset costs a few comparisons per view and
+frame.
+
 ### 6.3 Assets
 
 Assets are CPU-side data owned by the `AssetManager` (Asset module); the renderer creates and caches GPU resources from
@@ -1147,7 +1169,7 @@ by the game while it runs, so they have no New item, inspector or commands. They
 free of the registry: `ReadStructDocument<T>(document, format, validate, context)` and `WriteStructDocument<T>(data,
 format)` (`Serialization/StructDocument.h`, with `StructDocumentFormat { Type, Version, Migrations }`) read and write
 the same header, run the same migrations and the same `Validate`, and their fuzz tests use the same `DocumentMutator`.
-How they are written (atomically, per game) is their own track's choice.
+They are written durably below the game's data folder (§13.1, "The durable write").
 
 **References to other assets.** A field of type `AssetHandle` (or an array of them, in the struct or in nested structs
 and array elements) with the hint `References("<type name>")` refers to an asset of a built-in type (`"Texture"`,
@@ -1925,8 +1947,9 @@ Reading refuses another type, a newer version, a value of the wrong kind or out 
 about unknown fields; it checks nothing against the actions. When the actions load, an entry applies only while its
 action exists, its index is below the action's count, the asset's binding still reads the controls of `Replaced`
 (compared as controls, in any letter case), its `Controls` fit the action's type and differ from the asset's, and no
-earlier entry names the same binding; the others are dropped with one log line. The game writes the file atomically
-(`FileSystem::WriteTextFile`), creating `Input/`, whenever what differs changes; a reset writes it without entries.
+earlier entry names the same binding; the others are dropped with one log line. The game writes the file atomically and
+durably (`FileSystem::WriteTextFileDurably`, §13.1), creating `Input/`, whenever what differs changes; a reset writes it
+without entries.
 
 ```json
 {
@@ -1936,6 +1959,53 @@ earlier entry names the same binding; the others are dropped with one log line. 
 			{ "Action": "Jump", "Binding": 0, "Controls": "Key/J", "Replaced": "Key/Space" },
 			{ "Action": "Lean", "Binding": 0, "Controls": "Key/Left Key/D", "Replaced": "Key/A Key/D" }
 		]
+	}
+}
+```
+
+Save slot (`<game data>/Saves/<name>.ssave`, the name in lower case; `SaveSlotData` in `Strada/Script/SaveSlots.h`,
+version 1, §13.1 "Saves"; a struct document, not an asset):
+`"SaveSlot": { "Values": { "<Name>": { "Type", "Value" } } }`, the game's values in name order, each in the script field
+form above, lists included. A slot reads as **newer** when its header names the type with a version above 1 (the header
+is read before the content, so a newer slot is never called damaged), and as **damaged** when the file is larger than 16
+MiB (`MaxSaveSlotBytes`, not read), is not JSON, has a header of another type or a version below 1, or its content does
+not read: `Values` not a script field map, more than 4,096 values, a name empty, longer than 128 bytes, not UTF-8 or
+with a control character, a value of the wrong kind, a list of more than 4,096 elements, a number that is not finite.
+Unknown fields are skipped with warnings. The game writes the whole slot, durably, when a script saves it; nothing else
+writes it.
+
+```json
+{
+	"Strada": { "Version": 1, "Type": "SaveSlot" },
+	"SaveSlot": {
+		"Values": {
+			"BestLap": { "Type": "Float", "Value": 92.418 },
+			"Ghost.Positions": { "Type": "Vector3[]", "Value": [[0.0, 0.5, 0.0], [3.1, 0.5, 0.2]] },
+			"Splits": { "Type": "Float[]", "Value": [30.2, 61.7] }
+		}
+	}
+}
+```
+
+Player settings (`<game data>/Settings.json`; `PlayerSettings` in `Strada/Script/PlayerSettings.h`, version 1, §13.1
+"The player's settings"; a struct document, not an asset): `"PlayerSettings": { "Window": { "Mode", "Width", "Height",
+"VSync" }, "Quality", "MasterVolume", "Buses": [ { "Bus", "VolumeDb", "Muted" } ], "Values": { ... } }`. `Mode` is
+`Windowed` or `Fullscreen`, `Width` and `Height` 64 to 16384 (the windowed size in screen coordinates), `Quality` `Low`,
+`Medium` or `High`, `MasterVolume` linear from 0 to 1; `Buses` holds only the buses the player set, at most 32 (the
+mixer's limit), each named once ignoring letter case in 1 to 64 bytes, `VolumeDb` from -80 to 24; `Values` are the
+game's own named values with a slot's rules. A field the file lacks keeps the game's default (the project's window
+settings, High, 1, none). Newer and damaged are told apart as for a slot (a file larger than 1 MiB is damaged); either
+is logged once and read as the defaults, and the next save replaces it.
+
+```json
+{
+	"Strada": { "Version": 1, "Type": "PlayerSettings" },
+	"PlayerSettings": {
+		"Window": { "Mode": "Fullscreen", "Width": 1920, "Height": 1080, "VSync": true },
+		"Quality": "Medium",
+		"MasterVolume": 0.8,
+		"Buses": [ { "Bus": "Engine", "VolumeDb": -6.0, "Muted": false } ],
+		"Values": { "LinkedBrakes": { "Type": "Bool", "Value": true } }
 	}
 }
 ```
@@ -2450,11 +2520,12 @@ Jump"), the game keeps them for the next run, and the actions asset is never wri
     applying while the game runs (the asset edited in play mode) is dropped the same way when the set is compiled. A
     profile that cannot be read (damaged, of a newer version) is logged once and the bindings are the asset's; the next
     change writes the file again.
-  - **Written atomically when a binding changes**: every `Done` that changes what differs from the asset, and a reset that
-    had entries, writes the whole profile (`FileSystem::WriteTextFile`: a temporary file, then a rename), creating
-    `Input/`. A rebind to the controls the binding reads already is `Done` and writes, moves and logs nothing, so a
-    settings screen may apply the player's bindings every frame; a binding changed again keeps its entry's place. A write
-    that fails is logged and said in the answer's `Message` ("kept for this run only: ..."); the binding holds for the run.
+  - **Written atomically and durably when a binding changes**: every `Done` that changes what differs from the asset,
+    and a reset that had entries, writes the whole profile (`FileSystem::WriteTextFileDurably`, §13.1: a temporary file
+    synced to the device, then a rename), creating `Input/`. A rebind to the controls the binding reads already is
+    `Done` and writes, moves and logs nothing, so a settings screen may apply the player's bindings every frame; a
+    binding changed again keeps its entry's place. A write that fails is logged and said in the answer's `Message`
+    ("kept for this run only: ..."); the binding holds for the run.
   - **No game data folder** (the editor while editing, tools, tests without a `GameDataScope`) means nothing is read or
     written: rebinds hold in memory for as long as the table lives. An asset that is no file (a memory or built-in asset)
     has no profile either.
@@ -3348,7 +3419,10 @@ the buses and the effects, and MX2 adds what §9.8 lists on the same structures.
   gain stage of the bus, after the mixer's own, 0 dB and not muted when a game starts. So a settings menu's volume and
   the mix design (the asset, its snapshots) never overwrite each other, and nothing a script sets is written to the
   asset. The main thread keeps them by bus name and sends them to every node made for that name, so a bus removed and
-  restored by an undo gets its game value back.
+  restored by an undo gets its game value back. The player's settings (§13.1) set them too: at each game's start,
+  right after they are reset and the project's mixer is applied (so that every bus they name exists), and whenever a
+  script changes a setting. A script that sets them through `Strada.Audio` changes the run's mix, not the player's
+  settings, which the next game's start applies again.
 
 ### 9.6 Effects
 
@@ -3882,6 +3956,29 @@ editor's Simulate mode runs neither kind.
   recording. Names and values are the recorder's to check: what it refuses is dropped, counted and warned about once per
   session, never a script error, so that a script recording a bad name every step does not fill the log. Bindings
   `Telemetry_*` in `ScriptBindingsRuntime.cpp`; they touch no scene.
+- `SaveSlot` (§13.1, "Saves"): static `Open(name)`, which reads the slot and never answers null (a name the store
+  refuses throws `ArgumentException`; without a game data folder the slot is empty, of status `Unavailable`, logged),
+  and `GetNames()`, the slots on disk sorted: impure nodes, because each reads the disk where the flow passes. `Name`
+  (as the store spells it, in lower case), `Status` (`SaveSlotStatus`: `Missing`, `Present`, `Damaged`, `Newer`,
+  `Unavailable`), `Has(name)` and `Get<T>(name, fallback)` are pure; `Set<T>(name, value)`, `Remove(name)`, `Save()` and
+  `Delete()` are not. `Get<T>` answers the value when the slot holds one of `T`'s field type (§10.3: `T[]` and `List<T>`
+  are lists, an enum its integer, a typed asset reference a handle), else the fallback, warned about once per object and
+  name when the value is of another type. `Set<T>` refuses (`ArgumentException`) a name the store refuses, a `T` without
+  a field type, a list of more than 4,096 elements, a number that is not finite and a value past the 4,096th. `Save`
+  writes every value as one document and `Delete` removes the file; both answer false, logged, for a newer slot or
+  without a game data folder, and `Save` for a write the store refuses. The object keeps its values in the managed
+  runtime, so `Get` and `Set` cross no boundary; `Open` and `Save` cross it once, with the values in the script field
+  JSON (§7.3; bindings `SaveSlot_*` in `ScriptBindingsSaves.cpp`). Two objects opened with one name are copies, and the
+  last `Save` wins. `Get` and `Set` are unconstrained generic methods: one node each, typed by their links or their
+  `TypeArguments`.
+- `Settings` (static, §13.1 "The player's settings"): `Quality` (`QualityPreset`: `Low`, `Medium`, `High`),
+  `WindowMode` (`WindowMode`: `Windowed`, `Fullscreen`), `WindowWidth`, `WindowHeight`, `SetWindowSize(width, height)`,
+  `VSync`, `MasterVolume` (0 to 1), `GetBusVolume(bus)` and `IsBusMuted(bus)` (pure), `SetBusVolume(bus, decibels)` and
+  `SetBusMuted(bus, muted)`, the game's own named values `Has(name)` and `Get<T>(name, fallback)` (pure),
+  `Set<T>(name, value)` and `Remove(name)` with `SaveSlot`'s rules, and `Save()` (false, logged, without a game data
+  folder or when the write fails). Every setter applies at once (the window through the host, below) and reaches the
+  file only at `Save`. Bindings `Settings_*` in `ScriptBindingsSaves.cpp`, over `PlayerSettingsStore`; the window's four
+  values cross in one blittable struct, so a mode and a size change together.
 - Math: `Vector2/3/4`, `Quaternion`, `Matrix4`, `Color`, `Mathf`, `Random`.
 - Attributes: `[SerializeField]`, `[HideInInspector]`, `[Range(min, max)]`, `[Tooltip(text)]`.
 - `Strada.Testing`: `Assert` (throws `AssertionException`), `TestReporter` (`Pass`, `Fail`, `Run`, `Finish`; used by
@@ -3911,14 +4008,18 @@ drawn 1.5 points wide with a dark outline of 0.75 points, in pixels at the displ
 they read alike on every display.
 
 The application running scenes implements `ScriptHost` and registers it with `ScriptEngine::SetHost`:
-`Application.IsEditor`, `Application.Quit` and `SceneManager.LoadScene` (both acted on once the frame's update has
-returned), `Strada.Testing.TestReporter` results and unhandled script exceptions go to it. Without a host, requests are
-logged and ignored. `Application.WindowWidth/Height` are the running scene's viewport size. `SceneRunner` (Project
-module) is that host for the editor's play mode and the game player: it starts a scene's runtime, replaces the scene
-after the frame on `SceneManager.LoadScene` (the old scene stops first; loads requested while it stops are dropped; a
-scene that cannot be read is logged and the current one keeps running), records `Application.Quit` for its owner and
-collects a `TestRunReport` across scene loads (failures = failed checks + script exceptions). With
-`SceneRuntimeSettings::RunScripts` and `PlayAudio` off it simulates physics only (the editor's Simulate mode).
+`Application.IsEditor`, `Application.Quit`, `SceneManager.LoadScene` and the window settings of `Strada.Settings`
+(`RequestWindowSettings`; the three acted on once the frame's update has returned), `Strada.Testing.TestReporter`
+results and unhandled script exceptions go to it. Without a host, requests are logged and ignored.
+`Application.WindowWidth/Height` are the running scene's viewport size. `SceneRunner` (Project module) is that host for
+the editor's play mode and the game player: it starts a scene's runtime, replaces the scene after the frame on
+`SceneManager.LoadScene` (the old scene stops first; loads requested while it stops are dropped; a scene that cannot be
+read is logged and the current one keeps running), records `Application.Quit` for its owner and collects a
+`TestRunReport` across scene loads (failures = failed checks + script exceptions), and hands a requested window to its
+owner (`SceneRunnerSettings::ApplyWindow`, which the player sets and the editor's play mode leaves empty, so play mode
+keeps the values without applying them). It also loads the player's settings when a game starts and clears them when it
+stops (§13.1). With `SceneRuntimeSettings::RunScripts` and `PlayAudio` off it simulates physics only (the editor's
+Simulate mode).
 
 ### 10.5 Script projects
 
@@ -5504,19 +5605,20 @@ holds the project's settings, `{ "Strada": { "Version": 1, "Type": "Game" }, "Ga
 asset directory and the script assembly relative to the game's directory (`Project::OpenGame`, `ProjectFileKind::Game`).
 
 - The window (title, size, fullscreen, vsync, resizability) follows the game's window settings, read before the engine
-  starts (`Project::ReadWindowSettings`). The player opens the asset directory, starts .NET only when the game has
-  C# scripts or visual scripts (`Project::UsesVisualScripts`: its asset directory registers `.sgraph` files; a game
-  with visual scripts only starts the scripting runtime without a game assembly; exported games carry
-  `Strada.ScriptCore.dll` in `Scripts/`, projects use the engine's; a project whose C# project was never built does not
-  start), loads the start scene (or `--scene <path in Assets>`) and runs it
-  through a `SceneRunner` with scripts, physics and audio. Every frame the primary camera's view is rendered at the
-  window's framebuffer size and drawn into the swapchain image (`TextureBlitter`); without a primary camera the
-  screen-space UI, sprites and text are drawn over black, and a scene with neither leaves the window black (logged
-  once). `Application.Quit` closes the player.
+  starts (`Project::ReadWindowSettings`), and over them the player's settings for the mode, the size and vsync (§13.1,
+  "The player's settings"). The player opens the asset directory, starts .NET only when the game has C# scripts or
+  visual scripts (`Project::UsesVisualScripts`: its asset directory registers `.sgraph` files; a game with visual
+  scripts only starts the scripting runtime without a game assembly; exported games carry `Strada.ScriptCore.dll` in
+  `Scripts/`, projects use the engine's; a project whose C# project was never built does not start), loads the start
+  scene (or `--scene <path in Assets>`) and runs it through a `SceneRunner` with scripts, physics and audio. Every frame
+  the primary camera's view is rendered at the window's framebuffer size and drawn into the swapchain image
+  (`TextureBlitter`); without a primary camera the screen-space UI, sprites and text are drawn over black, and a scene
+  with neither leaves the window black (logged once). `Application.Quit` closes the player.
 - The player attaches no visual-script debugger: its graphs run untraced, so the debugger costs it nothing, and
   breakpoints, traces and the editor's views never ship (they live in the editor's user data, not in the project).
 - `--headless` runs without a window, rendering or sound (no GPU needed); the scenes see the game's window size.
-  `--frames N` and `--screenshot <png>` serve smoke tests.
+  `--frames N` and `--screenshot <png>` serve smoke tests. `--temporary-data` gives a run that is no test a new
+  temporary game data folder, removed at exit (§13.1): the editor's export check runs the exported game so.
 - `--profile <file>` (§4.4) starts a recording before the game's layer attaches, so its first frame is the main loop's
   first. At exit it logs the medians of the history (`ComputeProfilerMedians`: the frame and its 99th percentile, each
   subsystem, each thread name, each GPU pass and each zone name, one `Profile ...` line each), which plan targets are
@@ -5571,7 +5673,7 @@ game's data folder (§13.1), and compile out asserts and script debug lines.
 Every Strada program shares one per-user folder, the engine's (`FileSystem::GetUserDataDirectory`: the editor's state,
 its automation instances, the logs and crash reports), except an exported game. A game made with Strada has a folder of
 its own beside it, one per game and per user, named by the game's identity: its log, its crash reports, the player's
-input bindings (`Input/`, §7.4), and the saves and player's settings to come go there.
+input bindings (`Input/`, §7.4), the game's save slots (`Saves/`) and the player's settings (`Settings.json`) go there.
 
 **The identity.** `ProjectSettings::Identity` holds `Company` and `Product`, both optional strings, compatible fields of
 project format 1: an engine from before them warns about the unknown key and drops it on its next save. `Game.sgame`
@@ -5626,6 +5728,7 @@ that each platform's names are tested on every platform:
 | `StradaRuntime` running an exported game | `GameData::GetUserDirectory(identity)`: the game's folder below this user's root | kept |
 | `StradaRuntime --project` (a development run) | `<project>/.strada/PlayData` (`Project::GetPlayDataDirectory`) | kept |
 | `StradaRuntime --test`, of a game or a project | a new folder below the system's temporary folder (`GameData::MakeTemporaryDirectory`) | removed with everything in it |
+| `StradaRuntime --temporary-data` (the editor's export check), of a game or a project | a new temporary folder | removed with everything in it |
 | The editor's play mode (Play, Simulate) with a project | `<project>/.strada/PlayData` | kept |
 | The editor's test runs (`test.run`) | a new temporary folder | removed when the run stops |
 | The editor while editing, play mode without a project, tools | none | |
@@ -5660,10 +5763,110 @@ that each platform's names are tested on every platform:
   folder exists from its first run: the service still creates nothing, the entry point is that folder's first writer.
   A crash of an exported game reports into `<game data>/Crashes` from then on (CrashHandlerTests run a program on the
   entry point that aborts, copied beside a game file).
-- Scripts have no API for the folder: the player's input bindings (`<game data>/Input/<the actions asset's file
-  name>.json`, §7.4 "Rebinding") are its first user beside the log and the crash reports, read when the actions load and
-  written by the engine when `Input.Rebind`, a capture or `Input.ResetBindings` changes one, with no path exposed. Saves
-  bring theirs with their nodes.
+- Scripts have no API for the folder itself. Its users beside the log and the crash reports each have their own, and
+  none exposes a path: the player's input bindings (`<game data>/Input/<the actions asset's file name>.json`, §7.4
+  "Rebinding"), read when the actions load and written by the engine when `Input.Rebind`, a capture or
+  `Input.ResetBindings` changes one; the save slots and the player's settings (below).
+
+**The durable write.** `FileSystem::WriteTextFile` writes atomically: the bytes go into a temporary file beside the
+target (`<file>.tmp<UUID>`), which is renamed over it, so a reader sees the old file or the new one, never a part of
+either, and a write that fails leaves the old file. It syncs nothing to the storage device, so after a power loss or a
+crash of the system the last write may be missing, and some file systems then show the new name with no data. What a
+player keeps (the save slots, the player's settings, the binding profile) is written with
+`FileSystem::WriteTextFileDurably`, which adds the waits that make it last:
+
+- the temporary file's data are synced to the device before the rename: `FlushFileBuffers` on Windows, `fsync` on Linux,
+  `fcntl(F_FULLFSYNC)` on macOS (where `fsync` leaves the data in the drive's cache), falling back to `fsync` on a file
+  system that refuses it;
+- the rename waits for the device too: `MoveFileExW` with `MOVEFILE_REPLACE_EXISTING | MOVEFILE_WRITE_THROUGH` on
+  Windows; on Linux and macOS the folder holding the file is synced after the rename.
+
+So once a durable write returns, the file is the new one, whole, whatever happens next; a power loss or a crash during
+it leaves the old file or the new one, whole, never an empty or partial file under the name. A crash between the write
+and the rename leaves the temporary file beside the target, which nothing reads and the slots' listing leaves out. A
+folder the write creates is not synced into its parent, so the first file written into a new folder may be missing
+after a power loss, never partial. A failed write (a full disk, a folder in the file's place, a file the system will
+not replace) removes its temporary file, leaves the old file as it was and is logged by its caller. The sync is a wait
+for the device (milliseconds on a solid-state drive, more on others), which is why no per-frame work writes durably and
+why the budget of a 1 MB slot written and read back in 50 ms is judged without it, its time reported beside it. Saves
+and settings are written on the thread that asks, the main thread for scripts: a game saves where a short hitch is
+harmless (a lap's end, a menu).
+
+**Saves.** A save slot is a file of named values, `<game data>/Saves/<name>.ssave`, read and written by `SaveSlotStore`
+(Script module, `Strada/Script/SaveSlots.h`; the format is §7.3's "Save slot"), which the scripting API's `SaveSlot`
+reaches (§10.4).
+
+- **Names**: 1 to 64 ASCII letters, digits, spaces, `-` and `_`, with no space at either end and not a name Windows
+  reserves for a device (`FileSystem::MakePortableFileName` gives it back unchanged); anything else is refused, never
+  rewritten, so two names never meet in one file by accident. Names ignore letter case: the file is named in lower case,
+  so `Best` and `best` are one slot on every platform, and it lists as `best`.
+- **Values**: named values of the script field types, in the form scenes store script fields in (§7.3): `Bool`, the four
+  integer types, `Float`, `Double`, `String`, `Vector2`, `Vector3`, `Vector4`, `Quaternion`, `Color`, `Entity`,
+  `Prefab`, `Asset`, and lists of any of them of up to 4,096 elements. A lap's ghost at 10 samples a second (positions
+  as `Vector3[]`, rotations as `Quaternion[]`, the engine's speed as `Float[]`, a lap of up to 409 s) and a race's
+  splits (`Float[]`) are a slot's values. At most 4,096 values (what `ParseJson` reads in one object), names of 1 to 128
+  bytes of UTF-8 without control characters, every number finite. A slot's text is at most 16 MiB (`MaxSaveSlotBytes`,
+  16 times the budget's 1 MB slot): a larger write is refused, and a larger file reads as damaged without being read. An
+  entity or asset value is an ID, which another build of the game may not hold: a game keeps what it can find again.
+- **What a reader sees** (`SaveSlotStatus`): `Missing`, no file (an empty slot, which a write creates); `Present`;
+  `Damaged`, a file that does not read (it reads as empty, stays on disk, and only an explicit save or delete replaces
+  it); `Newer`, a file whose header names a version above this engine's (it reads as empty, and this engine never writes
+  over it or deletes it, so a player who runs an older build keeps the newer build's save); `Unavailable`, no game runs
+  (nothing is read or written). A write reads the header of the file on disk first (`ScanJsonTopLevel` delimits it and
+  nothing else is parsed), so a newer slot is refused however the slot was opened.
+- **Writes** are durable and whole: a save writes every value of the slot as one document. A write that fails is logged
+  and leaves the slot on disk as it was. The store holds no state: any thread may call it, and two writes of one slot
+  at once leave one of them whole.
+- **Versions**: 1. A later version follows the struct documents' rules (§6.4, with a migration and a fixture of each
+  older version), and an engine before it reads such a slot as `Newer`.
+
+**The player's settings.** `<game data>/Settings.json` (`PlayerSettings`, kept by `PlayerSettingsStore`, Script module,
+`Strada/Script/PlayerSettings.h`; the format is §7.3's "Player settings") holds the window (windowed or borderless
+fullscreen, the windowed size, vsync), the graphics quality (`Low`, `Medium` or `High`, §6.2 "Quality presets"), the
+master volume (linear, 0 to 1), each bus the player set (its volume in decibels and its mute) and named values the game
+owns (its assists, its options), with a slot's rules for values. Its defaults are the game's: the project's window
+settings, High, a master volume of 1, no bus and no value; a field the file lacks keeps its default.
+
+| Setting | The player | The editor's play mode |
+|---|---|---|
+| Window mode and size, vsync | applied before the window opens, over the game's window settings, and when a script changes them, once the frame's update has returned | kept, never applied to the editor's window |
+| Quality | every frame of the game's view | every frame of the Game View; never the Scene View or thumbnails |
+| Master volume, bus volumes and mutes | at each game's start, after the game values are reset and the project's mixer applied; at once when a script sets them | the same |
+| The game's named values | read by the game's scripts | the same |
+
+- The player reads the file before its window opens, from the folder it is about to give the service by the table's
+  rules (none for a test run or a `--temporary-data` run, whose folder is new), so the window opens as the player left
+  it. Its command line wins: `--resolution` keeps a window of that drawing size, `--no-vsync` keeps vsync off, and a run
+  without a window (`--headless`, `--test`) keeps the values without applying them.
+- The volumes are the game's values of the mix (§9.5): `Strada.Audio.MasterVolume`, `SetBusVolume` and `SetBusMuted`
+  set the same gain stage for the run without changing the settings, and the next game's start applies the settings
+  again. A bus the project's mixer lacks is kept and applies nothing (the audio engine logs its name once).
+- A file of a newer version, or a damaged one, is logged once and read as the defaults, and the next save replaces it:
+  settings are cheap to choose again, saves are not.
+- `SceneRunner::Start` loads the settings (`PlayerSettingsStore::Load`, after the host has filled the service) and
+  applies the volumes; `SceneRunner::Stop` clears them. Nothing but a script's `Settings.Save` writes the file.
+
+**Where they go when no player plays.** Saves and settings go through the service as the binding profile does, so the
+table above redirects them: the project's play data in play mode and for `StradaRuntime --project`, a test run's
+temporary folder, and nothing while the editor edits (a script that opens a slot then gets an empty one of status
+`Unavailable`, logged, and every save answers false). Two runs of an exported game from the editor are not test runs:
+
+- **The editor's export check** (Build Game's smoke test) runs the game with `--temporary-data`, so its game data folder
+  is new, temporary and removed at exit, as a test run's is: a check never writes a save or settings into the game's
+  real folder on the developer's machine. Its log follows the program, as every exported game's does (above), below the
+  game's own folder; the tests' isolated per-user root (`EditorExport::SetGameEnvironment`) holds that too.
+- **Run Game** runs the game as a player would, in the game's own folder, so what a developer sees there is what a
+  player gets, saves and settings included.
+
+**Scripting and layering.** The values of the script field types and their JSON belong to the Script module
+(`ScriptFieldValue`, `ScriptFieldSerialization`), so the slot store and the player's settings live there too, over
+Core's `GameData` and `FileSystem`, and the bindings reach them directly, as `Input.Rebind` reaches the binding profile
+in the Asset module. What only the application can do (resize its window, make it fullscreen, set vsync) goes through
+`ScriptHost::RequestWindowSettings` (§10.4), acted on once the frame's update has returned: `SceneRunner` hands it to
+`SceneRunnerSettings::ApplyWindow`, which the player sets and the editor does not. The quality reaches the game's views
+through `SceneRenderOptions::Quality`, which only the player's layer and the Game View set. The scripting API is
+`SaveSlot`, an object opened by name, and the static `Settings` (§10.4): every member is a node of graphs, so a game of
+graphs alone keeps its best lap and its settings screen, and none exposes a path.
 
 ## 14. Build configurations
 
