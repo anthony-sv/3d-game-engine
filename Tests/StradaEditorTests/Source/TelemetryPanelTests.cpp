@@ -173,7 +173,8 @@ namespace
 		}
 	}
 
-	TelemetrySession const& RecordSession(std::vector<float> const& values, std::vector<float> const& distances = {})
+	// Returns nothing: GCC refuses a reference bound to the result of a call given temporaries (-Wdangling-reference).
+	void RecordSession(std::vector<float> const& values, std::vector<float> const& distances = {})
 	{
 		for (size_t row = 0; row < values.size(); ++row)
 		{
@@ -187,7 +188,6 @@ namespace
 			}
 			Telemetry::EndStep(MakeTelemetryStep(row + 1));
 		}
-		return Testing::GetNewestTelemetrySession();
 	}
 
 	TelemetrySeries Reduce(TelemetrySession const& session, TelemetryAxis axis, uint32_t columns)
@@ -234,7 +234,8 @@ TEST_CASE("TelemetryPanel: engine channels are named by their entities, and a ch
 		{
 			values.push_back(static_cast<float>(row % 10));
 		}
-		TelemetrySession const& session = RecordSession(values);
+		RecordSession(values);
+		TelemetrySession const& session = Testing::GetNewestTelemetrySession();
 		TelemetrySeries const series = Reduce(session, TelemetryAxis::Time, 10);
 		CHECK(series.Rows == 100);
 		CHECK(series.Minimum == 0.0f);
@@ -254,7 +255,8 @@ TEST_CASE("TelemetryPanel: engine channels are named by their entities, and a ch
 	SUBCASE("rows without a value are spanned by the line, and a wrapped distance begins a segment")
 	{
 		float const none = std::nanf("");
-		TelemetrySession const& session = RecordSession({1.0f, none, 3.0f, none, 5.0f, 6.0f}, {0.0f, 10.0f, 20.0f, 30.0f, 0.0f, 10.0f});
+		RecordSession({1.0f, none, 3.0f, none, 5.0f, 6.0f}, {0.0f, 10.0f, 20.0f, 30.0f, 0.0f, 10.0f});
+		TelemetrySession const& session = Testing::GetNewestTelemetrySession();
 		TelemetrySeries const byTime = Reduce(session, TelemetryAxis::Time, 100);
 		CHECK(byTime.Rows == 4);
 		CHECK(byTime.Segments == std::vector<uint32_t>{0});

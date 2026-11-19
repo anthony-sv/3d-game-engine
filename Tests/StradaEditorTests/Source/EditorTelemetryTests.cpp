@@ -435,11 +435,15 @@ TEST_CASE("TelemetryCommands: a recording is started, listed, read by steps, lap
 	      AutomationErrorCode::InvalidOperation);
 	CHECK(FileSystem::ReadTextFile(project / "Table.csv").GetValue() == "Name,Score\r\n");
 	// Relative paths stay in the project and end in .csv; folders are refused.
-	for (char const* const refused : {"../Escape.csv", "Captures/../../Escape.csv", ".", "Run.json", "Captures", "C:Escape.csv"})
+	for (char const* const refused : {"../Escape.csv", "Captures/../../Escape.csv", ".", "Run.json", "Captures"})
 	{
 		CAPTURE(refused);
 		CHECK(fixture.Fails("telemetry.export", Json::object({{"path", refused}})) == AutomationErrorCode::InvalidParams);
 	}
+#if defined(ST_PLATFORM_WINDOWS)
+	// A drive without a directory names a place that depends on the process's directory on that drive; elsewhere it is a file name.
+	CHECK(fixture.Fails("telemetry.export", Json::object({{"path", "C:Escape.csv"}})) == AutomationErrorCode::InvalidParams);
+#endif
 	CHECK_FALSE(FileSystem::Exists(fixture.Directory.GetPath() / "Escape.csv"));
 	REQUIRE(FileSystem::CreateDirectories(project / "Folder.csv").IsOk());
 	CHECK(fixture.Fails("telemetry.export", Json::object({{"path", "Folder.csv"}})) == AutomationErrorCode::InvalidParams);
