@@ -4,9 +4,11 @@
 
 #include "Editor/Agents/AgentKit.h"
 #include "Editor/Panels/AgentSetupDialog.h"
+#include "Editor/UI/EditorUI.h"
 
 #include "Strada/Core/EngineLayout.h"
 #include "Strada/Core/FileSystem.h"
+#include "Strada/Core/Result.h"
 
 #include <doctest/doctest.h>
 #include <imgui.h>
@@ -14,6 +16,7 @@
 
 #include <algorithm>
 #include <cmath>
+#include <cstddef>
 #include <filesystem>
 #include <functional>
 #include <map>
@@ -48,6 +51,48 @@ namespace
 			}
 		}
 		return files;
+	}
+
+	// The length of a deep project's directory. Windows allows a path 259 characters, and the longest one a setup writes,
+	// ".claude/skills/strada-make-game/SKILL.md" under its temporary name (".tmp" and up to 20 digits), takes 65 more.
+	constexpr size_t DeepProjectLength = 190;
+	// The length of a deep engine's folder: its tool's path and the test content's deepest file (51 characters) fit below it.
+	constexpr size_t DeepEngineLength = 180;
+
+	// A directory below base whose path (FileSystem::PathToUtf8) has exactly the given length and ends in the named folder:
+	// folders with long names are added until it does, whatever the length of base (the temporary folder's differs from one
+	// machine to another). Creates nothing.
+	std::filesystem::path MakeDeepDirectory(std::filesystem::path directory, std::string const& last, size_t length)
+	{
+		std::string const folder = "Folder of a studio that keeps its projects deep";
+		auto const measure = [](std::filesystem::path const& path)
+		{
+			return FileSystem::PathToUtf8(path).size();
+		};
+		// Room for a separator, a folder of one character at least, a separator and the last folder.
+		size_t const end = last.size() + 3;
+		REQUIRE(measure(directory) + end <= length);
+		while (measure(directory) + folder.size() + 1 + end <= length)
+		{
+			directory /= folder;
+		}
+		// The rest in a folder of letters alone: Windows drops spaces at the end of a name.
+		std::string filler;
+		while (filler.size() < length - measure(directory) - end + 1)
+		{
+			filler += "Deeper";
+		}
+		filler.resize(length - measure(directory) - end + 1);
+		directory /= filler;
+		directory /= last;
+		REQUIRE(measure(directory) == length);
+		return directory;
+	}
+
+	bool IsTooltipShown()
+	{
+		ImGuiWindow const* const tooltip = ImGui::FindWindowByName("##Tooltip_00");
+		return tooltip != nullptr && tooltip->Active;
 	}
 
 	// The dialog over "Orb Run" in a temporary directory, with the test content's agent kit and no strada on PATH, drawn
@@ -183,6 +228,70 @@ namespace
 			return rows;
 		}
 
+		// Moves the project, and what the editor has open, to a directory of DeepProjectLength characters.
+		void UseDeepProject()
+		{
+			Project.Directory = MakeDeepDirectory(Directory.GetPath(), Project.Name, DeepProjectLength);
+			OpenProject = Project;
+			REQUIRE(FileSystem::CreateDirectories(Project.Directory).IsOk());
+			REQUIRE(FileSystem::WriteTextFile(Project.Directory / Project.ProjectFile, "{}\n").IsOk());
+		}
+
+		// Checks that the dialog lies inside the display with nothing to scroll to (its buttons show).
+		void CheckFits(ImVec2 display) const
+		{
+			ImGuiWindow const* const popup = GetPopup();
+			CAPTURE(popup->Pos.y);
+			CAPTURE(popup->Size.y);
+			CAPTURE(popup->ContentSize.y);
+			CAPTURE(popup->ScrollMax.y);
+			CHECK(popup->ScrollMax.y == 0.0f);
+			CHECK(popup->Pos.x >= 0.0f);
+			CHECK(popup->Pos.y >= 0.0f);
+			CHECK(popup->Pos.x + popup->Size.x <= display.x);
+			CHECK(popup->Pos.y + popup->Size.y <= display.y);
+		}
+
+		// The text the dialog draws in a frame, as ImGui's log of rendered text has it: a line per line drawn, the items of
+		// one line separated by a space.
+		std::string DrawnText()
+		{
+			std::string text;
+			Gui.Frame(
+				[this, &text]
+				{
+					ImGui::LogToBuffer();
+					Draw();
+					text = GImGui->LogBuffer.c_str();
+					ImGui::LogFinish();
+				});
+			return text;
+		}
+
+		// Rests the mouse, 30 frames at a time (tooltips wait for a mouse at rest), at points down the dialog's left edge from
+		// its title bar to its file list, until a tooltip shows: the text drawn in a frame that shows it, or none.
+		std::optional<std::string> RestForTooltip()
+		{
+			ImGuiWindow const* const popup = GetPopup();
+			float const x = popup->Pos.x + popup->WindowPadding.x + 4.0f;
+			float const bottom = GetFileList()->Pos.y;
+			for (float y = popup->Pos.y + popup->TitleBarHeight + 2.0f; y < bottom; y += GImGui->FontSize * 0.5f)
+			{
+				ImGui::GetIO().AddMousePosEvent(x, y);
+				for (int frame = 0; frame < 30; frame++)
+				{
+					Gui.Frame(Draw);
+				}
+				if (IsTooltipShown())
+				{
+					std::string const text = DrawnText();
+					REQUIRE(IsTooltipShown());
+					return text;
+				}
+			}
+			return std::nullopt;
+		}
+
 		std::map<std::string, AgentFileState> States() const
 		{
 			Result<AgentStatus> status = AgentKit::GetStatus(Project, Layout, FindTool);
@@ -281,6 +390,129 @@ TEST_CASE("AgentSetupDialog: Apply sets the project up and shows what it did; op
 	CHECK(fixture.IsOpen());
 	CHECK(Snapshot(fixture.Project.Directory) == before);
 	fixture.Click("Cancel");
+	CHECK_FALSE(fixture.IsOpen());
+}
+
+TEST_CASE("AgentSetupDialog: a project in a deep folder keeps its path to one line, whole in its tooltip, inside a small window")
+{
+	DialogFixture fixture;
+	fixture.UseDeepProject();
+	std::string const directory = FileSystem::PathToUtf8(fixture.Project.Directory);
+	std::string const folder = "/" + fixture.Project.Name;
+	ImVec2 const display(1280.0f, 720.0f);
+	fixture.Gui.SetDisplaySize(display);
+	fixture.Open();
+	REQUIRE(fixture.IsOpen());
+	fixture.CheckFits(display);
+
+	// The project's line names it and ends with the end of its path, the project's folder; the rest of the path gives way.
+	std::string ellipsis;
+	fixture.Gui.Frame(
+		[&fixture, &ellipsis]
+		{
+			ellipsis = UI::GetEllipsis();
+			fixture.Draw();
+		});
+	auto const showsDirectory = [&](std::string_view text)
+	{
+		for (size_t start = 0; start < text.size();)
+		{
+			size_t const end = std::min(text.find('\n', start), text.size());
+			std::string_view line = text.substr(start, end - start);
+			start = end + 1;
+			if (line.ends_with('\r'))
+			{
+				line.remove_suffix(1);
+			}
+			size_t const cut = line.find(ellipsis);
+			if (line.starts_with(fixture.Project.Name + " ") && cut != std::string_view::npos)
+			{
+				std::string_view const rest = line.substr(cut + ellipsis.size());
+				if (rest.size() > folder.size() && rest.ends_with(folder) && std::string_view(directory).ends_with(rest))
+				{
+					return true;
+				}
+			}
+		}
+		return false;
+	};
+	std::string const drawn = fixture.DrawnText();
+	CAPTURE(drawn);
+	CHECK(showsDirectory(drawn));
+	CHECK(drawn.find(directory) == std::string::npos);
+
+	// Resting the mouse on that line shows the whole path, wrapped inside the display.
+	std::optional<std::string> const tooltip = fixture.RestForTooltip();
+	REQUIRE_MESSAGE(tooltip.has_value(), "no tooltip shows the project's path");
+	CHECK(tooltip->find(directory) != std::string::npos);
+	ImGuiWindow const* const window = ImGui::FindWindowByName("##Tooltip_00");
+	REQUIRE(window != nullptr);
+	CHECK(window->Pos.x >= 0.0f);
+	CHECK(window->Pos.y >= 0.0f);
+	CHECK(window->Pos.x + window->Size.x <= display.x);
+	CHECK(window->Pos.y + window->Size.y <= display.y);
+
+	// Apply writes every file below the deep folder, and the dialog with its result still fits.
+	fixture.Click("Apply");
+	fixture.CheckFits(display);
+	REQUIRE(fixture.Dialog.GetLastResult().has_value());
+	CHECK(fixture.Dialog.GetLastResult()->Succeeded());
+	CHECK(showsDirectory(fixture.DrawnText()));
+	for (auto const& file : fixture.States())
+	{
+		CAPTURE(file.first);
+		CHECK(file.second == AgentFileState::Current);
+	}
+	fixture.Click("Close");
+	CHECK_FALSE(fixture.IsOpen());
+}
+
+TEST_CASE("AgentSetupDialog: many warnings, one naming a long path, and a failed Apply leave the dialog inside a small window")
+{
+	DialogFixture fixture;
+	fixture.UseDeepProject();
+	// An engine in a deep folder with strada beside its editor: as none is on PATH, a warning names that tool's path.
+	std::filesystem::path const engine = MakeDeepDirectory(fixture.Directory.GetPath(), "Engine", DeepEngineLength);
+	REQUIRE(FileSystem::CopyDirectory(Testing::GetTestContentDirectory(), engine).IsOk());
+	Result<EngineLayout> layout = EngineLayout::Resolve(engine / "StradaEditor");
+	REQUIRE(layout.IsOk());
+	fixture.Layout = layout.TakeValue();
+	REQUIRE(FileSystem::WriteTextFile(fixture.Layout.GetToolPath(), "a tool").IsOk());
+	// The engine lacks its guides, a warning each.
+	for (std::string_view const guide : AgentKit::Guides)
+	{
+		std::error_code error;
+		CHECK(std::filesystem::remove(engine / "Docs" / FileSystem::PathFromUtf8(guide), error));
+		CHECK_FALSE(error);
+	}
+	// The project's skill was changed by the user and its .mcp.json is not a JSON object: the setup keeps both, a warning each.
+	std::filesystem::path const skill = fixture.Project.Directory / ".claude" / "skills" / "strada-make-game" / "SKILL.md";
+	REQUIRE(FileSystem::WriteTextFile(skill, "Mine.\n").IsOk());
+	REQUIRE(FileSystem::WriteTextFile(fixture.Project.Directory / ".mcp.json", "[]\n").IsOk());
+	// And a file that cannot be written stops Apply.
+	REQUIRE(FileSystem::WriteTextFile(fixture.Project.Directory / "CLAUDE.md", "Mine.\n").IsOk());
+	Testing::ReadOnlyFileScope const readOnly(fixture.Project.Directory / "CLAUDE.md");
+	Result<AgentPlan> plan = AgentKit::Plan(fixture.Project, fixture.Layout, fixture.FindTool);
+	REQUIRE(plan.IsOk());
+	std::vector<std::string> const& warnings = plan.GetValue().Warnings;
+	CHECK(warnings.size() == AgentKit::Guides.size() + 3);
+	CHECK(std::ranges::any_of(warnings,
+	                          [&engine](std::string const& warning)
+	                          {
+								  return warning.find(FileSystem::PathToUtf8(engine)) != std::string::npos;
+							  }));
+
+	ImVec2 const display(1280.0f, 720.0f);
+	fixture.Gui.SetDisplaySize(display);
+	fixture.Open();
+	REQUIRE(fixture.IsOpen());
+	fixture.CheckFits(display);
+	fixture.Click("Apply");
+	fixture.CheckFits(display);
+	REQUIRE(fixture.Dialog.GetLastResult().has_value());
+	CHECK_FALSE(fixture.Dialog.GetLastResult()->Succeeded());
+	CHECK(fixture.Dialog.GetLastResult()->FailedPath == "CLAUDE.md");
+	fixture.Click("Close");
 	CHECK_FALSE(fixture.IsOpen());
 }
 

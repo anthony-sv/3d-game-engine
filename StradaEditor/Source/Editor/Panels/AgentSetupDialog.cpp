@@ -6,6 +6,7 @@
 #include "Strada/Core/Log.h"
 
 #include <imgui.h>
+#include <spdlog/fmt/fmt.h>
 
 #include <algorithm>
 #include <cmath>
@@ -13,6 +14,7 @@
 #include <string>
 #include <string_view>
 #include <utility>
+#include <vector>
 
 namespace Strada
 {
@@ -22,13 +24,28 @@ namespace Strada
 		constexpr ImVec4 FailureColor = ImVec4(1.0f, 0.45f, 0.4f, 1.0f);
 		constexpr ImVec4 WarningColor = ImVec4(1.0f, 0.75f, 0.3f, 1.0f);
 		// The rows the file list shows before it scrolls (every file of the kit) and the lines of a diff. The list takes at
-		// most MaxFilesShare of the window's height; the diff takes what the list leaves of MaxListsShare, and at least
-		// MinDiffShare, so that the whole dialog fits a small window.
+		// most MaxFilesShare of the window's height and the messages below the diff (Apply's result, the kit's warnings) at
+		// most MaxMessagesShare, scrolling beyond; the diff takes what the rest of the dialog leaves, so that the whole dialog
+		// fits a small window whatever the length of the paths and names it shows.
 		constexpr float VisibleFiles = 14.0f;
 		constexpr float VisibleDiffLines = 16.0f;
 		constexpr float MaxFilesShare = 0.3f;
-		constexpr float MaxListsShare = 0.55f;
-		constexpr float MinDiffShare = 0.2f;
+		constexpr float MaxMessagesShare = 0.2f;
+		// The share of its line the project's name takes at most; its directory takes the rest.
+		constexpr float MaxNameShare = 0.4f;
+
+		// A text of the messages below the diff, in its colour.
+		struct DialogMessage
+		{
+			std::string Text;
+			ImVec4 Color;
+		};
+
+		// The dialog's width at the current font.
+		float GetDialogWidth()
+		{
+			return ImGui::GetFontSize() * 46.0f;
+		}
 
 		// The height of a bordered child of rows of text: as many rows as wanted, or as fit whole in maxHeight (at least one).
 		float FitRows(float rows, float maxHeight)
@@ -106,6 +123,83 @@ namespace Strada
 				return FailureColor;
 			}
 			return ImGui::GetStyleColorVec4(line.starts_with("@@") ? ImGuiCol_TextDisabled : ImGuiCol_Text);
+		}
+
+		// The project's name and directory on one line that never wraps, so that the dialog's height depends on neither: the
+		// name shortened at its end to MaxNameShare of the line, the directory losing its leading folders first (UI::FitPath)
+		// in the rest, and both whole in a tooltip, wrapped at the dialog's width, when either is shortened.
+		void DrawProject(AgentProject const& project)
+		{
+			std::string const directory = FileSystem::PathToUtf8(project.Directory);
+			std::string const name = UI::FitText(project.Name, ImGui::GetContentRegionAvail().x * MaxNameShare);
+			ImGui::BeginGroup();
+			ImGui::TextUnformatted(name.c_str());
+			ImGui::SameLine();
+			std::string const shown = UI::FitPath(directory, ImGui::GetContentRegionAvail().x);
+			ImGui::TextDisabled("%s", shown.c_str());
+			ImGui::EndGroup();
+			if ((name != project.Name || shown != directory) && ImGui::BeginItemTooltip())
+			{
+				ImGui::PushTextWrapPos(GetDialogWidth());
+				ImGui::TextUnformatted(project.Name.c_str());
+				ImGui::TextDisabled("%s", directory.c_str());
+				ImGui::PopTextWrapPos();
+				ImGui::EndTooltip();
+			}
+		}
+
+		// What Apply did, as the dialog says it.
+		DialogMessage DescribeResult(AgentApplyResult const& result)
+		{
+			if (result.Succeeded())
+			{
+				size_t const written = static_cast<size_t>(std::ranges::count_if(result.Plan.Files,
+				                                                                 [](AgentFilePlan const& file)
+				                                                                 {
+																					 return Writes(file.Action);
+																				 }));
+				return {fmt::format("The project is set up for coding agents: {} files written. An agent started in the project's "
+				                    "folder reads AGENTS.md and reaches this editor through .mcp.json.",
+				                    written),
+				        SuccessColor};
+			}
+			if (result.FailedPath.empty())
+			{
+				return {fmt::format("The setup wrote nothing: {}", result.Error), FailureColor};
+			}
+			// The error names the file.
+			return {fmt::format("The setup stopped: {}. The files listed above stay written.", result.Error), FailureColor};
+		}
+
+		// The height of the messages, wrapped at the width, laid out as DrawMessages lays them out.
+		float MeasureMessages(std::vector<DialogMessage> const& messages, float width)
+		{
+			float height = 0.0f;
+			for (DialogMessage const& message : messages)
+			{
+				height += ImGui::CalcTextSize(message.Text.c_str(), nullptr, false, width).y;
+			}
+			return messages.empty() ? 0.0f : height + ImGui::GetStyle().ItemSpacing.y * static_cast<float>(messages.size() - 1);
+		}
+
+		// The messages, wrapped, in a pane of the given height that scrolls when they are taller: their texts name paths of any
+		// length (the tool's, the project's in an error) and their number grows with the files a setup keeps.
+		void DrawMessages(std::vector<DialogMessage> const& messages, float height)
+		{
+			if (messages.empty())
+			{
+				return;
+			}
+			if (ImGui::BeginChild("##messages", ImVec2(0.0f, height)))
+			{
+				for (DialogMessage const& message : messages)
+				{
+					ImGui::PushStyleColor(ImGuiCol_Text, message.Color);
+					ImGui::TextWrapped("%s", message.Text.c_str());
+					ImGui::PopStyleColor();
+				}
+			}
+			ImGui::EndChild();
 		}
 	}
 
@@ -203,13 +297,11 @@ namespace Strada
 			MakePlan(*project, layout, findTool);
 		}
 
-		ImGui::TextWrapped("Sets %s up for coding agents such as Claude Code: AGENTS.md tells them how to work, .mcp.json "
+		// The project is named on a line of its own, which never wraps: this text's height depends on no name.
+		ImGui::TextWrapped("Sets the project up for coding agents such as Claude Code: AGENTS.md tells them how to work, .mcp.json "
 		                   "connects them to this editor through the strada MCP server, and the game-making skill and the "
-		                   "guides teach them the tools. Text you wrote outside Strada's parts of these files is kept.",
-		                   project->Name.c_str());
-		ImGui::PushTextWrapPos(0.0f);
-		ImGui::TextDisabled("%s", FileSystem::PathToUtf8(project->Directory).c_str());
-		ImGui::PopTextWrapPos();
+		                   "guides teach them the tools. Text you wrote outside Strada's parts of these files is kept.");
+		DrawProject(*project);
 		if (!m_Plan)
 		{
 			ImGui::PushStyleColor(ImGuiCol_Text, FailureColor);
@@ -227,20 +319,40 @@ namespace Strada
 		AgentPlan const& shown = applied ? m_Result->Plan : *m_Plan;
 		float const workHeight = viewport->WorkSize.y;
 		float const filesHeight = FitRows(std::min(static_cast<float>(shown.Files.size()), VisibleFiles), workHeight * MaxFilesShare);
-		float const diffHeight = FitRows(VisibleDiffLines, std::max(workHeight * MaxListsShare - filesHeight, workHeight * MinDiffShare));
-		DrawFiles(shown, applied, filesHeight);
-		DrawSelection(shown, applied, diffHeight);
-		for (std::string const& warning : shown.Warnings)
-		{
-			ImGui::PushStyleColor(ImGuiCol_Text, WarningColor);
-			// The kit's warnings are messages (also in project.setup-agents' result): the dialog shows them as sentences.
-			ImGui::TextWrapped("%s", UI::FormatSentence(warning).c_str());
-			ImGui::PopStyleColor();
-		}
+		// Below the diff: Apply's result, then the kit's warnings, which are messages (also in project.setup-agents' result)
+		// that the dialog shows as sentences.
+		std::vector<DialogMessage> messages;
 		if (applied)
 		{
-			DrawResult(*m_Result);
+			messages.push_back(DescribeResult(*m_Result));
 		}
+		for (std::string const& warning : shown.Warnings)
+		{
+			messages.push_back({UI::FormatSentence(warning), WarningColor});
+		}
+		float const messagesHeight =
+			std::min(MeasureMessages(messages, ImGui::GetContentRegionAvail().x), std::floor(workHeight * MaxMessagesShare));
+		// What follows the diff, down to the window's bottom edge: the result's heading, the messages, the buttons' row.
+		ImGuiStyle const& style = ImGui::GetStyle();
+		float footerHeight = style.ItemSpacing.y * 2.0f + ImGui::GetFrameHeight() + style.WindowPadding.y;
+		if (applied)
+		{
+			footerHeight +=
+				std::max(ImGui::GetFontSize() + style.SeparatorTextPadding.y * 2.0f, style.SeparatorTextBorderSize) + style.ItemSpacing.y;
+		}
+		if (!messages.empty())
+		{
+			footerHeight += messagesHeight + style.ItemSpacing.y;
+		}
+		// ImGui keeps an auto-resized window DisplaySafeAreaPadding inside the work area.
+		float const maxHeight = workHeight - style.DisplaySafeAreaPadding.y * 2.0f;
+		DrawFiles(shown, applied, filesHeight);
+		DrawSelection(shown, applied, maxHeight - footerHeight);
+		if (applied)
+		{
+			ImGui::SeparatorText("Result");
+		}
+		DrawMessages(messages, messagesHeight);
 		ImGui::Spacing();
 
 		if (applied)
@@ -304,7 +416,7 @@ namespace Strada
 		ImGui::EndChild();
 	}
 
-	void AgentSetupDialog::DrawSelection(AgentPlan const& plan, bool applied, float diffHeight)
+	void AgentSetupDialog::DrawSelection(AgentPlan const& plan, bool applied, float diffBottom)
 	{
 		AgentFilePlan const* const file = FindFile(plan, m_Selected);
 		if (file == nullptr)
@@ -319,6 +431,8 @@ namespace Strada
 			return;
 		}
 		ImGui::TextDisabled(applied ? "What changed in Strada's part of the file:" : "What changes in Strada's part of the file:");
+		// The rows that fit whole above diffBottom (one at least), up to VisibleDiffLines.
+		float const diffHeight = FitRows(VisibleDiffLines, diffBottom - ImGui::GetCursorPosY());
 		if (ImGui::BeginChild("##diff", ImVec2(0.0f, diffHeight), ImGuiChildFlags_Borders))
 		{
 			if (m_MonospaceFont != nullptr)
@@ -345,35 +459,5 @@ namespace Strada
 			}
 		}
 		ImGui::EndChild();
-	}
-
-	void AgentSetupDialog::DrawResult(AgentApplyResult const& result)
-	{
-		ImGui::SeparatorText("Result");
-		if (result.Succeeded())
-		{
-			size_t const written = static_cast<size_t>(std::ranges::count_if(result.Plan.Files,
-			                                                                 [](AgentFilePlan const& file)
-			                                                                 {
-																				 return Writes(file.Action);
-																			 }));
-			ImGui::PushStyleColor(ImGuiCol_Text, SuccessColor);
-			ImGui::TextWrapped("The project is set up for coding agents: %zu files written. An agent started in the project's "
-			                   "folder reads AGENTS.md and reaches this editor through .mcp.json.",
-			                   written);
-			ImGui::PopStyleColor();
-			return;
-		}
-		ImGui::PushStyleColor(ImGuiCol_Text, FailureColor);
-		if (result.FailedPath.empty())
-		{
-			ImGui::TextWrapped("The setup wrote nothing: %s", result.Error.c_str());
-		}
-		else
-		{
-			// The error names the file.
-			ImGui::TextWrapped("The setup stopped: %s. The files listed above stay written.", result.Error.c_str());
-		}
-		ImGui::PopStyleColor();
 	}
 }
