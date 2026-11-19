@@ -5891,8 +5891,9 @@ settings, High, a master volume of 1, no bus and no value; a field the file lack
   project, which reads the game's defaults. Nothing but a script's `Settings.Save` writes the file.
 - A named value is refused when it would bring the settings' text past 1 MiB (`MaxPlayerSettingsBytes`): its setter
   writes the text with the value and measures it, so one oversized value never keeps the window, the quality, the
-  volumes and the other values from being saved. Settings are small, so the measure costs microseconds; a value set
-  to what it holds measures nothing.
+  volumes and the other values from being saved. Each changed value costs one write of the whole settings' text in
+  memory, small for a settings screen's few values (a game that keeps thousands of values keeps them in a slot); a
+  value set to what it holds measures nothing.
 
 **Where they go when no player plays.** Saves and settings go through the service as the binding profile does, so the
 table above redirects them: the project's play data in play mode and for `StradaRuntime --project`, a test run's

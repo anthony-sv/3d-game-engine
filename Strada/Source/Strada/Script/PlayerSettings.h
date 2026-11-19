@@ -285,8 +285,8 @@ namespace Strada
 		[[nodiscard]] static ScriptFieldValue const* FindValue(std::string_view name);
 		// Refuses a name or value SaveSlots.h's checks refuse, a new name past MaxSaveSlotValues values, and a value that
 		// would bring the settings' text past MaxPlayerSettingsBytes (measured by writing the text with the value, so that one
-		// oversized value never keeps the rest from being saved; settings are small, so it costs microseconds, and a value
-		// set to what it holds measures nothing).
+		// oversized value never keeps the rest from being saved). Each changed value costs one write of the whole settings'
+		// text in memory, which a settings screen's few values make small; a value set to what it holds measures nothing.
 		[[nodiscard]] static Result<void> SetValue(std::string_view name, ScriptFieldValue value);
 		// Whether a value of the name was there.
 		static bool RemoveValue(std::string_view name);

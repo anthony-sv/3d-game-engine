@@ -36,6 +36,7 @@
 #include "Strada/Scene/SceneRendering.h"
 #include "Strada/Scene/SceneSerializer.h"
 #include "Strada/Script/PlayerSettings.h"
+#include "Strada/Script/ScriptEngine.h"
 #include "Strada/Script/VisualScriptEngine.h"
 #include "Strada/Serialization/JsonSerialization.h"
 
@@ -570,6 +571,8 @@ TEST_CASE(
 TEST_CASE("PlayMode: the player's settings come from the play data, the Game View renders at their quality, their window is "
           "kept but never applied, a test run reads and writes its own folder, and editing has none")
 {
+	// The scripting runtime, so that play mode's runner is the host a changed window is asked of.
+	Testing::ScriptRuntimeScope scripting;
 	ProjectPlayFixture fixture;
 	std::filesystem::path const playData = fixture.Context.GetProject()->GetPlayDataDirectory();
 	std::filesystem::path const file = playData / "Settings.json";
@@ -597,7 +600,10 @@ TEST_CASE("PlayMode: the player's settings come from the play data, the Game Vie
 	CHECK(MakeGameViewRenderOptions(1.0f).Quality == QualityPreset::Low);
 	CHECK(SceneRenderOptions{}.Quality == QualityPreset::High);
 
-	// A window the game asks for is kept for the game to save, and play mode applies it to no window.
+	// A window the game asks for reaches play mode's runner, which hands it to no window after the frame (play mode sets
+	// no SceneRunnerSettings::ApplyWindow): it is kept for the game to save.
+	REQUIRE(ScriptEngine::GetHost() != nullptr);
+	CHECK(ScriptEngine::GetHost()->IsEditor());
 	PlayerSettingsStore::SetWindow({PlayerWindowMode::Fullscreen, 1920, 1080, true});
 	fixture.Play.Update(Timestep(1.0f / 60.0f));
 	CHECK(PlayerSettingsStore::Get().Window == PlayerWindowSettings{PlayerWindowMode::Fullscreen, 1920, 1080, true});
