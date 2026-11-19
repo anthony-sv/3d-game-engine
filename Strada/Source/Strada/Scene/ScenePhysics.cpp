@@ -718,6 +718,16 @@ namespace Strada
 		watchVehicles(m_Registry.on_construct<VehicleComponent>());
 		watchVehicles(m_Registry.on_update<VehicleComponent>());
 		watchVehicles(m_Registry.on_destroy<VehicleComponent>());
+
+		auto wheelRemoved = m_Registry.on_destroy<VehicleWheelComponent>();
+		if (connect)
+		{
+			wheelRemoved.connect<&Scene::OnVehicleWheelComponentRemoved>(*this);
+		}
+		else
+		{
+			wheelRemoved.disconnect<&Scene::OnVehicleWheelComponentRemoved>(*this);
+		}
 	}
 
 	void Scene::OnPhysicsComponentChanged(entt::registry&, entt::entity handle)
@@ -745,6 +755,12 @@ namespace Strada
 	void Scene::OnVehicleComponentChanged(entt::registry&, entt::entity handle)
 	{
 		m_ChangedVehicles.insert(handle);
+	}
+
+	void Scene::OnVehicleWheelComponentRemoved(entt::registry&, entt::entity handle)
+	{
+		// A VehicleWheel added again later is a new one, whose reasons are said again.
+		m_VehicleWheelsSaid.erase(handle);
 	}
 
 	void Scene::OnMeshComponentChanged(entt::registry& registry, entt::entity handle)
@@ -1137,13 +1153,14 @@ namespace Strada
 		{
 			Entity const wheel(handle, this);
 			// The wheel of the nearest entity above it with a Vehicle (said once when there is none to draw).
-			std::string problem;
+			WheelDrawProblem problem = WheelDrawProblem::Drawn;
 			VehicleSyncState const* vehicle = nullptr;
 			Entity chassis;
 			size_t index = 0;
+			std::string const& name = m_Registry.get<VehicleWheelComponent>(handle).Wheel;
 			if (m_Bodies.contains(handle) || m_Characters.contains(handle))
 			{
-				problem = "draws no wheel: its entity has a body or a character of its own, which the vehicle would move";
+				problem = WheelDrawProblem::OwnBody;
 			}
 			else
 			{
@@ -1153,10 +1170,9 @@ namespace Strada
 					above = GetParent(above);
 				}
 				auto const found = above && above.HasComponent<VehicleComponent>() ? m_Vehicles.find(above.GetHandle()) : m_Vehicles.end();
-				std::string const& name = m_Registry.get<VehicleWheelComponent>(handle).Wheel;
 				if (!above || !above.HasComponent<VehicleComponent>())
 				{
-					problem = "draws no wheel: no entity above it has a Vehicle";
+					problem = WheelDrawProblem::NoVehicleAbove;
 				}
 				else if (found != m_Vehicles.end() && found->second.Made)
 				{
@@ -1166,28 +1182,19 @@ namespace Strada
 					                                {
 														return IsSameVehicleWheelName(candidate, name);
 													});
+					chassis = above;
 					if (named == names.end())
 					{
-						problem = fmt::format("draws no wheel: the definition of the Vehicle of '{}' has no wheel named '{}'",
-						                      above.GetName(), name);
+						problem = WheelDrawProblem::UnknownWheel;
 					}
 					else
 					{
 						vehicle = &found->second;
-						chassis = above;
 						index = static_cast<size_t>(named - names.begin());
 					}
 				}
 			}
-			std::string& said = m_VehicleWheelsSaid[handle];
-			if (problem != said)
-			{
-				if (!problem.empty())
-				{
-					ST_CORE_WARN("Physics: the VehicleWheel of '{}' {}", wheel.GetName(), problem);
-				}
-				said = std::move(problem);
-			}
+			SayVehicleWheelProblem(wheel, problem, chassis, name);
 			// Nothing to draw before the vehicle's first step.
 			if (vehicle == nullptr || !vehicle->Wheels.HasSteps)
 			{
@@ -1220,6 +1227,44 @@ namespace Strada
 				SetWorldPoseInParent(*this, wheel, wheelPosition, wheelRotation);
 			}
 		}
+	}
+
+	void Scene::SayVehicleWheelProblem(Entity wheel, WheelDrawProblem problem, Entity chassis, std::string const& name)
+	{
+		auto const found = m_VehicleWheelsSaid.find(wheel.GetHandle());
+		if (found == m_VehicleWheelsSaid.end() && problem == WheelDrawProblem::Drawn)
+		{
+			// Nothing was said about it, and there is nothing to say.
+			return;
+		}
+		VehicleWheelSaid& said = found != m_VehicleWheelsSaid.end() ? found->second : m_VehicleWheelsSaid[wheel.GetHandle()];
+		bool const unknown = problem == WheelDrawProblem::UnknownWheel;
+		entt::entity const chassisHandle = unknown ? chassis.GetHandle() : entt::entity(entt::null);
+		if (said.Problem == problem && said.Chassis == chassisHandle && (!unknown || said.Wheel == name))
+		{
+			return;
+		}
+		switch (problem)
+		{
+			case WheelDrawProblem::Drawn:
+				break;
+			case WheelDrawProblem::OwnBody:
+				ST_CORE_WARN("Physics: the VehicleWheel of '{}' draws no wheel: its entity has a body or a character of its own, which "
+				             "the vehicle would move",
+				             wheel.GetName());
+				break;
+			case WheelDrawProblem::NoVehicleAbove:
+				ST_CORE_WARN("Physics: the VehicleWheel of '{}' draws no wheel: no entity above it has a Vehicle", wheel.GetName());
+				break;
+			case WheelDrawProblem::UnknownWheel:
+				ST_CORE_WARN(
+					"Physics: the VehicleWheel of '{}' draws no wheel: the definition of the Vehicle of '{}' has no wheel named '{}'",
+					wheel.GetName(), chassis.GetName(), name);
+				break;
+		}
+		said.Problem = problem;
+		said.Chassis = chassisHandle;
+		said.Wheel = unknown ? name : std::string();
 	}
 
 	void Scene::TrackPhysicsMaterials(std::vector<AssetHandle> const& previous, std::vector<AssetHandle> const& current)

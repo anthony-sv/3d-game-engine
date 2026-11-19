@@ -1160,10 +1160,29 @@ TEST_CASE("ScenePhysics: a VehicleWheel draws the wheel it names, in any letter 
 	CHECK(CountLogged(logStart, {"'Front Wheel'"}) == 0);
 	CHECK(CountLogged(logStart, {"'Rear Wheel'"}) == 0);
 
+	// A VehicleWheel removed and added again is a new one: its reason is said again, once. Destroyed, nothing more is said of
+	// it.
+	uint64_t const readded = Log::GetNextEntryIndex();
+	lost.RemoveComponent<VehicleWheelComponent>();
+	Run(scene, 2);
+	CHECK(CountLogged(readded, {"'Lost Wheel'"}) == 0);
+	lost.AddComponent<VehicleWheelComponent>().Wheel = "Front";
+	Run(scene, 5);
+	CHECK(CountLogged(readded, {"Physics: the VehicleWheel of 'Lost Wheel' draws no wheel: no entity above it has a Vehicle"}) == 1);
+	scene.DestroyEntity(lost);
+	Run(scene, 2);
+	CHECK(CountLogged(readded, {"'Lost Wheel'"}) == 1);
+
 	// Named again for a wheel it has, it is drawn from the next frame on.
 	odd.GetComponent<VehicleWheelComponent>().Wheel = "front";
 	Run(scene, 2);
 	CHECK_FALSE(SamePose(odd.GetComponent<TransformComponent>(), oddStart));
+	// Named again for one it lacks, the new name is said once.
+	uint64_t const renamed = Log::GetNextEntryIndex();
+	odd.GetComponent<VehicleWheelComponent>().Wheel = "Side";
+	Run(scene, 5);
+	CHECK(CountLogged(renamed, {"Physics: the VehicleWheel of 'Odd Wheel' draws no wheel: the definition of the Vehicle of 'Bike 200' "
+	                            "has no wheel named 'Side'"}) == 1);
 	scene.OnRuntimeStop();
 }
 

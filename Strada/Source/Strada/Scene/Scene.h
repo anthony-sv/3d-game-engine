@@ -682,6 +682,7 @@ namespace Strada
 		// version (an edit, a reload, a file that starts or stops loading), in the order of their UUIDs.
 		void SyncVehicles();
 		void OnVehicleComponentChanged(entt::registry& registry, entt::entity handle);
+		void OnVehicleWheelComponentRemoved(entt::registry& registry, entt::entity handle);
 		// The wheels of the vehicles (Docs/Architecture.md §8, "Interpolated wheels"). After each step, each vehicle's wheels
 		// as the step left them (suspension length, steering, angle and spin) are recorded, and the VehicleWheel entities placed
 		// there. Draws each VehicleWheel entity whose wheel names (in any letter case) a wheel of the nearest entity above it
@@ -693,6 +694,23 @@ namespace Strada
 		// to draw, is left alone, said once.
 		void RecordVehicleWheelSteps(float step);
 		void DrawVehicleWheels(float alpha);
+		// Why a VehicleWheel entity draws no wheel, and what was last said about it: the reason, and for a wheel its vehicle
+		// lacks, the chassis and the name. Compared at every drawing without allocating; the warning is made and said only
+		// when they change.
+		enum class WheelDrawProblem : uint8_t
+		{
+			Drawn,
+			OwnBody,
+			NoVehicleAbove,
+			UnknownWheel,
+		};
+		struct VehicleWheelSaid
+		{
+			WheelDrawProblem Problem = WheelDrawProblem::Drawn;
+			entt::entity Chassis = entt::null;
+			std::string Wheel;
+		};
+		void SayVehicleWheelProblem(Entity wheel, WheelDrawProblem problem, Entity chassis, std::string const& name);
 		// The entities whose vehicles the scene made, in the order of their UUIDs (a snapshot's vehicles).
 		std::vector<entt::entity> GetMadeVehicleOrder() const;
 
@@ -1006,8 +1024,8 @@ namespace Strada
 			ScenePhysicsSnapshot::WheelDrawing Wheels;
 		};
 		std::unordered_map<entt::entity, VehicleSyncState> m_Vehicles;
-		// What was last said about a VehicleWheel entity that draws no wheel, so that each reason is said once.
-		std::unordered_map<entt::entity, std::string> m_VehicleWheelsSaid;
+		// What was last said about each VehicleWheel entity (SayVehicleWheelProblem); an entry goes with its VehicleWheel.
+		std::unordered_map<entt::entity, VehicleWheelSaid> m_VehicleWheelsSaid;
 		// Entities whose Vehicle, body, definition or curves changed while running; their vehicles are updated before the next
 		// step, after the bodies and characters.
 		std::unordered_set<entt::entity> m_ChangedVehicles;
