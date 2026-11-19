@@ -10,8 +10,11 @@
 #include "Strada/Core/Log.h"
 #include "Strada/Core/Profiler.h"
 #include "Strada/Core/Window.h"
+#include "Strada/Project/PlayerWindow.h"
 #include "Strada/Renderer/Renderer.h"
 #include "Strada/Scene/SceneRendering.h"
+#include "Strada/Script/PlayerSettings.h"
+#include "Strada/Serialization/JsonSerialization.h"
 
 #include <algorithm>
 #include <optional>
@@ -23,12 +26,65 @@ namespace Strada
 {
 	namespace
 	{
+		// Gives the window the state the player's settings and the command line make of it: a size changed while fullscreen
+		// is the size the window returns to.
+		void ApplyPlayerWindow(PlayerWindowState const& state)
+		{
+			Application& application = Application::Get();
+			Window* const window = application.GetWindow();
+			if (window == nullptr)
+			{
+				return;
+			}
+			if (state.Fullscreen)
+			{
+				// Sized while windowed, so that the window returns to that size; a fullscreen window keeps the size it returns
+				// to until it does.
+				if (!window->IsFullscreen() && state.Size && window->GetWindowSize() != *state.Size)
+				{
+					window->SetSize(state.Size->x, state.Size->y);
+				}
+				window->SetFullscreen(true);
+			}
+			else
+			{
+				// Back in a window first: leaving fullscreen restores the size the window had, which the settings then change.
+				window->SetFullscreen(false);
+				if (state.Size && window->GetWindowSize() != *state.Size)
+				{
+					window->SetSize(state.Size->x, state.Size->y);
+				}
+			}
+			if (window->IsVSync() != state.VSync)
+			{
+				application.SetVSync(state.VSync);
+			}
+		}
+
 		SceneRunnerSettings MakeRunnerSettings(Project const& game, RuntimeLayerSpecification const& specification)
 		{
 			SceneRunnerSettings settings;
 			settings.Runtime = MakeSceneRuntimeSettings(game.GetSettings());
 			settings.Runtime.PhysicsHashStep = specification.Test ? specification.HashStep : 0;
 			settings.IsEditor = false;
+			settings.PlayerDefaults = MakePlayerSettingsDefaults(game.GetSettings().Window);
+			// A run without a window keeps the window settings a game changes without applying them.
+			if (Application::Get().GetWindow() != nullptr)
+			{
+				PlayerWindowOverrides overrides;
+				overrides.KeepSize = specification.Resolution.has_value();
+				overrides.NoVSync = specification.NoVSync;
+				settings.ApplyWindow = [overrides](PlayerWindowSettings const& window)
+				{
+					PlayerWindowState const state = ResolvePlayerWindow(window, overrides);
+					ApplyPlayerWindow(state);
+					ST_INFO("The window takes the player's settings: {}, vsync {}",
+					        state.Fullscreen ? std::string("fullscreen")
+					        : state.Size     ? fmt::format("windowed at {}x{}", state.Size->x, state.Size->y)
+					                         : std::string("windowed at the size the command line names"),
+					        state.VSync ? "on" : "off");
+				};
+			}
 			return settings;
 		}
 
@@ -117,6 +173,7 @@ namespace Strada
 		// The application has served or cancelled every capture before its layers detach.
 		ReportMissingScreenshot();
 		FinishAudioCapture();
+		ReportProfiledQuality();
 		if (m_Specification.Test && m_Runner.IsRunning())
 		{
 			// Closed before the run ended (--frames): it did not finish.
@@ -352,6 +409,10 @@ namespace Strada
 		{
 			options.DisplayScale = window->GetContentScale().x;
 		}
+		// The player's graphics quality, over the scene's settings (Docs/Architecture.md §6.2, "Quality presets").
+		options.Quality = PlayerSettingsStore::Get().Quality;
+		m_LastQuality = options.Quality;
+		m_RenderedQualities = static_cast<uint8_t>(m_RenderedQualities | (1u << static_cast<uint32_t>(options.Quality)));
 		if (!RenderSceneFromPrimaryCamera(scene, *m_Renderer, options))
 		{
 			// The cleared window shows until a camera becomes primary or the scene gets screen-space content.
@@ -389,6 +450,24 @@ namespace Strada
 		}
 		Application::Get().SetExitCode(static_cast<int>(std::min<uint32_t>(failures, MaxTestExitCode)));
 		Application::Get().Close();
+	}
+
+	void RuntimeLayer::ReportProfiledQuality() const
+	{
+		if (!Profiler::GetStatus().Recording || m_RenderedQualities == 0)
+		{
+			return;
+		}
+		std::string others;
+		for (auto const& [preset, name] : EnumTraits<QualityPreset>::Values)
+		{
+			if (preset != m_LastQuality && (m_RenderedQualities & (1u << static_cast<uint32_t>(preset))) != 0)
+			{
+				others += fmt::format("{}{}", others.empty() ? "" : ", ", name);
+			}
+		}
+		ST_INFO("Profile quality: {}{}", EnumToString(m_LastQuality),
+		        others.empty() ? std::string() : fmt::format(" (the run also rendered at {})", others));
 	}
 
 	std::string RuntimeLayer::DescribePhysicsState() const

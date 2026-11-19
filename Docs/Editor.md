@@ -1289,6 +1289,8 @@ File > Build Game... (with a project open) exports the game for the platform the
 - Output: the folder to export to (the project's `Build` folder at first; relative paths are relative to the project
   folder) with Browse.... It must be new, empty, or an earlier export, which the new one replaces.
 - Run a smoke test (on by default): runs the exported game headless for a few frames and checks that it exits cleanly.
+  It is a check, not a player's run: the game keeps its saves and settings in a temporary folder removed when it exits,
+  never in its own data folder on your machine.
 
 Build exports the game from the saved files, so save the scene first; the dialog warns when the scene has unsaved
 changes. Build is disabled while playing. During the export a progress bar shows the current step, with Cancel Export,
@@ -1296,7 +1298,8 @@ and the menu bar shows "Exporting: ...". A failed or cancelled export, or script
 export untouched.
 
 When the export succeeds, the dialog shows how long it took, the number of files and their size, the executable's path
-and the smoke test's result, with Open Folder and Run Game (Stop Game while it runs). When it fails, it says why and
+and the smoke test's result, with Open Folder and Run Game (Stop Game while it runs). Run Game runs the game as a player
+would, in its own data folder, so the saves and settings you see there are a player's. When it fails, it says why and
 lists up to eight script errors (the console has them all). Close or Escape closes the dialog.
 
 ### What the export contains
@@ -1329,13 +1332,17 @@ so as soon as its `Game.sgame` names the game, also when other settings in the f
 says why. Only a game whose `Game.sgame` is missing, or so damaged that its name or identity cannot be read, logs in the
 engine's user data folder instead, where it says why it cannot start. The bindings a player changes while the game runs
 (`Input.Rebind`, `Input.StartRebind`; see [Scripting](Scripting.md#input-actions)) are kept in
-`Input/<the actions asset's file name>.json` there and read when the game's actions load.
+`Input/<the actions asset's file name>.json` there and read when the game's actions load. The player's settings (its
+window, graphics quality and volumes, and the game's own options) are kept in `Settings.json` there: the window opens as
+the player left it, and the quality applies to the game's view (the editor's Game View while you play; never the Scene
+View).
 
 While you work on the game it never touches that folder: playing in the editor and `StradaRuntime --project` give the
 game the project's `.strada/PlayData` folder (left out of version control and of project copies), and test runs
 ([`test.run`](#test-runs), the player's `--test`) a temporary folder that is removed when the run ends. The editor and
 the player of a build keep logging in the engine's user data folder. The smoke test runs the exported game itself, so
-it logs in the game's folder.
+it logs in the game's folder, but it keeps its data in a temporary folder (the player's `--temporary-data`) that is
+removed when it exits; Run Game uses the game's own folder.
 
 ### Platform notes
 

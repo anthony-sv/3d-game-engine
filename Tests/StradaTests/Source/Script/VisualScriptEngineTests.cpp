@@ -61,6 +61,7 @@ namespace
 		void ReportTestResult(ScriptTestResult const& result) override { Results.push_back(result); }
 		void FinishTests() override {}
 		void OnScriptException() override { Exceptions++; }
+		void RequestWindowSettings(PlayerWindowSettings const&) override {}
 
 		std::vector<ScriptTestResult> Results;
 		uint32_t Exceptions = 0;

@@ -321,6 +321,7 @@ namespace
 		void ReportTestResult(ScriptTestResult const&) override {}
 		void FinishTests() override { Finishes++; }
 		void OnScriptException() override {}
+		void RequestWindowSettings(PlayerWindowSettings const&) override {}
 
 		uint32_t SceneLoads = 0;
 		uint32_t Quits = 0;

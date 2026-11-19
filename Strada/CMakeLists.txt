@@ -182,6 +182,8 @@ set(STRADA_PROJECT_SOURCES
     Source/Strada/Project/ExampleCatalog.h
     Source/Strada/Project/GameExporter.cpp
     Source/Strada/Project/GameExporter.h
+    Source/Strada/Project/PlayerWindow.cpp
+    Source/Strada/Project/PlayerWindow.h
     Source/Strada/Project/Project.cpp
     Source/Strada/Project/Project.h
     Source/Strada/Project/ProjectCopy.cpp

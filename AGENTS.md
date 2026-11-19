@@ -29,7 +29,7 @@ before changing anything structural; it is the architectural contract.
 | `Tests/TestScripts/` | C# game scripts the scripting tests run |
 | `Tests/ScriptCoreTests/` | C# unit tests of the scripting API (xUnit v3) |
 | `Tests/StradaToolTests/` | Tests of `strada`: command line, MCP server, sessions with the headless editor (xUnit v3) |
-| `Tests/Data/` | Test data: renderer golden images (`Golden/`), the curve evaluators' differential cases (`Curves/`), data asset documents (`DataAssets/`), scene and prefab version fixtures (`Scenes/`, `Prefabs/`), save slot version fixtures (`Saves/`), visual-script documents and fixtures (`VisualScripting/`), a fake engine content tree (`FrontDoor/`) |
+| `Tests/Data/` | Test data: renderer golden images (`Golden/`), the curve evaluators' differential cases (`Curves/`), data asset documents (`DataAssets/`), scene and prefab version fixtures (`Scenes/`, `Prefabs/`), save slot version fixtures (`Saves/`), the player's settings version fixtures (`PlayerSettings/`), visual-script documents and fixtures (`VisualScripting/`), a fake engine content tree (`FrontDoor/`) |
 | `Projects/FeatureTest/` | Project exercising every component and the entire scripting API, with graphs of every built-in node kind and every `[VisualNode]` member of its scripts |
 | `Projects/Blocks/` | Sample game (falling blocks) made through the agent tools, with a test scene |
 | `Projects/PrismBreak/` | A game made of visual scripts alone (a neon brick breaker), built by `Tools/Author.py` through the agent tools; its test scene's checks are graphs too |

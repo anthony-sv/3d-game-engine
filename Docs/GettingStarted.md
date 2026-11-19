@@ -242,6 +242,7 @@ them. Prism Break has no C# scripts and runs at once.
 | `--timestep <seconds>` | Advance the game by this time each frame (default: the frame's real time; 1/60 in tests) |
 | `--hash-step <count>` | End the test summary with the physics state hash after this fixed step instead of the last one, so runs at different time steps compare (only with `--test`). Steps are counted in the scene the run ends in: loading another scene starts the count again |
 | `--headless` | Run without a window, rendering or sound |
+| `--temporary-data` | Keep the game's saves and settings in a new folder removed at exit, not in the game's own data folder (or a project's `.strada/PlayData`), so the run reads none of a player's and leaves none: the editor's smoke test runs exported games so. Test runs always do |
 | `--frames <count>` | Exit after this many frames |
 | `--screenshot <path>` | Save a PNG of the window, in the first frame drawn at or after the last one with `--frames` (otherwise frame 60): a minimized window draws no frame, and a run that saves no screenshot ends with an error line and exit code 1 |
 | `--audio-capture <path>` | Record the game's sound into this WAV file (16-bit PCM, 48 kHz stereo) instead of playing it: after each frame's update the player mixes the sound that frame's time covers, so a run with `--timestep` and `--frames` writes the same bytes every time (600 frames of `--timestep 0.0166667` hold 10 seconds). Works with `--headless` and `--test`; a file that cannot be written ends the run with an error line and exit code 1 |
@@ -250,6 +251,12 @@ them. Prism Break has no C# scripts and runs at once.
 | `--gpu <index>` | Use the GPU with this adapter index |
 | `--validation`, `--no-validation` | Enable or disable Vulkan and NVRHI validation |
 | `--no-vsync` | Present without waiting for vertical sync |
+
+The window opens as the game's window settings say, under the player's own settings (`Settings.json` in the game's
+data folder, which the game's settings screen writes: windowed or fullscreen, the size, vsync); `--resolution` and
+`--no-vsync` win over both. A run with `--profile` logs the graphics quality its frames were drawn at
+(`Profile quality: High`) beside its medians, so measure with `--temporary-data` or a fresh copy of the project to
+measure at the game's defaults.
 
 A windowed run plays its sounds through the machine's playback device unless the environment variable
 `STRADA_AUDIO_OUTPUT` is `null` (the null device, which mixes but plays nothing: what a capture or a session started by a
@@ -571,10 +578,12 @@ Choose File > Open Scene... (Ctrl+O) and open `Scenes/Main.sscene` to go back to
 3. Under **Game**, check the game's **Name**, **Start Scene** and **Window** settings; changes are saved to the project.
 4. Under **Output**, choose the directory: a new or empty directory, or an earlier export, which the new one replaces.
    The default is the project's `Build` folder. **Run a smoke test** runs the exported game headless for a few frames
-   and checks that it exits cleanly.
+   and checks that it exits cleanly; it keeps the game's saves and settings in a temporary folder that is removed
+   afterwards.
 5. Click **Build**. The editor builds the C# scripts in Release and writes the game. The result shows the time, the
-   files and the size, and **Open Folder** and **Run Game** buttons. Scripts that do not compile stop the export and
-   leave an earlier export as it was.
+   files and the size, and **Open Folder** and **Run Game** buttons. **Run Game** runs the game as a player would, with
+   the saves and settings in its own data folder. Scripts that do not compile stop the export and leave an earlier
+   export as it was.
 
 The exported folder holds:
 

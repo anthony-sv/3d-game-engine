@@ -150,8 +150,8 @@ namespace Strada
 			return text.substr(offset, end - offset);
 		}
 
-		// The version a header object's text names when its Type is the slot's, brought within 0 and INT_MAX.
-		std::optional<int> ReadHeaderVersion(std::string_view header)
+		// The version a header object's text names when its Type is `documentType`, brought within 0 and INT_MAX.
+		std::optional<int> ReadHeaderVersion(std::string_view header, std::string_view documentType)
 		{
 			Result<Json> const parsed = ParseJson(header);
 			if (!parsed || !parsed.GetValue().is_object())
@@ -160,7 +160,7 @@ namespace Strada
 			}
 			Json const& value = parsed.GetValue();
 			auto const type = value.find("Type");
-			if (type == value.end() || !type->is_string() || type->get_ref<std::string const&>() != SaveSlotFormat.Type)
+			if (type == value.end() || !type->is_string() || type->get_ref<std::string const&>() != documentType)
 			{
 				return std::nullopt;
 			}
@@ -408,7 +408,7 @@ namespace Strada
 			}
 			if (std::optional<std::string_view> const header = FindLeadingHeader(prefix.GetValue()))
 			{
-				return ReadHeaderVersion(*header);
+				return ReadHeaderVersion(*header, SaveSlotFormat.Type);
 			}
 			if (*size <= MaxSaveSlotHeaderBytes || *size > MaxSaveSlotBytes)
 			{
@@ -514,11 +514,11 @@ namespace Strada
 		return {};
 	}
 
-	std::optional<int> ReadSaveSlotVersion(std::string_view text)
+	std::optional<int> ReadDocumentHeaderVersion(std::string_view text, std::string_view type)
 	{
 		if (std::optional<std::string_view> const header = FindLeadingHeader(text))
 		{
-			return ReadHeaderVersion(*header);
+			return ReadHeaderVersion(*header, type);
 		}
 		std::optional<std::vector<JsonScanMember>> const members = ScanJsonTopLevel(text);
 		if (!members)
@@ -534,7 +534,12 @@ namespace Strada
 		{
 			return std::nullopt;
 		}
-		return ReadHeaderVersion(text.substr(last->Value.first, last->Value.second));
+		return ReadHeaderVersion(text.substr(last->Value.first, last->Value.second), type);
+	}
+
+	std::optional<int> ReadSaveSlotVersion(std::string_view text)
+	{
+		return ReadDocumentHeaderVersion(text, SaveSlotFormat.Type);
 	}
 
 	SaveSlotRead ReadSaveSlotText(std::string_view text)

@@ -8,6 +8,7 @@
 #include "Strada/Project/Project.h"
 #include "Strada/Renderer/Renderer.h"
 #include "Strada/Scene/SceneRendering.h"
+#include "Strada/Script/PlayerSettings.h"
 
 #include <imgui.h>
 #include <imgui_internal.h>
@@ -136,6 +137,14 @@ namespace Strada
 		return !gameViewVisible && previewWanted;
 	}
 
+	SceneRenderOptions MakeGameViewRenderOptions(float displayScale)
+	{
+		SceneRenderOptions options;
+		options.DisplayScale = displayScale;
+		options.Quality = PlayerSettingsStore::Get().Quality;
+		return options;
+	}
+
 	GameViewPanel::GameViewPanel(GameInputRouter& input, GameViewRenderFunction render)
 		: m_Input(input),
 		  m_Render(std::move(render))
@@ -254,10 +263,7 @@ namespace Strada
 		{
 			m_RenderCount++;
 			m_Renderer->SetViewportSize(size.x, size.y);
-			// The lines scripts draw are as wide as on the player's display at the editor's scale.
-			SceneRenderOptions options;
-			options.DisplayScale = ImGui::GetStyle().FontScaleDpi;
-			if (RenderSceneFromPrimaryCamera(scene, *m_Renderer, options))
+			if (RenderSceneFromPrimaryCamera(scene, *m_Renderer, MakeGameViewRenderOptions(ImGui::GetStyle().FontScaleDpi)))
 			{
 				texture = ImGuiRenderer::GetTextureID(m_Renderer->GetFinalImage());
 			}

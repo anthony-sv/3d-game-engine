@@ -168,13 +168,16 @@ namespace Strada
 		std::vector<std::string> Warnings;
 	};
 
-	// The version a slot document's header names, read from the header alone, so that a document of a later version is
-	// recognised whatever its content holds: the text's first top-level member when it is "Strada" (writers write it
-	// first; it is delimited by walking strings and brackets, so the text may end anywhere after it, as the first
-	// MaxSaveSlotHeaderBytes of a larger file do), else the last "Strada" member that ScanJsonTopLevel
+	// The version a versioned document's header names when its Type is `type`, read from the header alone, so that a
+	// document of a later version is recognised whatever its content holds: the text's first top-level member when it is
+	// "Strada" (writers write it first; it is delimited by walking strings and brackets, so the text may end anywhere after
+	// it, as the first MaxSaveSlotHeaderBytes of a larger file do), else the last "Strada" member that ScanJsonTopLevel
 	// (Serialization/JsonScanner.h) delimits in the whole text (the parser keeps the last of repeated keys); only that
-	// member is parsed. A version above INT_MAX reads as INT_MAX, one below 1 as 0. Nothing when neither finds a SaveSlot
-	// header with an integer version. Any thread.
+	// member is parsed. A version above INT_MAX reads as INT_MAX, one below 1 as 0. Nothing when neither finds a header of
+	// that type with an integer version. Save slots and the player's settings (Script/PlayerSettings.h) read theirs so. Any
+	// thread.
+	[[nodiscard]] std::optional<int> ReadDocumentHeaderVersion(std::string_view text, std::string_view type);
+	// ReadDocumentHeaderVersion of a slot document (SaveSlotFormat.Type).
 	[[nodiscard]] std::optional<int> ReadSaveSlotVersion(std::string_view text);
 	// Reads a slot document's text: Present with its values; Newer when ReadSaveSlotVersion names a version above
 	// SaveSlotFormat.Version (the header is read before anything else, size included, so a newer slot is never called

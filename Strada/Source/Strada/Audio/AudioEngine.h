@@ -159,8 +159,28 @@ namespace Strada
 		static bool IsBusMuted(std::string_view bus);
 		static void SetBusMuted(std::string_view bus, bool muted);
 		// The master volume back to 1, every bus's game value back to 0 dB, not muted, and the mix back to the mixer's own
-		// values (no snapshot), each over an edit's ramp: what a game starts and ends with (SceneRunner calls it).
+		// values (no snapshot), each over an edit's ramp: what a game starts and ends with (SceneRunner calls it). The
+		// player's stage below stays as it is.
 		static void ResetGameValues();
+
+		// The player's stage of the mix (§9.5; Docs/Architecture.md §13.1, "The player's settings"): a master volume and each
+		// bus's volume and mute as the player's settings set them (PlayerSettingsStore), kept by bus name beside the game's
+		// values above and combined with them here, on the main thread: a bus's node gets the sum of the two volumes in
+		// decibels (silence when either, or the sum, is at MinMixerVolumeDb or below, as any bus volume there is) and either
+		// mute, the mix's master the product of the two master volumes, each over an edit's ramp. The game's getters answer
+		// the game's stage alone and these the player's alone, so neither setter overwrites the other. The player's value of a
+		// bus the mixer lacks is kept by name and applies once a bus of that name exists (the name is logged once per mixer).
+		// Volumes outside their ranges are brought within them (a master volume below 0 is 0); NaN changes nothing, and nor
+		// does an infinite master volume.
+		static float GetPlayerMasterVolume();
+		static void SetPlayerMasterVolume(float volume);
+		static float GetPlayerBusVolume(std::string_view bus);
+		static void SetPlayerBusVolume(std::string_view bus, float decibels);
+		static bool IsPlayerBusMuted(std::string_view bus);
+		static void SetPlayerBusMuted(std::string_view bus, bool muted);
+		// The player's stage back to unchanged: a master volume of 1, no bus set (PlayerSettingsStore::Clear calls it when a
+		// game stops).
+		static void ResetPlayerValues();
 		// Swaps every bus's effects for new ones of the same values, under the dip of a swap, so that no delay or reverb
 		// tail of a game rings on into editing or the next game (SceneRunner calls it when its game stops).
 		static void ClearEffectState();

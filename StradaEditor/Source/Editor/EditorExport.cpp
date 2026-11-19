@@ -128,7 +128,10 @@ namespace Strada
 										  progress("Testing the game");
 										  ProcessSpecification run;
 										  run.Executable = GetPlayerBinary(worker.Export.GetValue().Executable);
-										  run.Arguments = {"--headless", "--frames", std::to_string(std::max(options.SmokeTestFrames, 1u))};
+										  // A check, not a player's run: the game keeps its saves and settings in a temporary
+					                      // folder removed at exit, never in its own folder on this machine (Run Game uses that).
+										  run.Arguments = {"--headless", "--temporary-data", "--frames",
+					                                       std::to_string(std::max(options.SmokeTestFrames, 1u))};
 										  run.WorkingDirectory = settings.OutputDirectory;
 										  run.Environment = environment;
 										  run.Timeout = std::chrono::minutes(2);

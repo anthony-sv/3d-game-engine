@@ -8,7 +8,9 @@
 #include "Strada/Core/Log.h"
 #include "Strada/Core/Profiler.h"
 #include "Strada/Core/Window.h"
+#include "Strada/Project/PlayerWindow.h"
 #include "Strada/Project/ScriptProject.h"
+#include "Strada/Script/PlayerSettings.h"
 #include "Strada/Script/ScriptEngine.h"
 #include "Strada/Script/VisualScriptEngine.h"
 #include "Strada/Serialization/ProfilerCaptureSerializer.h"
@@ -40,8 +42,52 @@ namespace Strada
 			// The framebuffer's size in pixels the window gets before the game starts (--resolution), whatever the display's
 			// scale; none keeps the size the game's window settings give.
 			std::optional<glm::uvec2> Resolution;
+			// A run that is no test with a game data folder of its own that starts empty and is removed at exit
+			// (--temporary-data: the editor's export check).
+			bool TemporaryData = false;
 			RuntimeLayerSpecification Layer;
 		};
+
+		// The folder a run keeps its game data in when it is neither a test run nor a --temporary-data run (Docs/Architecture.md
+		// §13.1): an exported game's own folder below this user's root, named by its identity, or a project's play data. The
+		// player reads the player's settings there before its window opens, and gives the game the same folder.
+		std::filesystem::path GetKeptGameDataDirectory(bool exportedGame, GameIdentity const& identity,
+		                                               std::filesystem::path const& projectDirectory)
+		{
+			return exportedGame ? GameData::GetUserDirectory(identity)
+			                    : (projectDirectory / FileSystem::PathFromUtf8(Project::PlayDataDirectory)).lexically_normal();
+		}
+
+		// The player's settings the window opens with: the game's window settings, under what the game data folder's
+		// Settings.json holds (read before the engine starts, creating nothing; a file that does not read leaves the game's
+		// settings, and the game logs why when it starts). A run whose folder is new reads none.
+		PlayerSettings ReadOpeningPlayerSettings(std::filesystem::path const& gameFile, ProjectFileKind kind,
+		                                         ProjectWindowSettings const& window, bool keepsData)
+		{
+			PlayerSettings defaults = MakePlayerSettingsDefaults(window);
+			if (!keepsData)
+			{
+				return defaults;
+			}
+			Result<GameIdentity> const identity = Project::ReadGameIdentity(gameFile, kind);
+			if (!identity)
+			{
+				return defaults;
+			}
+			std::error_code absoluteError;
+			std::filesystem::path const file = std::filesystem::absolute(gameFile, absoluteError);
+			if (absoluteError)
+			{
+				return defaults;
+			}
+			std::filesystem::path const folder =
+				GetKeptGameDataDirectory(kind == ProjectFileKind::Game, identity.GetValue(), file.parent_path());
+			if (folder.empty())
+			{
+				return defaults;
+			}
+			return ReadPlayerSettingsFile(folder / FileSystem::PathFromUtf8(PlayerSettingsFileName), defaults).Settings;
+		}
 
 		// The figures plan targets are read from: the frame, each subsystem, each thread, each GPU pass, each renderer's
 		// counts and each zone name.
@@ -158,21 +204,20 @@ namespace Strada
 		}
 
 	private:
-		// Before the game starts: a test run gets a folder of its own that starts empty and is removed at exit, a project
-		// (a development run) the project's play data, and an exported game its own folder on the player's machine.
+		// Before the game starts: a test run and a --temporary-data run get a folder of their own that starts empty and is
+		// removed at exit, a project (a development run) the project's play data, and an exported game its own folder on the
+		// player's machine.
 		void FillGameData(Project const& game)
 		{
-			if (m_RuntimeSpecification.Layer.Test)
+			bool const test = m_RuntimeSpecification.Layer.Test;
+			if (test || m_RuntimeSpecification.TemporaryData)
 			{
 				m_GameData.emplace(GameData::MakeTemporaryDirectory(), GameDataLifetime::Temporary);
 			}
-			else if (game.IsGame())
-			{
-				m_GameData.emplace(GameData::GetUserDirectory(GetGameIdentity(game.GetSettings())), GameDataLifetime::Kept);
-			}
 			else
 			{
-				m_GameData.emplace(game.GetPlayDataDirectory(), GameDataLifetime::Kept);
+				m_GameData.emplace(GetKeptGameDataDirectory(game.IsGame(), GetGameIdentity(game.GetSettings()), game.GetDirectory()),
+				                   GameDataLifetime::Kept);
 			}
 			if (m_GameData->GetDirectory().empty())
 			{
@@ -180,8 +225,10 @@ namespace Strada
 				return;
 			}
 			// The lifetime is read back from the service, so the line says what happens at exit.
-			ST_INFO("The game keeps its data in '{}'{}", FileSystem::PathToUtf8(m_GameData->GetDirectory()),
-			        GameData::IsTemporary() ? ", a test run's folder removed at exit" : "");
+			std::string_view const removed = !GameData::IsTemporary() ? ""
+			                                 : test                   ? ", a test run's folder removed at exit"
+			                                                          : ", a temporary folder removed at exit";
+			ST_INFO("The game keeps its data in '{}'{}", FileSystem::PathToUtf8(m_GameData->GetDirectory()), removed);
 		}
 
 		// Games without C# scripts or visual scripts run without .NET; visual scripts need no game assembly.
@@ -266,6 +313,9 @@ namespace Strada
 			.AddOption("hash-step", "count",
 		               "End the test summary with the physics state hash after this fixed step (default: after the last one)")
 			.AddFlag("headless", "Run without a window, rendering or sound")
+			.AddFlag("temporary-data",
+		             "Keep the game's saves and settings in a new folder removed at exit, not in its own (a check of the game, "
+		             "such as the editor's export test)")
 			.AddOption("frames", "count", "Exit after the given number of frames")
 			.AddOption("screenshot", "path",
 		               "Save a PNG of the window in the first frame drawn at or after the last one with --frames, otherwise frame 60; "
@@ -403,6 +453,7 @@ namespace Strada
 		}
 		runtime.ProfilePath = std::move(profile);
 		runtime.Resolution = resolution;
+		runtime.TemporaryData = arguments.HasFlag("temporary-data");
 
 		// The window comes from the game, and opens before the engine starts.
 		Result<ProjectWindowSettings> window = Project::ReadWindowSettings(runtime.GameFile, runtime.GameKind);
@@ -414,20 +465,29 @@ namespace Strada
 			exitCode = 1;
 			return nullptr;
 		}
+		// Over the game's window, the player's settings as the player left them (a run without a window keeps them without
+		// applying them), under the command line: a drawing area of a size the run names is a window's, also for a game
+		// that runs fullscreen, and --no-vsync keeps vsync off.
+		PlayerWindowOverrides overrides;
+		overrides.KeepSize = resolution.has_value();
+		overrides.NoVSync = arguments.HasFlag("no-vsync");
+		PlayerSettings const player =
+			ReadOpeningPlayerSettings(runtime.GameFile, runtime.GameKind, window.GetValue(), !headless && !runtime.TemporaryData);
+		PlayerWindowState const opening = ResolvePlayerWindow(player.Window, overrides);
 
 		ApplicationSpecification specification;
 		specification.Name = window.GetValue().Title;
 		specification.CommandLineArgs = args;
 		specification.Window.Title = window.GetValue().Title;
-		specification.Window.Width = window.GetValue().Width;
-		specification.Window.Height = window.GetValue().Height;
-		// A drawing area of a size the run names is a window's, also for a game that runs fullscreen.
-		specification.Window.Fullscreen = window.GetValue().Fullscreen && !resolution;
+		specification.Window.Width = opening.Size ? opening.Size->x : window.GetValue().Width;
+		specification.Window.Height = opening.Size ? opening.Size->y : window.GetValue().Height;
+		specification.Window.Fullscreen = opening.Fullscreen;
 		specification.Window.Resizable = window.GetValue().Resizable;
-		specification.Window.VSync = window.GetValue().VSync && !arguments.HasFlag("no-vsync");
+		specification.Window.VSync = opening.VSync;
 		// Scripting starts once the game's C# scripts or visual scripts are found (StartScripts).
 		specification.EnableScripting = false;
 		runtime.Layer.Resolution = resolution;
+		runtime.Layer.NoVSync = overrides.NoVSync;
 		runtime.Layer.ViewportWidth = resolution ? resolution->x : window.GetValue().Width;
 		runtime.Layer.ViewportHeight = resolution ? resolution->y : window.GetValue().Height;
 		if (!audioCapture.empty())

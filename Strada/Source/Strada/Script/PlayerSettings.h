@@ -26,21 +26,22 @@
 //
 // When each applies:
 // - the window and vsync: by the player before its window opens, over the game's window settings, and when a script
-//   changes them, once the frame's update has returned (ScriptHost::RequestWindowSettings, below). The player's command
-//   line wins over both (--resolution keeps a window of that size, --no-vsync keeps vsync off), and a run without a window
+//   changes them, once the frame's update has returned (PlayerSettingsStore::SetWindow asks ScriptHost::
+//   RequestWindowSettings, which SceneRunner hands to SceneRunnerSettings::ApplyWindow). The player's command line wins
+//   over both (--resolution keeps a window of that size, --no-vsync keeps vsync off), and a run without a window
 //   (--headless, --test) keeps the values without applying them. The editor's play mode keeps them and never applies them
-//   to the editor's window. One pure function of the Project module (SV-3: ResolvePlayerWindow, over the game's
-//   WindowSpecification, these settings and the player's command line) gives the window the player opens and each window
-//   a script asks for, so the precedence is tested without a window;
+//   to the editor's window. One pure function of the Project module (ResolvePlayerWindow, Project/PlayerWindow.h, over
+//   these settings, whose defaults are the game's window settings, and the player's command line) gives the window the
+//   player opens and each window a script asks for, so the precedence is tested without a window;
 // - the quality: in every frame of the game's views (SceneRenderOptions::Quality, Renderer/QualityPresets.h);
 // - the volumes and mutes: the player's stage of the mix (Docs/Architecture.md §9.5), which AudioEngine keeps by bus name
 //   beside the game's values (the stage Strada.Audio's MasterVolume, SetBusVolume and SetBusMuted set) and combines with
-//   them on the main thread (SV-3: AudioEngine::SetPlayerMasterVolume, SetPlayerBusVolume, SetPlayerBusMuted and
+//   them on the main thread (AudioEngine::SetPlayerMasterVolume, SetPlayerBusVolume, SetPlayerBusMuted and
 //   ResetPlayerValues, with getters of their own): a bus's node gets the sum of the two volumes in decibels and either
 //   mute, the master the product of the two volumes, through the commands the game's values already use, so the mixing
 //   thread is unchanged. Settings' members write and read the player's stage only, Strada.Audio's the game's only, so
 //   neither overwrites the other. AudioEngine::ResetGameValues resets the game's stage; ApplyAudio sets the player's at a
-//   game's start, after the reset and the project's mixer, and at once when a script sets a volume; Clear resets it.
+//   game's start, after the reset and the project's mixer, and the setters at once; Clear resets it.
 //
 // SceneRunner::Start calls Load whatever SceneRuntimeSettings::PlayAudio and the audio engine's state (a headless run,
 // Simulate and a test run read the settings as a player's run does), and only ApplyAudio sits inside its audio branch;
@@ -73,12 +74,12 @@
 // Settings_IsBusMuted/SetBusMuted (a bus name as char const* and int32_t length), Settings_GetValue(char const* name,
 // int32_t length, int32_t* textLength) -> char const* (one value's { "Type", "Value" } JSON, null when none),
 // Settings_SetValue(name, length, char const* value, int32_t valueLength) -> uint8_t, Settings_RemoveValue(name, length)
-// -> uint8_t and Settings_Save() -> uint8_t. Settings_SetWindow then asks the application to apply the window through
-// ScriptEngine::GetHost(): ScriptHost gains `virtual void RequestWindowSettings(PlayerWindowSettings const& window) = 0;`
-// ("acted on once the scene's update has returned", as RequestSceneLoad is). SceneRunner records it and applies it in
-// ApplyRequests through SceneRunnerSettings::ApplyWindow (a std::function the player sets to resize, make fullscreen and
-// set vsync on its window, minding its command line; the editor sets none, so play mode keeps the values unapplied).
-// Without a host the request is logged and ignored. No member exposes a path.
+// -> uint8_t and Settings_Save() -> uint8_t. Settings_SetWindow calls PlayerSettingsStore::SetWindow, which asks the
+// application to apply the window through ScriptEngine::GetHost() (ScriptHost::RequestWindowSettings, acted on once the
+// scene's update has returned, as RequestSceneLoad is). SceneRunner records it and applies it in ApplyRequests through
+// SceneRunnerSettings::ApplyWindow (a std::function the player sets to resize, make fullscreen and set vsync on its
+// window, minding its command line; the editor sets none, so play mode keeps the values unapplied). Without a host the
+// settings change and nothing applies them. No member exposes a path.
 namespace Strada
 {
 	enum class PlayerWindowMode : uint8_t
@@ -230,11 +231,15 @@ namespace Strada
 		std::vector<std::string> Warnings;
 	};
 
-	// Reads a settings document's text over the defaults, with SaveSlotRead's rules for Present, Newer and Damaged (a text
-	// larger than MaxPlayerSettingsBytes is Damaged). Any thread.
+	// Reads a settings document's text over the defaults (a field the content lacks keeps the default), with SaveSlotRead's
+	// rules for Present, Newer and Damaged: the header is read first (ReadDocumentHeaderVersion), so a later version's is
+	// Newer whatever follows it; otherwise a text larger than MaxPlayerSettingsBytes, one that is not JSON, of another
+	// type or version, or whose content does not read or ValidatePlayerSettings refuses, is Damaged. Unknown fields are
+	// skipped with warnings. Any thread.
 	[[nodiscard]] PlayerSettingsRead ReadPlayerSettingsText(std::string_view text, PlayerSettings const& defaults);
-	// Reads a settings file: Missing (the defaults) when there is none, else ReadPlayerSettingsText of it. Any thread: the
-	// player reads it this way before its window opens, from the folder it is about to give the GameData service.
+	// Reads a settings file: Missing (the defaults) when there is none, Damaged without reading it when it is no file, or
+	// larger than MaxPlayerSettingsBytes, or cannot be read, else ReadPlayerSettingsText of it. Creates nothing. Any thread:
+	// the player reads it this way before its window opens, from the folder it is about to give the GameData service.
 	[[nodiscard]] PlayerSettingsRead ReadPlayerSettingsFile(std::filesystem::path const& file, PlayerSettings const& defaults);
 	// The document of the settings in the current version. Any thread.
 	[[nodiscard]] Json WritePlayerSettings(PlayerSettings const& settings);
@@ -248,11 +253,12 @@ namespace Strada
 	{
 	public:
 		// Reads <game data>/Settings.json over the defaults (the game's window settings, PlayerSettings' own defaults for the
-		// rest): Unavailable without a game data folder. Logs a Damaged or Newer file once, and the warnings. Replaces what
-		// was loaded.
+		// rest): Unavailable without a game data folder, which reads nothing and logs nothing. With one, logs a Damaged or
+		// Newer file once, the warnings, and once what applies and whence. Replaces what was loaded; applies nothing to the
+		// mix (ApplyAudio does).
 		static void Load(PlayerSettings const& defaults);
-		// Back to PlayerSettings{} and Unavailable, and the player's stage of the mix back to unchanged when the audio engine
-		// runs; writes nothing.
+		// Back to PlayerSettings{} and Unavailable, and the player's stage of the mix back to unchanged when ApplyAudio had
+		// applied it; writes nothing.
 		static void Clear();
 
 		static PlayerSettings const& Get();
@@ -260,8 +266,11 @@ namespace Strada
 		// Moves with every change (a load, a clear, a setter that changed something), for hosts that apply what changed.
 		static uint64_t GetVersion();
 
-		// The window: sizes are brought within MinPlayerWindowSize and MaxPlayerWindowSize. Applying it is the host's.
+		// The window: sizes are brought within MinPlayerWindowSize and MaxPlayerWindowSize, a mode outside the enum is
+		// Windowed. A change asks the running game's host to apply it after the frame (ScriptHost::RequestWindowSettings);
+		// applying it is the host's.
 		static void SetWindow(PlayerWindowSettings const& window);
+		// A preset outside the enum changes nothing.
 		static void SetQuality(QualityPreset quality);
 		// Brought within 0 and MaxPlayerMasterVolume (NaN keeps the volume); applied to the mix at once.
 		static void SetMasterVolume(float volume);
@@ -284,8 +293,9 @@ namespace Strada
 
 		// Applies the master volume and every bus's setting as the player's stage of the mix (AudioEngine's player values,
 		// apart from the game's): SceneRunner calls it at a game's start, after AudioEngine::ResetGameValues and the
-		// project's mixer, when the game plays audio and the engine is initialized; the setters apply their value the same
-		// way at once.
+		// project's mixer, when the game plays audio and the engine is initialized. From then until Clear or the next Load
+		// the volume setters apply their value the same way at once; before it (a game without sound, Simulate) they change
+		// the settings alone.
 		static void ApplyAudio();
 		// Writes Settings.json durably (FileSystem::WriteTextFileDurably), whatever was on disk (a newer or damaged file
 		// included); the status is Present after it. Refuses without a game data folder. Opens the profiler zone

@@ -9,6 +9,7 @@
 #include "Strada/Core/Result.h"
 #include "Strada/Project/Project.h"
 #include "Strada/Project/SceneRunner.h"
+#include "Strada/Renderer/QualityPresets.h"
 #include "Strada/Renderer/SceneRenderer.h"
 #include "Strada/Renderer/TextureBlitter.h"
 
@@ -38,8 +39,11 @@ namespace Strada
 		std::filesystem::path ScreenshotPath;
 		uint64_t ScreenshotFrame = 0;
 		// The drawing area's size in pixels the window was given (--resolution); a run whose window cannot have it exits
-		// with an error (ResolutionRequest). None for a window of the game's own size.
+		// with an error (ResolutionRequest). None for a window of the game's own size. A window a script asks for later keeps
+		// this size (PlayerWindowOverrides::KeepSize).
 		std::optional<glm::uvec2> Resolution;
+		// --no-vsync: the window presents without waiting, whatever the player's settings say.
+		bool NoVSync = false;
 		// Records the mix into this WAV file of 16-bit PCM (empty: none). The application mixes through manual output
 		// (ApplicationSpecification::ManualAudio): after each frame's update the layer reads the frames of audio that frame's
 		// time covers (AudioCaptureClock). A run whose capture cannot be made or written exits with an error.
@@ -90,6 +94,9 @@ namespace Strada
 		void FinishTestRun();
 		// The end of the test summary: the running scene's physics state hash and the fixed step it was taken after.
 		std::string DescribePhysicsState() const;
+		// A profiled run (--profile) says at which quality preset its frames were rendered, so that its medians say what they
+		// measured.
+		void ReportProfiledQuality() const;
 
 		RuntimeLayerSpecification m_Specification;
 		Ref<Project> m_Game;
@@ -109,5 +116,9 @@ namespace Strada
 		std::optional<AudioCaptureClock> m_AudioClock;
 		std::vector<float> m_AudioSamples;
 		bool m_AudioCaptureFailed = false;
+		// The quality presets the game's frames were rendered at (a bit per QualityPreset), which a profiled run logs beside
+		// its medians.
+		uint8_t m_RenderedQualities = 0;
+		QualityPreset m_LastQuality = QualityPreset::High;
 	};
 }

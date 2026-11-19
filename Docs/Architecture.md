@@ -978,11 +978,11 @@ camera's position (`PostProcessVolumes::Resolve`) before `BeginScene`, so the ed
 its game view and the player all show them; the scene's own settings never change.
 
 **Quality presets.** The player's graphics quality (§13.1, "The player's settings") is a `QualityPreset`
-(`Strada/Renderer/QualityPresets.h`) that `RenderScene` applies to the resolved settings (`ApplyQualityPreset`, after
-`PostProcessVolumes::Resolve` and before `BeginScene`, when the view draws the world) as its options ask
-(`SceneRenderOptions::Quality`): the player's layer and the editor's Game View set it from the player's settings while
-a game runs; the Scene View, thumbnails and tests leave it at High, the identity, so they render as before by
-construction. Presets are made of the settings that exist and only lower them, each a minimum with the resolved value or
+(`Strada/Renderer/QualityPresets.h`) that `RenderScene` applies to the resolved settings (`ResolveViewSettings`:
+`ApplyQualityPreset` after `PostProcessVolumes::Resolve` and before `BeginScene`, when the view draws the world) as its
+options ask (`SceneRenderOptions::Quality`): the player's layer and the editor's Game View (`MakeGameViewRenderOptions`)
+set it from the player's settings every frame, which hold High while no game runs; the Scene View, thumbnails and tests
+leave it at High, the identity, so they render as before by construction. Presets are made of the settings that exist and only lower them, each a minimum with the resolved value or
 a switch that can only turn off:
 
 | Setting | High | Medium | Low |
@@ -2004,8 +2004,10 @@ Player settings (`<game data>/Settings.json`; `PlayerSettings` in `Strada/Script
 `Medium` or `High`, `MasterVolume` linear from 0 to 1; `Buses` holds only the buses the player set, at most 32 (the
 mixer's limit), each named once ignoring letter case in 1 to 64 bytes, `VolumeDb` from -80 to 24; `Values` are the
 game's own named values with a slot's rules. A field the file lacks keeps the game's default (the project's window
-settings, High, 1, none). Newer and damaged are told apart as for a slot (a file larger than 1 MiB is damaged); either
-is logged once and read as the defaults, and the next save replaces it.
+settings, High, 1, none). Newer and damaged are told apart as for a slot, by the header first (a file larger than 1 MiB
+is damaged without being read); either is logged once and read as the defaults, and the next save replaces it. Its
+fixture is `Tests/Data/PlayerSettings/Version1.json`, and a `DocumentMutator` case damages it and written settings
+(`PlayerSettingsTests.cpp`): what reads validates, writes and reads back alike, and a later version's header is Newer.
 
 ```json
 {
@@ -4022,8 +4024,9 @@ they read alike on every display.
 
 The application running scenes implements `ScriptHost` and registers it with `ScriptEngine::SetHost`:
 `Application.IsEditor`, `Application.Quit`, `SceneManager.LoadScene` and the window settings of `Strada.Settings`
-(`RequestWindowSettings`; the three acted on once the frame's update has returned), `Strada.Testing.TestReporter`
-results and unhandled script exceptions go to it. Without a host, requests are logged and ignored.
+(`RequestWindowSettings`, which `PlayerSettingsStore::SetWindow` asks for a changed window; the three acted on once the
+frame's update has returned), `Strada.Testing.TestReporter` results and unhandled script exceptions go to it. Without a
+host, requests are logged and ignored, and a changed window stays in the settings unapplied.
 `Application.WindowWidth/Height` are the running scene's viewport size. `SceneRunner` (Project module) is that host for
 the editor's play mode and the game player: it starts a scene's runtime, replaces the scene after the frame on
 `SceneManager.LoadScene` (the old scene stops first; loads requested while it stops are dropped; a scene that cannot be

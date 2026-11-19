@@ -5,9 +5,12 @@
 #include "Strada/Core/Result.h"
 #include "Strada/Core/Timestep.h"
 #include "Strada/Scene/Scene.h"
+#include "Strada/Script/PlayerSettings.h"
 #include "Strada/Script/ScriptEngine.h"
 
 #include <cstdint>
+#include <functional>
+#include <optional>
 #include <vector>
 
 namespace Strada
@@ -34,6 +37,13 @@ namespace Strada
 		SceneRuntimeSettings Runtime;
 		// Application.IsEditor for the scripts.
 		bool IsEditor = false;
+		// The player's settings a game starts with where its game data folder holds none (MakePlayerSettingsDefaults,
+		// Project/PlayerWindow.h: the game's window, then PlayerSettings' own defaults).
+		PlayerSettings PlayerDefaults;
+		// Gives the application's window the player's window settings a game changed (ScriptHost::RequestWindowSettings),
+		// once the frame's update has returned. The player sets it; empty (the editor's play mode) keeps the settings without
+		// applying them to any window.
+		std::function<void(PlayerWindowSettings const&)> ApplyWindow;
 	};
 
 	// Runs scenes for the editor's play mode and the game player. It starts a scene's runtime and acts on what its scripts
@@ -43,8 +53,12 @@ namespace Strada
 	// (SceneRuntimeSettings::Mixer, Docs/Architecture.md §9.5): applied when the game starts and again in every update
 	// after its asset changed (an edit, paused or not; a debugger stop holds the updates, so an edit made then is applied
 	// when the game resumes), Master alone when none is named or it does not load; the game's
-	// bus values start and end at their defaults, and the effects' tails end with the game. Main thread only; one runner
-	// runs at a time.
+	// bus values start and end at their defaults, and the effects' tails end with the game. The player's settings
+	// (PlayerSettingsStore, Docs/Architecture.md §13.1) are loaded from the game data folder when a game starts, over
+	// SceneRunnerSettings::PlayerDefaults, whatever its sound (a headless run and Simulate read them too), their volumes
+	// applied after the game values are reset and the mixer applied when the game plays sound, and cleared when it stops; a
+	// scene load keeps them. A window a script asks for reaches SceneRunnerSettings::ApplyWindow after the frame. Main thread
+	// only; one runner runs at a time.
 	class SceneRunner final : public ScriptHost
 	{
 	public:
@@ -67,9 +81,10 @@ namespace Strada
 
 		// Advances the running scene by the time step, then acts on what its scripts asked for (ApplyRequests).
 		void Update(Timestep timestep);
-		// What Update does after the frame: loads the scene the scripts asked for, if any. A scene that cannot be loaded is
-		// logged and the current one keeps running. Owners call it after script code ran between frames (a debugger
-		// resuming a stopped execution), so a load it asked for comes as the frame that ran it would have brought it.
+		// What Update does after the frame: gives the window settings the scripts asked for to ApplyWindow (the last request
+		// of the frame, once), then loads the scene they asked for, if any. A scene that cannot be loaded is logged and the
+		// current one keeps running. Owners call it after script code ran between frames (a debugger resuming a stopped
+		// execution), so a request it made comes as the frame that ran it would have brought it.
 		void ApplyRequests();
 
 		// Application.Quit was called; the owner decides what quitting means (the editor stops playing).
@@ -84,6 +99,7 @@ namespace Strada
 		void ReportTestResult(ScriptTestResult const& result) override;
 		void FinishTests() override;
 		void OnScriptException() override;
+		void RequestWindowSettings(PlayerWindowSettings const& window) override;
 
 	private:
 		void LoadRequestedScene();
@@ -94,6 +110,7 @@ namespace Strada
 		Ref<Scene> m_Scene;
 		uint64_t m_SceneVersion = 0;
 		AssetHandle m_RequestedScene;
+		std::optional<PlayerWindowSettings> m_RequestedWindow;
 		bool m_QuitRequested = false;
 		TestRunReport m_TestReport;
 		// The project's mixer as last applied: the data asset registry's epoch it was compared at and the asset's version

@@ -7,6 +7,7 @@ add_executable(StradaRuntimeTests
     Source/RuntimeTestUtilities.h
     Source/RuntimeTests.cpp
     Source/SampleTests.cpp
+    Source/SaveGameTests.cpp
     Source/TemplateTests.cpp
 )
 
