@@ -2,6 +2,7 @@
 
 #include <bit>
 #include <cstdint>
+#include <span>
 #include <string_view>
 
 namespace Strada
@@ -57,8 +58,19 @@ namespace Strada
 			}
 		}
 
+		// By its two's complement bit pattern.
+		constexpr void AddInt32(int32_t value) { AddUInt32(static_cast<uint32_t>(value)); }
 		constexpr void AddFloat(float value) { AddUInt32(std::bit_cast<uint32_t>(value)); }
 		constexpr void AddBool(bool value) { m_Hash = Hash::FoldByte(m_Hash, value ? 1 : 0); }
+
+		// Each byte in order, as Hash::FNV1a folds a text's characters.
+		constexpr void AddBytes(std::span<uint8_t const> bytes)
+		{
+			for (uint8_t const byte : bytes)
+			{
+				m_Hash = Hash::FoldByte(m_Hash, byte);
+			}
+		}
 
 		constexpr uint64_t GetHash() const { return m_Hash; }
 

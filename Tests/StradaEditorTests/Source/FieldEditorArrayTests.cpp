@@ -22,6 +22,8 @@
 #include "Strada/Asset/Mixer.h"
 #include "Strada/Asset/MixerAsset.h"
 #include "Strada/Asset/PhysicsMaterialAsset.h"
+#include "Strada/Asset/Vehicle.h"
+#include "Strada/Asset/VehicleAsset.h"
 #include "Strada/Core/FileSystem.h"
 #include "Strada/Physics/PhysicsTypes.h"
 #include "Strada/Project/Project.h"
@@ -43,6 +45,7 @@
 #include <filesystem>
 #include <functional>
 #include <optional>
+#include <span>
 #include <string>
 #include <string_view>
 #include <utility>
@@ -1877,4 +1880,22 @@ TEST_CASE("Inspector: a mixer's buses and their effects unfold, each effect show
 	REQUIRE(operations.Undo().IsOk());
 	CHECK(asset->GetData().Buses[0].Effects[0].RoomSize == 0.5f);
 	CHECK(open);
+}
+
+TEST_CASE("FieldEditor: a vehicle's wheels are titled by their names and keep their order, the front first")
+{
+	DataAssetType const* const type = DataAssetRegistry::FindByName("Vehicle");
+	REQUIRE(type != nullptr);
+	std::span<FieldDescriptor const> const fields = type->GetFields();
+	auto const wheels = std::find_if(fields.begin(), fields.end(),
+	                                 [](FieldDescriptor const& field)
+	                                 {
+										 return field.Name == "Wheels";
+									 });
+	REQUIRE(wheels != fields.end());
+	// The order makes each wheel the front or the rear, so the list has no grips and no moves (FieldHints::FixedOrder).
+	CHECK(wheels->Hints.FixedOrder);
+	Vehicle const vehicle;
+	CHECK(FieldEditor::DescribeElement(*wheels, SerializeFields<StructTraits<VehicleWheelDefinition>>(vehicle.Wheels[0]), 0) == "0: Front");
+	CHECK(FieldEditor::DescribeElement(*wheels, SerializeFields<StructTraits<VehicleWheelDefinition>>(vehicle.Wheels[1]), 1) == "1: Rear");
 }

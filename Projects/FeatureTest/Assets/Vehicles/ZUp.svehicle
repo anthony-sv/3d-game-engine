@@ -1,0 +1,118 @@
+{
+	"Strada": {
+		"Version": 1,
+		"Type": "Vehicle"
+	},
+	"Vehicle": {
+		"Wheels": [
+			{
+				"Name": "Front",
+				"Position": [
+					0.0,
+					-0.550000011920929,
+					0.6600000262260437
+				],
+				"SuspensionDirection": [
+					0.0,
+					-0.5,
+					-0.8660249710083008
+				],
+				"SuspensionMinLength": 0.30000001192092896,
+				"SuspensionMaxLength": 0.5,
+				"SuspensionPreload": 0.0,
+				"SuspensionFrequency": 2.5,
+				"SuspensionDamping": 0.5,
+				"SteeringAxis": [
+					0.0,
+					0.5,
+					0.8660249710083008
+				],
+				"MaxSteerAngle": 30.0,
+				"Radius": 0.3100000023841858,
+				"Width": 0.05000000074505806,
+				"Inertia": 0.8999999761581421,
+				"AngularDamping": 0.20000000298023224,
+				"FrontBrakeTorque": 500.0,
+				"RearBrakeTorque": 0.0,
+				"LongitudinalFriction": "0",
+				"LateralFriction": "0"
+			},
+			{
+				"Name": "Rear",
+				"Position": [
+					0.0,
+					0.75,
+					0.7099999785423279
+				],
+				"SuspensionDirection": [
+					0.0,
+					0.0,
+					-1.0
+				],
+				"SuspensionMinLength": 0.30000001192092896,
+				"SuspensionMaxLength": 0.5,
+				"SuspensionPreload": 0.0,
+				"SuspensionFrequency": 2.5,
+				"SuspensionDamping": 0.5,
+				"SteeringAxis": [
+					0.0,
+					0.0,
+					1.0
+				],
+				"MaxSteerAngle": 0.0,
+				"Radius": 0.3100000023841858,
+				"Width": 0.05000000074505806,
+				"Inertia": 0.8999999761581421,
+				"AngularDamping": 0.20000000298023224,
+				"FrontBrakeTorque": 0.0,
+				"RearBrakeTorque": 250.0,
+				"LongitudinalFriction": "0",
+				"LateralFriction": "0"
+			}
+		],
+		"Up": [
+			0.0,
+			0.0,
+			1.0
+		],
+		"Forward": [
+			0.0,
+			-1.0,
+			0.0
+		],
+		"MaxPitchRoll": 60.0,
+		"Engine": {
+			"MaxTorque": 150.0,
+			"MinRPM": 1000.0,
+			"MaxRPM": 10000.0,
+			"Torque": "0",
+			"Inertia": 0.5,
+			"AngularDamping": 0.20000000298023224
+		},
+		"Transmission": {
+			"Mode": "Automatic",
+			"GearRatios": [
+				2.2699999809265137,
+				1.6299999952316284,
+				1.2999999523162842,
+				1.090000033378601,
+				0.9599999785423279,
+				0.8799999952316284
+			],
+			"FinalDrive": 4.824999809265137,
+			"SwitchTime": 0.5,
+			"ClutchReleaseTime": 0.30000001192092896,
+			"SwitchLatency": 0.5,
+			"ShiftUpRPM": 8000.0,
+			"ShiftDownRPM": 2000.0,
+			"ClutchStrength": 2.0
+		},
+		"Lean": {
+			"MaxLeanAngle": 45.0,
+			"SpringConstant": 5000.0,
+			"SpringDamping": 1000.0,
+			"SmoothingFactor": 0.800000011920929,
+			"SteeringLimit": true
+		}
+	}
+}

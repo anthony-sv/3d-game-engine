@@ -7,7 +7,7 @@ Every component you can add to an entity, with every field: its type, its defaul
 it does. The inspector, scene files, the automation command `component.types` and the scripting API all read the same
 registry, so this page matches the engine: the engine's tests fail when it does not.
 
-29 components in 6 categories, with 217 fields in all. Vectors are written `(x, y, z)`, colors are
+31 components in 6 categories, with 219 fields in all. Vectors are written `(x, y, z)`, colors are
 linear RGB or RGBA from 0 to 1, distances are in meters and angles in degrees. Fields that only matter for some
 settings say when the inspector shows them. Scripts reach the same fields through the component classes of
 [ScriptingAPI.md](ScriptingAPI.md), and agents through `component.get` and `component.set`
@@ -17,7 +17,7 @@ settings say when the inspector shows them. Scripts reach the same fields throug
 |---|---|
 | Core | [Tag](#tag), [Transform](#transform) |
 | Rendering | [Camera](#camera), [Mesh](#mesh), [DirectionalLight](#directionallight), [PointLight](#pointlight), [SpotLight](#spotlight), [SkyLight](#skylight), [Text](#text), [SpriteRenderer](#spriterenderer), [ParticleSystem](#particlesystem), [PostProcess](#postprocess) |
-| Physics | [RigidBody](#rigidbody), [BoxCollider](#boxcollider), [SphereCollider](#spherecollider), [CapsuleCollider](#capsulecollider), [MeshCollider](#meshcollider), [Joint](#joint), [CharacterController](#charactercontroller) |
+| Physics | [RigidBody](#rigidbody), [BoxCollider](#boxcollider), [SphereCollider](#spherecollider), [CapsuleCollider](#capsulecollider), [MeshCollider](#meshcollider), [Joint](#joint), [CharacterController](#charactercontroller), [Vehicle](#vehicle), [VehicleWheel](#vehiclewheel) |
 | Audio | [AudioSource](#audiosource), [AudioListener](#audiolistener), [ReverbZone](#reverbzone) |
 | Scripting | [Script](#script), [VisualScript](#visualscript) |
 | UI | [UICanvas](#uicanvas), [UIRect](#uirect), [UIImage](#uiimage), [UIText](#uitext), [UIButton](#uibutton) |
@@ -337,6 +337,22 @@ Makes the entity a character that scripts move (players, creatures): an upright 
 | `PushForce` | float | `200` | at least 0 | The largest force, in newtons, with which the character pushes dynamic bodies; 0 leaves them where they are. |
 | `GravityFactor` | float | `1` | 0 to 1000 | Multiplier of the scene's gravity; 0 lets scripts fly the character (ladders, swimming). |
 | `Layer` | uint | `0` | 0 to 15 | Physics layer index as configured in the project settings. |
+
+### Vehicle
+
+Makes the entity a motorcycle: Jolt's motorcycle controller on its dynamic RigidBody and collider (the chassis), made from a Vehicle definition. Scripts and graphs give it the rider's throttle, brakes, lean and shifts while it runs.
+
+| Field | Type | Default | Range | Description |
+|---|---|---|---|---|
+| `Definition` | Vehicle asset | none |  | The vehicle's definition (a .svehicle asset: its wheels, engine, gearbox, final drive and lean); none makes no vehicle. |
+
+### VehicleWheel
+
+Draws a wheel of the nearest Vehicle above the entity where its suspension, steering and spin put it, smoothly between physics steps. The entity's local X is the axle; it has no collider.
+
+| Field | Type | Default | Range | Description |
+|---|---|---|---|---|
+| `Wheel` | string | `"Front"` |  | The wheel's name in the vehicle's definition (Front, Rear), ignoring letter case. |
 
 ## Audio
 

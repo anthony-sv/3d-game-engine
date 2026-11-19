@@ -19,7 +19,7 @@ using namespace Strada;
 TEST_CASE("Components: every component is registered once with a unique name")
 {
 	std::span<ComponentInfo const> const components = ComponentRegistry::GetComponents();
-	REQUIRE(components.size() == 32);
+	REQUIRE(components.size() == 34);
 
 	std::set<std::string_view> names;
 	for (ComponentInfo const& info : components)
@@ -68,6 +68,8 @@ TEST_CASE("Components: every component belongs to one of the known categories")
 		{"MeshCollider", ComponentCategory::Physics},
 		{"Joint", ComponentCategory::Physics},
 		{"CharacterController", ComponentCategory::Physics},
+		{"Vehicle", ComponentCategory::Physics},
+		{"VehicleWheel", ComponentCategory::Physics},
 		{"AudioSource", ComponentCategory::Audio},
 		{"AudioListener", ComponentCategory::Audio},
 		{"ReverbZone", ComponentCategory::Audio},

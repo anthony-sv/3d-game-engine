@@ -72,14 +72,14 @@ TEST_CASE("PhysicsMaterialAsset: the engine registers PhysicsMaterial, its .sphy
 		CHECK_FALSE(field.Hints.Description.empty());
 	}
 	CHECK(names == std::vector<std::string_view>{"Friction", "Restitution", "FrictionCombine", "RestitutionCombine", "RollingResistance",
-	                                             "Surface", "ImpactSound", "ImpactParticles"});
-	CHECK(type.GetFields()[6].Hints.AssetTypeName == "AudioClip");
-	CHECK(type.GetFields()[7].Hints.AssetTypeName == "Prefab");
+	                                             "TyreGrip", "Surface", "ImpactSound", "ImpactParticles"});
+	CHECK(type.GetFields()[7].Hints.AssetTypeName == "AudioClip");
+	CHECK(type.GetFields()[8].Hints.AssetTypeName == "Prefab");
 	// The value-initialized material, a new asset's, is what a collider without a material does: its default friction and
 	// restitution, combined by the geometric mean and the maximum.
 	CHECK(type.GetDefaultFields() == Json::parse(R"({
 		"Friction": 0.6000000238418579, "Restitution": 0.0, "FrictionCombine": "GeometricMean", "RestitutionCombine": "Maximum",
-		"RollingResistance": 0.0, "Surface": "", "ImpactSound": "0", "ImpactParticles": "0"
+		"RollingResistance": 0.0, "TyreGrip": 1.0, "Surface": "", "ImpactSound": "0", "ImpactParticles": "0"
 	})"));
 }
 
@@ -91,6 +91,7 @@ TEST_CASE("PhysicsMaterialAsset: files round trip, and values outside their rang
 	material.FrictionCombine = PhysicsMaterialCombine::Minimum;
 	material.RestitutionCombine = PhysicsMaterialCombine::Multiply;
 	material.RollingResistance = 0.02f;
+	material.TyreGrip = 0.5f;
 	material.Surface = "Gravel";
 	material.ImpactSound = AssetHandle(UUID(41));
 	material.ImpactParticles = AssetHandle(UUID(42));
@@ -102,6 +103,7 @@ TEST_CASE("PhysicsMaterialAsset: files round trip, and values outside their rang
 	CHECK(document["Strada"] == Json::parse(R"({ "Version": 1, "Type": "PhysicsMaterial" })"));
 	CHECK(document["PhysicsMaterial"]["FrictionCombine"] == "Minimum");
 	CHECK(document["PhysicsMaterial"]["RestitutionCombine"] == "Multiply");
+	CHECK(document["PhysicsMaterial"]["TyreGrip"] == 0.5);
 	CHECK(document["PhysicsMaterial"]["Surface"] == "Gravel");
 	CHECK(document["PhysicsMaterial"]["ImpactSound"] == "41");
 	CHECK(document["PhysicsMaterial"]["ImpactParticles"] == "42");
@@ -132,6 +134,9 @@ TEST_CASE("PhysicsMaterialAsset: files round trip, and values outside their rang
 	CHECK(GetErrorOf(DataAssetSerializer::Deserialize(GetPhysicsMaterialType(),
 	                                                  MakePhysicsMaterialDocument(Json::parse(R"({ "RollingResistance": -1 })")), {}))
 	          .find("RollingResistance") != std::string::npos);
+	CHECK(GetErrorOf(DataAssetSerializer::Deserialize(GetPhysicsMaterialType(),
+	                                                  MakePhysicsMaterialDocument(Json::parse(R"({ "TyreGrip": -0.25 })")), {}))
+	          .find("TyreGrip") != std::string::npos);
 	CHECK(GetErrorOf(DataAssetSerializer::Deserialize(GetPhysicsMaterialType(),
 	                                                  MakePhysicsMaterialDocument(Json::parse(R"({ "FrictionCombine": "Harmonic" })")), {}))
 	          .find("FrictionCombine: expected one of GeometricMean|Average|Minimum|Multiply|Maximum") != std::string::npos);

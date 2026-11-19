@@ -670,6 +670,30 @@ TEST_CASE("PhysicsScene: a body asleep on a slope wakes and slides when its own 
 		      doctest::Approx(Gravity * std::sin(glm::radians(25.0f))).epsilon(Tolerance));
 		CHECK(world->IsSleeping(ThirdId));
 	}
+	SUBCASE("the values only vehicles read")
+	{
+		// Without a vehicle, an edit of the rolling resistance and the tyre grip alone wakes nothing and changes nothing the
+		// hash sees; the friction edited with them wakes as before.
+		Scope<PhysicsScene> world = MakeRestingWorld(downhill);
+		uint64_t const hash = world->ComputeStateHash();
+		PhysicsMaterial rolling;
+		rolling.Friction = 1.0f;
+		rolling.RollingResistance = 0.25f;
+		rolling.TyreGrip = 0.3f;
+		CHECK(world->SetMaterialValues(BoxMaterial, rolling) == 2);
+		CHECK(world->SetMaterialValues(SlopeMaterial, rolling) == 1);
+		CHECK(world->IsSleeping(FirstId));
+		CHECK(world->IsSleeping(ThirdId));
+		CHECK(world->ComputeStateHash() == hash);
+		Simulate(*world, 30);
+		CHECK(world->IsSleeping(FirstId));
+		CHECK(world->IsSleeping(ThirdId));
+		CHECK(world->ComputeStateHash() == hash);
+		rolling.Friction = 0.0f;
+		CHECK(world->SetMaterialValues(SlopeMaterial, rolling) == 1);
+		CHECK_FALSE(world->IsSleeping(FirstId));
+		CHECK(world->IsSleeping(ThirdId));
+	}
 }
 
 TEST_CASE("PhysicsScene: a character's inner body meets the surface of the collider it touches, not the body's first")
