@@ -524,3 +524,83 @@ public sealed class AudioProbe : Script
 		Name = $"Playing={source.IsPlaying}";
 	}
 }
+
+// Records into telemetry. Every fixed update: Probe.Steps (its count of fixed updates, from 1), Probe.Height (its entity's
+// height) and, on even updates, Probe.Even; a mark "Lap <n>" every LapSteps updates from the first (none when 0); and
+// Channels more channels, Benchmark.Channel00 to 63 (the benchmark's shape); and ExtraChannel, when set, at 1. Every update: Probe.Frame (its count of updates),
+// which lands on the next step's row. Its first fixed update also records Probe.Task from a thread pool's task, waited for
+// within the step. A collision that begins marks its step ("Contact", Collision.Step). OnCreate names the entity after what
+// the API said: "Recording=<IsRecording>;NullThrows=<whether all three refused null>".
+public sealed class TelemetryProbe : Script
+{
+	public int LapSteps;
+	public int Channels;
+	public string ExtraChannel = "";
+
+	private static readonly string[] s_ChannelNames = [.. Enumerable.Range(0, 64).Select(static index => $"Benchmark.Channel{index:D2}")];
+
+	private int m_FixedUpdates;
+	private int m_Updates;
+
+	protected override void OnCreate()
+	{
+		int refused = 0;
+		try
+		{
+			Telemetry.Record(null!, 1.0f);
+		}
+		catch (ArgumentNullException)
+		{
+			refused++;
+		}
+		try
+		{
+			Telemetry.Mark(null!);
+		}
+		catch (ArgumentNullException)
+		{
+			refused++;
+		}
+		try
+		{
+			Telemetry.MarkStep(null!, 1);
+		}
+		catch (ArgumentNullException)
+		{
+			refused++;
+		}
+		Name = $"Recording={Telemetry.IsRecording};NullThrows={refused == 3}";
+	}
+
+	protected override void OnUpdate(float deltaTime) => Telemetry.Record("Probe.Frame", ++m_Updates);
+
+	protected override void OnFixedUpdate(float fixedDeltaTime)
+	{
+		m_FixedUpdates++;
+		Telemetry.Record("Probe.Steps", m_FixedUpdates);
+		Telemetry.Record("Probe.Height", Translation.Y);
+		if (m_FixedUpdates % 2 == 0)
+		{
+			Telemetry.Record("Probe.Even", m_FixedUpdates);
+		}
+		if (LapSteps > 0 && (m_FixedUpdates - 1) % LapSteps == 0)
+		{
+			Telemetry.Mark($"Lap {(m_FixedUpdates - 1) / LapSteps + 1}");
+		}
+		int channels = Math.Min(Channels, s_ChannelNames.Length);
+		for (int channel = 0; channel < channels; channel++)
+		{
+			Telemetry.Record(s_ChannelNames[channel], m_FixedUpdates + channel);
+		}
+		if (ExtraChannel.Length > 0)
+		{
+			Telemetry.Record(ExtraChannel, 1.0f);
+		}
+		if (m_FixedUpdates == 1)
+		{
+			System.Threading.Tasks.Task.Run(static () => Telemetry.Record("Probe.Task", 7.0f)).Wait();
+		}
+	}
+
+	protected override void OnCollisionEnter(Entity other) => Telemetry.MarkStep("Contact", Collision.Step);
+}

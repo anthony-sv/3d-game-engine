@@ -45,6 +45,11 @@ public sealed class McpServerTests
 		{
 			Assert.Contains(tool, instructions);
 		}
+		// Telemetry: recording, the sessions, reading and exporting.
+		foreach (string tool in new[] { "telemetry_start", "telemetry_stop", "telemetry_channels", "telemetry_read", "telemetry_export" })
+		{
+			Assert.Matches($@"\b{tool}\b", instructions);
+		}
 		// Curves: the data asset type the engine registers, with the three tools its registration gives it.
 		foreach (string tool in new[] { "curve_create", "curve_get", "curve_set" })
 		{

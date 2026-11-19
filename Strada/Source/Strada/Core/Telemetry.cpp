@@ -979,36 +979,6 @@ namespace Strada
 			data.PendingMarks.clear();
 			++data.PendingStamp;
 		}
-
-		Result<void> CheckSettings(TelemetrySettings const& settings)
-		{
-			if (settings.MaxChannels < Telemetry::MinChannels || settings.MaxChannels > Telemetry::MaxChannelsLimit)
-			{
-				return MakeError("MaxChannels must be between {} and {}, not {}", Telemetry::MinChannels, Telemetry::MaxChannelsLimit,
-				                 settings.MaxChannels);
-			}
-			if (settings.MaxSteps < Telemetry::MinSteps || settings.MaxSteps > Telemetry::MaxStepsLimit)
-			{
-				return MakeError("MaxSteps must be between {} and {}, not {}", Telemetry::MinSteps, Telemetry::MaxStepsLimit,
-				                 settings.MaxSteps);
-			}
-			if (settings.HistorySessions < Telemetry::MinHistorySessions || settings.HistorySessions > Telemetry::MaxHistorySessions)
-			{
-				return MakeError("HistorySessions must be between {} and {}, not {}", Telemetry::MinHistorySessions,
-				                 Telemetry::MaxHistorySessions, settings.HistorySessions);
-			}
-			if (settings.HistoryBytes < Telemetry::MinHistoryBytes || settings.HistoryBytes > Telemetry::MaxHistoryBytes)
-			{
-				return MakeError("HistoryBytes must be between {} and {}, not {}", Telemetry::MinHistoryBytes, Telemetry::MaxHistoryBytes,
-				                 settings.HistoryBytes);
-			}
-			if (settings.RecordsPerThread < Telemetry::MinRecordsPerThread || settings.RecordsPerThread > Telemetry::MaxRecordsPerThread)
-			{
-				return MakeError("RecordsPerThread must be between {} and {}, not {}", Telemetry::MinRecordsPerThread,
-				                 Telemetry::MaxRecordsPerThread, settings.RecordsPerThread);
-			}
-			return {};
-		}
 	}
 
 	double GetTelemetryTime(TelemetrySession const& session, uint64_t row)
@@ -1193,6 +1163,36 @@ namespace Strada
 	bool Telemetry::IsInitialized()
 	{
 		return static_cast<bool>(s_Data);
+	}
+
+	Result<void> Telemetry::CheckSettings(TelemetrySettings const& settings)
+	{
+		if (settings.MaxChannels < Telemetry::MinChannels || settings.MaxChannels > Telemetry::MaxChannelsLimit)
+		{
+			return MakeError("MaxChannels must be between {} and {}, not {}", Telemetry::MinChannels, Telemetry::MaxChannelsLimit,
+			                 settings.MaxChannels);
+		}
+		if (settings.MaxSteps < Telemetry::MinSteps || settings.MaxSteps > Telemetry::MaxStepsLimit)
+		{
+			return MakeError("MaxSteps must be between {} and {}, not {}", Telemetry::MinSteps, Telemetry::MaxStepsLimit,
+			                 settings.MaxSteps);
+		}
+		if (settings.HistorySessions < Telemetry::MinHistorySessions || settings.HistorySessions > Telemetry::MaxHistorySessions)
+		{
+			return MakeError("HistorySessions must be between {} and {}, not {}", Telemetry::MinHistorySessions,
+			                 Telemetry::MaxHistorySessions, settings.HistorySessions);
+		}
+		if (settings.HistoryBytes < Telemetry::MinHistoryBytes || settings.HistoryBytes > Telemetry::MaxHistoryBytes)
+		{
+			return MakeError("HistoryBytes must be between {} and {}, not {}", Telemetry::MinHistoryBytes, Telemetry::MaxHistoryBytes,
+			                 settings.HistoryBytes);
+		}
+		if (settings.RecordsPerThread < Telemetry::MinRecordsPerThread || settings.RecordsPerThread > Telemetry::MaxRecordsPerThread)
+		{
+			return MakeError("RecordsPerThread must be between {} and {}, not {}", Telemetry::MinRecordsPerThread,
+			                 Telemetry::MaxRecordsPerThread, settings.RecordsPerThread);
+		}
+		return {};
 	}
 
 	Result<void> Telemetry::Start(TelemetrySettings const& settings)

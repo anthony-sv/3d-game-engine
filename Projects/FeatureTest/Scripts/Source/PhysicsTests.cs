@@ -5,7 +5,7 @@ namespace FeatureTest;
 
 /// <summary>Counts the contacts of its entity, and keeps what <see cref="Collision"/> said of the first collision that began,
 /// the first trigger overlap that began and the first contact that ended: the falling box and ball of the scene carry
-/// one.</summary>
+/// one. Each collision that begins marks its step for telemetry ("Contact" and the entity's name).</summary>
 public sealed class CollisionProbe : Script
 {
 	public int CollisionsEntered;
@@ -34,6 +34,8 @@ public sealed class CollisionProbe : Script
 		CollisionsEntered++;
 		LastCollision = other;
 		FirstCollision ??= (Collision.Entity, Collision.Other, Collision.Step, m_FixedSteps, Collision.Points);
+		// A contact handler runs after the frame's steps: the mark goes to the step the contact happened in.
+		Telemetry.MarkStep($"Contact {Name}", Collision.Step);
 	}
 
 	protected override void OnCollisionExit(Entity other)

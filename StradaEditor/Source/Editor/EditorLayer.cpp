@@ -11,6 +11,7 @@
 #include "Editor/Automation/ProjectContentCommands.h"
 #include "Editor/Automation/ScriptCommands.h"
 #include "Editor/Automation/StartCommands.h"
+#include "Editor/Automation/TelemetryCommands.h"
 #include "Editor/DefaultScene.h"
 #include "Editor/EditorEditingKeys.h"
 #include "Editor/EntityPresets.h"
@@ -303,6 +304,7 @@ namespace Strada
 			};
 		}
 		registered = registered ? RegisterProfilerCommands(m_Commands, m_Profiler, m_Context, std::move(showProfiler)) : registered;
+		registered = registered ? RegisterTelemetryCommands(m_Commands, m_Telemetry, m_Context) : registered;
 		ST_ASSERT(registered.IsOk(), "The built-in editor commands must register");
 		(void)registered;
 		// What is wrong with the templates (the default scene standing in for a missing empty-3d) is said once, at start.

@@ -1,9 +1,15 @@
 #include "Core/ProfilerTestUtilities.h"
 #include "Core/TelemetryTestUtilities.h"
+#include "Script/ScriptTestUtilities.h"
 
 #include "Strada/Core/Platform.h"
 #include "Strada/Core/Profiler.h"
 #include "Strada/Core/Telemetry.h"
+#include "Strada/Core/Timestep.h"
+#include "Strada/Scene/Components.h"
+#include "Strada/Scene/Entity.h"
+#include "Strada/Scene/Scene.h"
+#include "Strada/Script/ScriptField.h"
 
 #include <doctest/doctest.h>
 
@@ -11,6 +17,7 @@
 #include <array>
 #include <cstdint>
 #include <string>
+#include <string_view>
 #include <vector>
 
 using namespace Strada;
@@ -49,6 +56,19 @@ namespace
 	double ToMicroseconds(int64_t nanoseconds)
 	{
 		return static_cast<double>(nanoseconds) / 1000.0;
+	}
+
+	// The median of a zone per call in microseconds, 0 when the recording has none.
+	double GetZoneMicroseconds(ProfilerMedians const& medians, std::string_view name)
+	{
+		for (ProfilerZoneMedian const& zone : medians.Zones)
+		{
+			if (zone.Name == name)
+			{
+				return zone.MillisecondsPerCall * 1000.0;
+			}
+		}
+		return 0.0;
 	}
 
 	double GetPercentile(std::vector<int64_t> values, double fraction)
@@ -97,14 +117,7 @@ TEST_CASE("TelemetryBenchmark: 64 channels recorded on the main thread and colle
 	Telemetry::Stop();
 	Profiler::Stop();
 	ProfilerMedians const medians = ComputeProfilerMedians(Profiler::GetRecording());
-	double collect = 0.0;
-	for (ProfilerZoneMedian const& zone : medians.Zones)
-	{
-		if (zone.Name == "Telemetry.Collect")
-		{
-			collect = zone.MillisecondsPerCall * 1000.0;
-		}
-	}
+	double const collect = GetZoneMicroseconds(medians, "Telemetry.Collect");
 	MESSAGE("64 channels a step over " << Steps << " steps: median " << GetPercentile(durations, 0.5) << " us, 99th percentile "
 	                                   << GetPercentile(durations, 0.99) << " us, worst " << GetPercentile(durations, 1.0)
 	                                   << " us; Telemetry.Collect median " << collect << " us");
@@ -151,4 +164,58 @@ TEST_CASE("TelemetryBenchmark: a long session of 64 channels makes at most one b
 	                            << GetPercentile(durations, 0.99) << " us, worst " << GetPercentile(durations, 1.0)
 	                            << " us; blocks made in one step at most " << mostBlocks << " (the first), " << mostBlocksAfterFirst
 	                            << " after it; " << session.Bytes / (1024 * 1024) << " MiB held");
+}
+
+TEST_CASE("TelemetryBenchmark: a C# script records 64 channels in its fixed updates" *
+          doctest::skip(!Platform::ReadEnvironmentVariable("STRADA_TELEMETRY_BENCHMARK")))
+{
+	// The scene's shape: Strada.Tests.TelemetryProbe records Benchmark.Channel00 to 63 (and its own four channels) in each
+	// fixed update, one step a frame at 60 Hz, without physics; the same frames are run idle (no recording) for the scripts'
+	// cost of calls that return at once.
+	constexpr int Frames = 600;
+	Testing::ScriptEngineScope const scripting;
+	TelemetryScope const telemetry;
+	ProfilerScope const profiler;
+	ProfilerSettings settings;
+	settings.HistoryFrames = Frames;
+	std::array<ProfilerMedians, 2> medians;
+	for (bool const recording : {true, false})
+	{
+		Scene scene("Benchmark");
+		Entity probe = scene.CreateEntity("Probe");
+		ScriptComponent& script = probe.AddComponent<ScriptComponent>();
+		script.ClassName = "Strada.Tests.TelemetryProbe";
+		script.Fields["Channels"] = ScriptFieldValue::FromInt32(static_cast<int32_t>(Channels));
+		if (recording)
+		{
+			REQUIRE(Telemetry::Start().IsOk());
+		}
+		scene.OnRuntimeStart();
+		REQUIRE(Profiler::Start(settings).IsOk());
+		for (int frame = 0; frame < Frames; ++frame)
+		{
+			Profiler::BeginFrame();
+			scene.OnUpdateRuntime(Timestep(1.0f / 60.0f));
+			Profiler::EndFrame();
+		}
+		Profiler::Stop();
+		medians[recording ? 0 : 1] = ComputeProfilerMedians(Profiler::GetRecording());
+		if (recording)
+		{
+			Telemetry::Stop();
+			TelemetrySession const& session = GetNewestTelemetrySession();
+			CHECK(session.Rows == static_cast<uint64_t>(scene.GetFixedStepCount()));
+			CHECK(session.Channels.size() >= Channels);
+			CHECK(session.DroppedValues == 0);
+		}
+		scene.OnRuntimeStop();
+	}
+	constexpr std::string_view ScriptZone = "Script.Strada.Tests.TelemetryProbe";
+	MESSAGE("a C# script recording 64 channels in OnFixedUpdate over "
+	        << Frames << " steps: Scene.Telemetry median " << GetZoneMicroseconds(medians[0], "Scene.Telemetry")
+	        << " us, Telemetry.Collect " << GetZoneMicroseconds(medians[0], "Telemetry.Collect") << " us, Scene.FixedUpdateScripts "
+	        << GetZoneMicroseconds(medians[0], "Scene.FixedUpdateScripts") << " us (idle "
+	        << GetZoneMicroseconds(medians[1], "Scene.FixedUpdateScripts") << " us), " << ScriptZone << " "
+	        << GetZoneMicroseconds(medians[0], ScriptZone) << " us per call (idle " << GetZoneMicroseconds(medians[1], ScriptZone)
+	        << " us)");
 }

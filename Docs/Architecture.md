@@ -621,9 +621,11 @@ every configuration, Dist included (it has no macros); only the editor starts it
   A null argument throws; while nothing records they return after one native call. Bindings
   `Telemetry_Record(char const*, int32_t, float)`, `Telemetry_Mark(char const*, int32_t)`,
   `Telemetry_MarkStep(char const*, int32_t, uint64_t)` and `Telemetry_IsRecording()` in `ScriptBindingsRuntime.cpp`.
-  FeatureTest's telemetry script records a distance channel and marks `Lap 1` to `Lap 3` with `MarkStep` at fixed
-  step counts from `OnFixedUpdate`, so that the panel's and the commands' cases read laps of a real FeatureTest
-  recording.
+  FeatureTest's `ApplicationTests` rides three laps of 24, 18 and 30 steps from `OnFixedUpdate`: it records
+  `FeatureTest.Distance` (metres along a lap of 120) and marks `Lap 1` to `Lap 4` with `Mark` (in a fixed update, the
+  step it runs in), then `Lap end`; its `CollisionProbe` marks each collision's step with `MarkStep` and `Collision.Step`
+  from its contact handler, and the Features graph records `Features.FixedSteps` and marks its start. So the panel's and
+  the commands' cases read laps of a real FeatureTest recording, its best the second; the player records none of it.
 - **Measuring.** The target is 64 channels recorded and collected within 0.05 ms a fixed step (Release, on the
   reference machine): `Record` 64 times on the main thread and `EndStep`, measured by a StradaTests benchmark behind
   `STRADA_TELEMETRY_BENCHMARK=1` (skipped without it), with the same 64 channels recorded by a C# script's
@@ -3845,6 +3847,12 @@ editor's Simulate mode runs neither kind.
 - `PhysicsMaterial` (a `.sphysmat` asset, §8): `Friction`, `Restitution`, `FrictionCombine`, `RestitutionCombine`
   (`PhysicsMaterialCombine`), `RollingResistance`, `Surface`, `ImpactSound` (`AudioClip`), `ImpactParticles` (`Prefab`):
   read-only properties, so pure nodes, read from the runtime's copy of the values.
+- `Telemetry` (§4.5): `Record(channel, value)`, `Mark(label)` and `MarkStep(label, step)`, impure nodes, and
+  `IsRecording`, a pure node (a getter). Any thread may call them; null throws, and while nothing records each returns
+  after the one native call `IsRecording` makes, so a name is encoded (on the stack up to 256 bytes) only for a
+  recording. Names and values are the recorder's to check: what it refuses is dropped, counted and warned about once per
+  session, never a script error, so that a script recording a bad name every step does not fill the log. Bindings
+  `Telemetry_*` in `ScriptBindingsRuntime.cpp`; they touch no scene.
 - Math: `Vector2/3/4`, `Quaternion`, `Matrix4`, `Color`, `Mathf`, `Random`.
 - Attributes: `[SerializeField]`, `[HideInInspector]`, `[Range(min, max)]`, `[Tooltip(text)]`.
 - `Strada.Testing`: `Assert` (throws `AssertionException`), `TestReporter` (`Pass`, `Fail`, `Run`, `Finish`; used by

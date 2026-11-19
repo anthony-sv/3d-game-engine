@@ -224,6 +224,9 @@ namespace Strada
 		static void Shutdown();
 		static bool IsInitialized();
 
+		// Whether settings lie within the bounds above (the error names the first that does not), as Start checks them. Pure;
+		// any thread.
+		[[nodiscard]] static Result<void> CheckSettings(TelemetrySettings const& settings);
 		// Starts a recording and prepares the threads' buffers. The sessions held are kept, the oldest dropped first past
 		// the new settings' HistorySessions and HistoryBytes. Refuses when not initialized, when a recording is in
 		// progress, or on settings out of bounds. The recording's first session begins at the next fixed step (EndStep):

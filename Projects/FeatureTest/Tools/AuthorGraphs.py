@@ -218,7 +218,8 @@ FEATURES_DESCRIPTION = (
     "which Event.ActionPressed and Event.ActionReleased count and the action queries read. A Timeline plays beside the later "
     "checks, which wait for it before Done, and a curve asset and a physics material, as literals and loaded by path, after it; a raycast and sphere, "
     "box and capsule casts onto the physics material probe name the material they hit. A source it makes plays one-shots, "
-    "the scene a clip at a point, and it reads the project's mixer and sets the game's values of its Voices bus.")
+    "the scene a clip at a point, and it reads the project's mixer and sets the game's values of its Voices bus. It marks its "
+    "start and its first step for telemetry and records its fixed steps as Features.FixedSteps.")
 
 
 def build_features(references):
@@ -308,7 +309,9 @@ def build_features(references):
     update = g.node("Event.Update")
     g.chain(update, g.increment(frames), g.set(elapsed, g.op("Add", g.get(elapsed), (update, "DeltaTime"))))
     fixed = g.node("Event.FixedUpdate")
-    g.chain(fixed, g.increment(fixed_steps), g.set(fixed_step, (fixed, "FixedDeltaTime")))
+    # Telemetry gets the count of fixed steps every step (the editor records it while a recording runs; the player never).
+    g.chain(fixed, g.increment(fixed_steps), g.set(fixed_step, (fixed, "FixedDeltaTime")),
+            g.node("Call:Strada.Telemetry.Record(string,float)", None, {"Channel": "Features.FixedSteps"}, Value=g.get(fixed_steps)))
     counted = g.increment(input_events)
     for kind, settings, inputs in [("Event.KeyPressed", {"Key": "Space"}, None), ("Event.KeyReleased", {"Key": "Space"}, None),
                                    ("Event.MouseButtonPressed", {"Button": "Left"}, None),
@@ -959,6 +962,17 @@ def build_features(references):
             g.node("Call:Strada.Audio.SetBusVolume(string,float)", None, {"Bus": "Voices", "Decibels": 0.0}),
             g.node("Call:Strada.Audio.SetBusMuted(string,bool)", None, {"Bus": "Voices", "Muted": False}))
     groups.append(made)
+
+    # Telemetry: a mark of the graph's start, one of the first step (still to come: it waits for that step's row), and the
+    # count of fixed steps recorded on the FixedUpdate chain above; only the editor records, the game player never does. The
+    # labels are no lap's, so the C# script's laps stay as it rides them.
+    marked = g.node("Call:Strada.Telemetry.Mark(string)", None, {"Label": "Features"})
+    marked_step = g.node("Call:Strada.Telemetry.MarkStep(string,ulong)", None, {"Label": "Features.Step", "Step": "1"})
+    recording = (g.node("Get:Strada.Telemetry.IsRecording"), "Value")
+    editor = (g.node("Get:Strada.Application.IsEditor"), "Value")
+    g.chain(marked, marked_step, call_check("telemetry's nodes run, and only the editor records",
+                                            g.op("Or", g.op("Not", recording), editor), message_text="the game player records"))
+    groups.append(marked)
 
     # By now the scene has updated and stepped physics.
     frames_now = g.get(frames)

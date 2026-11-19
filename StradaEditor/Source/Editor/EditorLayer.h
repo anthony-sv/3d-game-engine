@@ -14,6 +14,7 @@
 #include "Editor/EditorProfiler.h"
 #include "Editor/EditorScripts.h"
 #include "Editor/EditorShortcuts.h"
+#include "Editor/EditorTelemetry.h"
 #include "Editor/ExampleCopyTask.h"
 #include "Editor/GameInputRouter.h"
 #include "Editor/Panels/AgentSetupDialog.h"
@@ -258,6 +259,9 @@ namespace Strada
 		// shows; the profiler commands reach it headless too.
 		EditorProfiler m_Profiler;
 		ProfilerPanel m_ProfilerPanel;
+		// Who records telemetry (a telemetry.start recording until telemetry.stop); the telemetry commands reach it headless
+		// too.
+		EditorTelemetry m_Telemetry;
 		SceneHierarchyPanel m_HierarchyPanel;
 		InspectorPanel m_InspectorPanel;
 		SceneSettingsPanel m_SceneSettingsPanel;

@@ -23,7 +23,7 @@ using Testing::GetTelemetryMarks;
 using Testing::TelemetryScope;
 
 // The fixed step's named call (Scene::SampleTelemetry) in running scenes without scripts. Scripts' own records (their
-// OnFixedUpdate, OnUpdate and contact handlers) are tested through the scripting bindings.
+// OnFixedUpdate, OnUpdate and contact handlers) and graphs' are SceneTelemetryScriptingTests.cpp's.
 namespace
 {
 	constexpr float Step = 1.0f / 60.0f;
