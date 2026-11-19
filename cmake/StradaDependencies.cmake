@@ -206,10 +206,10 @@ strada_declare_dependency(mikktspace
     SOURCE_SUBDIR _strada_no_cmake)
 FetchContent_MakeAvailable(cgltf ufbx mikktspace)
 
-# --- Jolt Physics 5.6.0 ----------------------------------------------------------------------------------------------
+# --- Jolt Physics 5.7.0 ----------------------------------------------------------------------------------------------
 strada_declare_dependency(JoltPhysics
-    https://github.com/jrouwe/JoltPhysics/archive/refs/tags/v5.6.0.tar.gz
-    6e069ee0172478cc78182047aac87e5310ba14a67a53348ae14cc37801fd3f8e
+    https://github.com/jrouwe/JoltPhysics/archive/refs/tags/v5.7.0.tar.gz
+    9a0a405f2375dc4bd9f72486c56e1cbc7794c6a62e42fc48fadea45dfc93dacc
     SOURCE_SUBDIR Build)
 # Jolt's flags stay in its own directory; keep our runtime library, debug information and optimization settings.
 set(USE_STATIC_MSVC_RUNTIME_LIBRARY OFF CACHE BOOL "" FORCE)

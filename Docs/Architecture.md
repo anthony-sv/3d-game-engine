@@ -2285,7 +2285,10 @@ enter and one exit event per entity pair and contact kind; removing a body ends 
 drops the contacts of bodies that fall asleep and finds them again when they wake up; such contacts persist (no exit
 while asleep, no second enter on waking) and end only when the awake bodies no longer touch. Jolt is
 built at the SSE4.2 baseline (its instruction-set flags reach the engine sources that include it) with its asserts,
-routed to the engine log, in Debug builds only.
+routed to the engine log, in Debug builds only. The pin is Jolt 5.7.0 because MSVC Build Tools 14.52 with `/fp:fast`,
+which Jolt's own sources are compiled with, made optimizations that Jolt 5.6.0 did not withstand (most importantly
+`-0.0f` replaced by `0.0f`, which broke its quaternion multiplication and `FlipSign`), so that a Release build made by
+that toolset computed wrong physics; Jolt 5.7.0 holds the fix.
 
 **Physics materials.** A physics material (`PhysicsMaterial`, `Strada/Asset/PhysicsMaterial.h`; the data of a
 `.sphysmat` asset, registered as a data asset type in `Strada/Asset/PhysicsMaterialAsset.h`, §6.4 and §7.3) says how a
@@ -2415,27 +2418,27 @@ parent-local space, keeping their scale). Events delivered to scripts: `OnCollis
 closest solid hit of a ray, every hit of a ray, sphere, box and capsule casts and overlaps, each with a layer mask.
 
 **Contact data.** An enter event (`ContactEvent`, `Physics/PhysicsTypes.h`) carries where and how its contact began:
-up to `MaxContactPoints` (four, as many as Jolt keeps in a manifold its step finds: `PhysicsSystem.cpp:1238-1239` prunes
+up to `MaxContactPoints` (four, as many as Jolt keeps in a manifold its step finds: `PhysicsSystem.cpp:1255-1256` prunes
 it to four before reporting it) `ContactPoint`s, each with a position, a normal, an impulse, a relative velocity and the
 physics materials of both sides. They are stored as the event's `First` sees them; `ReverseContactPoint` gives
 `Second`'s view (the normal and the relative velocity reversed, the materials exchanged). Exits carry none: Jolt reports
 no points when contacts end.
 
 - *The point* is halfway between the two surfaces' points of Jolt's manifold (`mRelativeContactPointsOn1` and `On2`
-  around `mBaseOffset`), where Jolt's solver applies its impulse. A contact Jolt finds before the bodies touch (its
-  speculative contacts, closer than `mSpeculativeContactDistance`, 2 cm) has it in the gap; one found after a fast body
-  went in during its last step has it inside both.
+  around `mBaseOffset`); Jolt's solver applies its impulse to each body at that body's own point. A contact Jolt finds
+  before the bodies touch (its speculative contacts, closer than `mSpeculativeContactDistance`, 2 cm) has it in the gap;
+  one found after a fast body went in during its last step has it inside both.
 - *The normal* has unit length and points from the other body towards this one: the way this one is pushed. Jolt's
   manifold normal points from its first body to its second (the way to move the second out, `ContactListener.h:30` of
-  the pinned Jolt 5.6.0), so `First`'s points hold it reversed.
-- *The impulse* is estimated, because Jolt 5.6.0 reports none: when it adds a contact its solver has not run
-  (`ContactListener.h:107-109`), the impulses it solves stay in its `ContactConstraintManager`, which `PhysicsSystem`
+  the pinned Jolt 5.7.0), so `First`'s points hold it reversed.
+- *The impulse* is estimated, because Jolt 5.7.0 reports none: when it adds a contact its solver has not run
+  (`ContactListener.h:106-108`), the impulses it solves stay in its `ContactConstraintManager`, which `PhysicsSystem`
   keeps private (`PhysicsSystem.h:373`), and no callback follows the solve. The listener calls
-  `EstimateCollisionResponse` (`Jolt/Physics/Collision/EstimateCollisionResponse.h:30-42`), which Jolt provides for this
+  `EstimateCollisionResponse` (`Jolt/Physics/Collision/EstimateCollisionResponse.h:26-37`), which Jolt provides for this
   callback: a sequential-impulse solve of the two bodies alone, from their velocities as the contact begins (the step's
   gravity applied, which Jolt does before it looks for contacts, nothing solved yet; for a body with `ContinuousCollision`
   whose sweep finds the contact, which Jolt reports from its continuous collision job after the velocity solve
-  (`PhysicsSystem.cpp:2079`, called from `JobPostIntegrateVelocity`), the velocities that solve left, and a manifold
+  (`PhysicsSystem.cpp:2069`, called from `JobPostIntegrateVelocity`), the velocities that solve left, and a manifold
   that Jolt has not pruned to four points), with the pair's combined friction
   and restitution, Jolt's restitution threshold (`mMinVelocityForRestitution`, 1 m/s) and the world solver's iterations
   (`mNumVelocitySteps`, 10). The figure is the impulse along the normal at that point, in newton seconds, that stops the
@@ -2548,7 +2551,7 @@ running `Scene` the same four:
   to find what is below or ahead of a body (a wheel's under a chassis, a foot's under a character) starts outside that
   body's colliders, or leaves the body's layer out of its mask. This is unlike rays, which pass out of a convex
   collider they start inside: a ray has no volume to be touching with. Triangles are one-sided, as for
-  rays (`mBackFaceModeTriangles` is `IgnoreBackFaces`, `CastConvexVsTriangles.cpp:41-42`, `CastSphereVsTriangles.cpp:133-135`):
+  rays (`mBackFaceModeTriangles` is `IgnoreBackFaces`, `CastConvexVsTriangles.cpp:41-42`, `CastSphereVsTriangles.cpp:135-137`):
   a cast passes a triangle it reaches from behind and leaves one it moves away from. On the inner edges of a mesh the
   normal is the face's where that hinders the movement less (`mActiveEdgeMovementDirection` is the cast's direction).
 - *Overlaps.* `NarrowPhaseQuery::CollideShape`, with triangles from either side (`mBackFaceMode` is
