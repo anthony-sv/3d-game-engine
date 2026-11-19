@@ -931,9 +931,11 @@ namespace Strada
 			data.Live.NextStep = step.Step;
 		}
 
-		// The cell of the pending row in the live session's channel of its name, making the channel when it is new. False
-		// when the session holds MaxChannels channels already.
-		bool FindChannel(TelemetryData& data, TelemetrySession& session, PendingCell& cell)
+		// The cell of the pending row in the live session's channel of its name, making the channel when it is new, with its
+		// first block (as the column's spare, which its first value takes), so that no channel is ever without a value.
+		// False, with the bound it met, when the session holds MaxChannels channels already or HistoryBytes has no room
+		// for a new channel's block.
+		bool FindChannel(TelemetryData& data, TelemetrySession& session, PendingCell& cell, DropKind& refused)
 		{
 			if (cell.Session == session.Id && cell.Channel != NoChannel)
 			{
@@ -949,13 +951,19 @@ namespace Strada
 			{
 				if (session.Channels.size() >= data.Settings.MaxChannels)
 				{
+					refused = DropKind::Channels;
+					return false;
+				}
+				if (!TakeBytes(data, session, BlockBytes))
+				{
+					refused = DropKind::Bytes;
 					return false;
 				}
 				channelIndex = static_cast<uint32_t>(session.Channels.size());
 				TelemetryChannel channel;
 				channel.Name = cell.Name;
 				session.Channels.push_back(std::move(channel));
-				data.Live.Spares.emplace_back();
+				data.Live.Spares.emplace_back().reserve(TelemetryChannel::BlockCells);
 				data.Live.ChannelIndices.emplace(cell.Name, channelIndex);
 			}
 			cell.Session = session.Id;
@@ -973,9 +981,10 @@ namespace Strada
 
 		void WriteValue(TelemetryData& data, TelemetrySession& session, PendingCell& cell, uint64_t row)
 		{
-			if (!FindChannel(data, session, cell))
+			DropKind refused = DropKind::Channels;
+			if (!FindChannel(data, session, cell, refused))
 			{
-				NoteDrop(data.Drops, DropKind::Channels, false, cell.Name);
+				NoteDrop(data.Drops, refused, false, cell.Name);
 				return;
 			}
 			TelemetryChannel& channel = session.Channels[cell.Channel];

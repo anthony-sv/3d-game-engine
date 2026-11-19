@@ -517,6 +517,40 @@ TEST_CASE("Telemetry: the sessions hold their bytes in whole blocks, the oldest 
 	CHECK(session.Bytes == Telemetry::MinHistoryBytes);
 }
 
+TEST_CASE("Telemetry: a channel new to a session past HistoryBytes is dropped whole, never held without a value")
+{
+	TelemetryScope const telemetry;
+	TelemetrySettings settings;
+	settings.MaxChannels = 2 * Telemetry::MinChannels;
+	settings.HistoryBytes = Telemetry::MinHistoryBytes;
+	REQUIRE(Telemetry::Start(settings).IsOk());
+	uint64_t const logStart = Log::GetNextEntryIndex();
+	// 64 channels fill the bound with their first blocks; the session could hold 64 more.
+	for (uint32_t channel = 0; channel < 64; ++channel)
+	{
+		Telemetry::Record("Channel." + std::to_string(channel), 1.0f);
+	}
+	Telemetry::EndStep(MakeTelemetryStep(1));
+	TelemetrySession const& session = GetNewestTelemetrySession();
+	REQUIRE(session.Bytes == Telemetry::MinHistoryBytes);
+	Telemetry::Record("Channel.0", 2.0f);
+	Telemetry::Record("Late", 1.0f);
+	Telemetry::EndStep(MakeTelemetryStep(2));
+	CHECK(session.Channels.size() == 64);
+	CHECK(FindTelemetryChannel(session, "Late") == nullptr);
+	CHECK(session.DroppedValues == 1);
+	CHECK(FindTelemetryChannel(session, "Channel.0")->Last == 2.0f);
+	for (TelemetryChannel const& channel : session.Channels)
+	{
+		CHECK(channel.Cells > 0);
+		CHECK(channel.Count > 0);
+	}
+	std::vector<std::string> const warnings = GetTelemetryWarnings(logStart);
+	REQUIRE(warnings.size() == 1);
+	CHECK(warnings[0].find("'Late'") != std::string::npos);
+	CHECK(warnings[0].find("bytes the sessions hold at most") != std::string::npos);
+}
+
 TEST_CASE("Telemetry: a column grows in blocks that never move, with empty cells where rows have no value")
 {
 	TelemetryScope const telemetry;
