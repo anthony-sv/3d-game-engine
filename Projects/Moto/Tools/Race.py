@@ -30,9 +30,17 @@ The best lap is kept in the save slot SLOT: its time, its splits and the ghost's
 second, as public arrays of the graph GHOST_GRAPH on the director's Ghost). The director opens the slot once the scene has
 started, takes the best lap from it and, when the ghost runs GHOST_GRAPH, writes the samples into the ghost's arrays and
 sends it GHOST_LOADED; it saves the slot at the results, only when the race made a new best lap. GHOST_GRAPH is the graph
-GhostStandIn.sgraph, which declares that interface (the arrays, Delta and GHOST_LOADED) and is run by the ride test
-scene's stand-in ghost; the main scene's ghost (the racing line's) runs none of it, so the main scene keeps the best lap's
-time and splits alone.
+GhostStandIn.sgraph, which declares that interface (the arrays, BestLapTime, Delta and GHOST_LOADED) and is run by the
+ride test scene's stand-in ghost; the main scene's ghost (the racing line's) runs none of it, so the main scene keeps the
+best lap's time and splits alone.
+
+The pause. The director owns the Pause action, in every state: it stops the game (Time.TimeScale 0: from the next frame,
+whose time step is scaled as it begins, no fixed step runs and the clocks, the countdown and the bike stand still) or
+lets it go on (1), publishes Paused, which the HUD's pause
+screen follows, and refuses Confirm meanwhile; SetPaused does the same for any other graph (a menu's Resume). The mix
+follows the pause: in the frame's update after the director paused or resumed (every graph has seen the frame's presses
+by then), it sends the audio director (AudioDirector) TogglePause when that director's Paused read-out is not the game's.
+So a mix already muffled by another sender (a StartPaused director) is left as it is, and nothing toggles it twice.
 
     python Projects/Moto/Tools/Race.py      (prints the figures check() asserts)
 """
@@ -45,6 +53,7 @@ import Bike  # noqa: E402  (the grid)
 import Circuit  # noqa: E402  (the layout)
 import Graphs  # noqa: E402  (writing graphs)
 import RacingLine  # noqa: E402  (the engine's red line)
+import Sound  # noqa: E402  (the audio director the pause tells)
 import Vehicle  # noqa: E402  (the ridden bike: its gearing and its chassis)
 from Graphs import EFFECTS, ENTITY, EVENTS, RULES, private, public  # noqa: E402
 
@@ -106,6 +115,10 @@ LAPS = 3
 COUNTDOWN = 3.0
 STATES = ("Idle", "Title", "Countdown", "Racing", "Results")
 CONFIRM = "Confirm"
+PAUSE = "Pause"
+# The audio director's event that blends the mix to its Paused snapshot and back, and its read-out of where the mix is.
+TOGGLE_PAUSE = "TogglePause"
+MIX_PAUSED = "Paused"
 # The save slot of the best lap, and its values: the lap's time, its splits at the two sector gates and, with the ghost's
 # samples, how many a second they are.
 SLOT = "BestLap"
@@ -168,6 +181,8 @@ def declare(author):
                    variables=tuple(public(name, type_id, [], f"The best lap's {label} at each sample, ten a second")
                                    for (name, type_id), label in zip(GHOST_SAMPLES, ("positions", "rotations", "engine speeds",
                                                                                    "loads"))) + (
+        public("BestLapTime", "float", 0.0, "The time of the best lap the ghost rides (seconds; 0 while it has none, when no "
+               "delta is shown)"),
         public("Delta", "float", 0.0, "The current lap against the best at the same place (seconds, negative when ahead)"),
         public("Loaded", "int", 0, "How many times the best lap's samples were loaded (a read-out)"),
     ), events=((GHOST_LOADED, ()),))
@@ -179,6 +194,7 @@ def declare(author):
                    variables=(
         public("Subject", ENTITY, None, "What the gates time: the ridden bike"),
         public("Ghost", ENTITY, None, "The ghost whose best lap's samples are saved with the best lap and loaded back"),
+        public("AudioDirector", ENTITY, None, "The audio director, sent TogglePause so that the mix follows the game's pause"),
         public("TitleOnStart", "bool", True, "On: the race opens on its title over the attract mode. Off: it starts idle, as "
                "Moto did before it had a race, until it is sent StartRace"),
         public("Laps", "int", LAPS, "How many laps the time trial has", (1, 9)),
@@ -191,6 +207,7 @@ def declare(author):
         public("RaceTime", "float", 0.0, "The race's time since lap 1 began (seconds, a read-out)"),
         public("CountdownLeft", "float", 0.0, "What is left of the countdown (seconds, a read-out)"),
         public("Holding", "bool", False, "Whether the bike should stand on the grid: through the countdown (a read-out)"),
+        public("Paused", "bool", False, "Whether the game is paused: time stands still and the pause screen shows (a read-out)"),
         public("Splits", FLOAT_ARRAY, [], "The lap's times at the sector gates crossed so far (seconds, a read-out)"),
         public("BestSplits", FLOAT_ARRAY, [], "The best lap's times at the sector gates (seconds, a read-out)"),
         public("LoadedLapTime", "float", 0.0, "The best lap the save slot gave as the scene started, 0 for none (a read-out)"),
@@ -217,11 +234,13 @@ def declare(author):
         private("FirstLapStart", "float", 0.0),
         private("CountdownSteps", "int", 0),
         private("NewBest", "bool", False),
+        private("MixPending", "bool", False),
     ), events=(
         ("GateCrossed", (("Gate", "int"), ("Step", "int"), ("Fraction", "float"))),
         ("GateEntered", (("Gate", "int"), ("Other", ENTITY))),
         ("StartRace", ()),
         ("AbandonRace", ()),
+        ("SetPaused", (("Paused", "bool"),)),
     ), functions=(
         ("Title", False, (), (), ()),
         ("LoadBest", False, (), (), ()),
@@ -343,10 +362,35 @@ def write_director(author):
         b.flow(lap["False"], title)
     with author.region(DIRECTOR, "Confirm: from the title the race starts, from the results the title", EVENTS) as b:
         confirm = b.event("Event.ActionPressed", {"Action": CONFIRM})
+        playing = b.branch(b.pure("Operator.Not", A=b.var("Paused")), comment="Nothing starts while the game is paused")
         state = b.add("Flow.Switch", {"Type": "string", "Cases": ["Title", "Results"]}, Selection=b.var("State"))
-        b.chain(confirm, state)
+        b.chain(confirm, playing)
+        b.flow(playing["True"], state)
         b.flow(state["Case:Title"], b.send("StartRace", b.self_()))
         b.flow(state["Case:Results"], b.own("Title"))
+    with author.region(DIRECTOR, "Pause: the Pause action stops the game, or lets it go on", EVENTS) as b:
+        pressed = b.event("Event.ActionPressed", {"Action": PAUSE})
+        b.chain(pressed, b.send("SetPaused", b.self_(), graph=DIRECTOR, Paused=b.pure("Operator.Not", A=b.var("Paused"))))
+    with author.region(DIRECTOR, "Set paused: time stands still or runs, and the mix is told", EFFECTS) as b:
+        asked = b.custom("SetPaused")
+        changes = b.branch(b.pure("Operator.NotEqual", A=asked["Paused"], B=b.var("Paused")), comment="Only a change")
+        scale = b.call("Set:Strada.Time.TimeScale", Value=b.expr("paused ? 0.0 : 1.0", paused=asked["Paused"]),
+                       comment="0: no fixed step runs, so the clocks, the countdown and the bike stand still")
+        b.chain(asked, changes)
+        b.chain(changes["True"], scale, b.set("Paused", asked["Paused"]), b.set("MixPending", True))
+    with author.region(DIRECTOR, "Mix: after a pause or a resume, the audio director's mix follows it", RULES) as b:
+        update = b.event("Event.Update")
+        pending = b.branch(b.var("MixPending"), comment="Every graph has seen the frame's presses by its update")
+        done = b.set("MixPending", False)
+        audio = b.var("AudioDirector")
+        known = b.branch(b.runs(Sound.AUDIO_DIRECTOR, audio))
+        differs = b.branch(b.pure("Operator.NotEqual", A=b.get(MIX_PAUSED, Sound.AUDIO_DIRECTOR, audio), B=b.var("Paused")),
+                           comment="A mix already where the pause puts it is left as it is")
+        told = b.send(TOGGLE_PAUSE, audio, graph=Sound.AUDIO_DIRECTOR)
+        b.chain(update, pending)
+        b.chain(pending["True"], done, known)
+        b.flow(known["True"], differs)
+        b.flow(differs["True"], told)
 
 
 def slot_call(b, method, output=None, comment=None, **inputs):

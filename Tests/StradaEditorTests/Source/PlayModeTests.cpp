@@ -2423,7 +2423,8 @@ TEST_CASE("PlayCommands: Prism Break's title rebinds Launch to the key the playe
 }
 
 TEST_CASE("PlayCommands: play mode flies the Moto sample's camera tour, a graph's timeline, from the home view, its actions cut "
-          "to a trackside camera and back and muffle the mix, and stopping brings the camera back; an injected gamepad rides "
+          "to a trackside camera and back and pause the game with the mix muffled, and stopping brings the camera back; an "
+          "injected gamepad rides "
           "the grid bike off, leans it each way, slows it on each brake and shifts it back to neutral, and stopping brings "
           "it back; with PlayOnStart off the "
           "camera stays home; a start on a camera that does not exist is warned of, and one on a trackside camera follows the "
@@ -2466,8 +2467,8 @@ TEST_CASE("PlayCommands: play mode flies the Moto sample's camera tour, a graph'
 	CHECK(readTours() == 0);
 
 	// The project's actions, injected as a player's presses would come, reach the directors' graphs: NextCamera cuts to the
-	// first trackside camera (it alone then shows and hears the scene), Pause blends the mix to the Paused snapshot and
-	// back, and ResetCamera cuts back to the tour, which flew on meanwhile.
+	// first trackside camera (it alone then shows and hears the scene), Pause stops the game and lets it go on again, and
+	// ResetCamera cuts back to the tour, which flew on meanwhile.
 	auto const tap = [&fixture](std::string const& action)
 	{
 		fixture.Ok("input.set", Json::object({{"actions", Json::object({{action, true}})}}));
@@ -2501,11 +2502,31 @@ TEST_CASE("PlayCommands: play mode flies the Moto sample's camera tour, a graph'
 	CHECK(shows("Start Line Camera"));
 	CHECK_FALSE(shows("Main Camera"));
 	CHECK_FALSE(shows("Turn 1 Camera"));
+	// The Pause action is the race director's (Tools/Race.py): time stands still (the tour too), the HUD's pause screen
+	// shows and the mix blends to the Paused snapshot, and the action again lets the game go on. On this tree the audio
+	// director still reads the action and blends the mix itself, so the race director, which tells it only when its mix is
+	// not where the pause puts it, sends it nothing; where the audio director reads no action, the race director's
+	// TogglePause blends it, and this case reads the same.
+	auto const pauseShown = [&fixture]
+	{
+		Entity const screen = fixture.Context.GetScene().FindEntityByName("Pause Screen");
+		REQUIRE(screen);
+		return screen.GetComponent<UIRectComponent>().Visible;
+	};
+	CHECK_FALSE(pauseShown());
 	tap("Pause");
+	glm::vec3 const stopped = findCamera().GetComponent<TransformComponent>().Translation;
 	fixture.Ok("play.advance", Json::object({{"frames", 40}}));
+	CHECK(readVariable("Race", "Paused").GetBool());
+	CHECK(fixture.Context.GetScene().GetTimeScale() == 0.0f);
+	CHECK(pauseShown());
+	CHECK(findCamera().GetComponent<TransformComponent>().Translation == stopped);
 	CHECK(readVariable("Audio Director", "Paused").GetBool());
 	CHECK(AudioEngine::GetCurrentSnapshot() == "Paused");
 	tap("Pause");
+	CHECK_FALSE(readVariable("Race", "Paused").GetBool());
+	CHECK(fixture.Context.GetScene().GetTimeScale() == 1.0f);
+	CHECK_FALSE(pauseShown());
 	CHECK_FALSE(readVariable("Audio Director", "Paused").GetBool());
 	CHECK(AudioEngine::GetCurrentSnapshot().empty());
 	glm::vec3 const flying = findCamera().GetComponent<TransformComponent>().Translation;

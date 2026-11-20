@@ -6747,13 +6747,15 @@ graphs alone keeps its best lap and its settings screen, and none exposes a path
   `Scripts/AudioDirector.sgraph`, to which the `Pause` action sends `TogglePause`: it blends the mix to the `Paused`
   snapshot over `Seconds` (0.5), or back to the mixer's own values, and keeps the read-out `Paused`; with `StartPaused`
   on it sends itself `TogglePause` when the scene starts (a game that opens paused; the sound test below starts muffled
-  that way); nothing else pauses yet. **The input actions** (`Tools/Controls.py`, the `input` part; `Input/Moto.sinput`,
+  that way); the race director's pause, which stops the game, reads the action too and keeps the mix where it puts it
+  ("The race" below). **The input actions** (`Tools/Controls.py`, the `input` part; `Input/Moto.sinput`,
   named by `Moto.sproj`): `Throttle` (an axis: W, the right trigger), `FrontBrake` and `RearBrake` (axes: S and the left
   trigger, Space and the gamepad's X), `Lean` (A and D, the left stick's X), `ShiftUp` and `ShiftDown` (E and Q, the
   bumpers), `Pause` (Escape, Start), `NextCamera` (C, Y), `ResetCamera` (R, Back) and `Confirm` (Enter, A), each on the
   keyboard and any gamepad and no control bound twice, in a group per graph that reads them (`Controls.py`'s `GROUPS`,
   one line each); the audio and camera directors use `Pause`, `NextCamera` and `ResetCamera`, the race director
-  `Confirm`, the bike's riding graph the others. A player's profile that still names `Brake` (from before the two
+  `Confirm` and `Pause`, the bike's riding graph the others.
+  A player's profile that still names `Brake` (from before the two
   brakes) loses that entry, with one log line, as the actions load (§7.4, "Rebinding"). **The test scene**
   (`Scenes/Tests.sscene`, the main scene without its props, which
   stand clear of all it checks, with a crate over the road, two blocks sent sliding with the scene, the `Waiting Tour`,
@@ -6919,22 +6921,42 @@ graphs alone keeps its best lap and its settings screen, and none exposes a path
   `BestLapLoaded`; it saves the slot at the results, only when the race made a new best lap (a save waits for the disk,
   so never while the bike is ridden), with the ghost's arrays when the ghost kept them and without them otherwise.
   `Race.GHOST_GRAPH` is `Scripts/GhostStandIn.sgraph`, which declares what the director reads and writes of a ghost (the
-  arrays, `Delta` and `BestLapLoaded`) and which the ride test scene's stand-in ghost runs; the main scene's ghost rides
-  the racing line and runs none of it, so the main scene keeps the best lap's time and splits alone. **The HUD** (the
-  `hud` part's `Screen` root, a `UICanvas`): speed, gear, engine speed with a shift light, lean, the live delta (the
-  ghost's `Delta`, or the split delta at each gate from the saved splits), the inputs, a track map and the lap's and
-  sectors' times, read from the vehicle's members and the director's read-outs, each text changed only when its value
-  is. UI draws count against the scene's 400: a screen batch is one draw in the screen-space pass, and a second in the
-  editor's scene view, whose entity-ID pass draws the canvases too (the `Canvases` overlay is on by default), and a
-  batch ends wherever the texture changes (rectangles and text alternate). So every panel is saved hidden in
-  `Main.sscene` (a hidden rectangle and what is under it draw nothing) and the graphs show the panel of the director's
-  state while the game plays; the scene as saved, which the editor's start-line view and `MotoSceneTests` render, draws
-  no UI, and the start line keeps its reading. **The pause** is the director's: the `Pause` action sets `Time.TimeScale`
-  to 0 (no step runs, so the clocks and the countdown stop with the game), shows the pause screen and sends the audio
-  director `TogglePause`. **The menus** are stepped buttons (`UIButton`s): the pad moves a selection the graph keeps and
-  `UIButton.Click()` presses it, and the mouse clicks; the settings screen rebinds the riding actions (`Input.StartRebind`,
-  its conflicts shown), sets the assists (the riding graph's `LinkedBrakes` and its share), the quality, the window mode
-  and size and the buses' volumes, kept through `Settings` and the binding profile. **The race's checks**
+  arrays, `BestLapTime`, `Delta` and `BestLapLoaded`) and which the ride test scene's stand-in ghost runs; the main
+  scene's ghost rides the racing line and runs none of it, so the main scene keeps the best lap's time and splits alone.
+  **The HUD** (`Tools/Hud.py`, the `hud` part, which makes the `Screen` root: a `UICanvas` of 1920 by 1080 reference
+  units running `Scripts/Hud.sgraph`, and the track map's image, `Textures/Hud/TrackMap.png`, the circuit's center line
+  from `Circuit.py` seen from above with the line's and the sector gates' ticks) reads the grid bike's vehicle (`Bike`)
+  and the race director (`Race`) every frame. Riding, while the director is `Idle`, counting down or racing: the speed
+  in km/h, the gear (`N` in neutral), the engine speed by 100 rpm with a shift light that lights from the definition's
+  `ShiftUpRPM`, the lean in degrees to the left or the right, the inputs the vehicle applied (`Throttle`, `FrontBrake`
+  and `RearBrake` as bars, `Lean` as a mark either side of the middle) and the bike's mark on the track map. Timing,
+  while counting down, racing and at the results: the lap of the laps, the lap's time, the best lap, the lap's splits,
+  the countdown's seconds, and the delta, green ahead and red behind: the ghost's `Delta` during a lap while the
+  director's `Ghost` runs `Race.GHOST_GRAPH` with a `BestLapTime` above 0, and otherwise the split delta at each gate,
+  the split against the best lap's split there and the lap's time against the best lap's at the line, the best lap as it
+  stood when the lap began (taken at `LapStarted`, since the director has made a faster lap its best before it
+  broadcasts `LapFinished`). A text, a bar or the mark changes only when what it shows does (a km/h, 100 rpm, a degree,
+  a hundredth of an input, a canvas unit, a millisecond). UI draws count against the scene's 400: a screen batch is one
+  draw in the screen-space pass, and a second in the editor's scene view, whose entity-ID pass draws the canvases too
+  (the `Canvases` overlay is on by default), and a batch ends wherever the texture changes. So every group is saved
+  hidden in `Main.sscene` (a hidden rectangle and what is under it draw nothing) and the graph shows the groups of the
+  director's state while the game plays; the scene as saved, which the editor's start-line view and `MotoSceneTests`
+  render, draws no UI, and the start line keeps its reading. The screen draws in hierarchy order, so its elements stand
+  in groups: the map, then every rectangle (the plates, the bars, the shift light, the map's mark), then every text,
+  then the pause screen; shown in a race the HUD adds three batches (the game's view of the start line with the HUD
+  shown, which `MotoSceneTests` renders too, requires at most three draws more than without it and 400 in all), and the
+  pause screen two. **The pause** is the director's: the `Pause` action, in any state, sends it `SetPaused` (which any
+  graph may send, as a menu's Resume will), which sets `Time.TimeScale` to 0 (from the next frame, whose time step is
+  scaled as it begins, no fixed step runs, so the clocks, the countdown and the bike stand still) or back to 1 and
+  publishes `Paused`, which shows the pause screen; `Confirm` does nothing while paused. The mix follows the pause: in
+  the frame's update after a change (every graph has seen the frame's presses by then) the director sends its
+  `AudioDirector` `TogglePause` when that director's `Paused` read-out is not the game's, so a mix another sender has
+  already put there (the audio director's `StartPaused`, or its own reading of the action while it has one) is left as
+  it is and is never toggled twice. **The menus** are stepped buttons (`UIButton`s): the pad moves a selection the graph
+  keeps and `UIButton.Click()` presses it, and the mouse clicks; the settings screen rebinds the riding actions
+  (`Input.StartRebind`, its conflicts shown), sets the assists (the riding graph's `LinkedBrakes` and its share), the
+  quality, the window mode and size and the buses' volumes, kept through `Settings` and the binding profile. **The
+  race's checks**
   (`Tools/RaceChecks.py`, a module of the tests part) join `Ride.sscene` and report after the ride's seven; what they
   read is taken from the scene's first step, beside the ride, by a graph of their own (`Scripts/RaceTests.sgraph`, on
   the `Race Tests` entity, registered by a line of `Checks.MODULE_GRAPHS`) from its `Event.FixedUpdate`, as a function of
@@ -6965,9 +6987,23 @@ graphs alone keeps its best lap and its settings screen, and none exposes a path
   development runs of the scene of 560 frames with one per-user root, which keep their game data in the project's
   `.strada/PlayData` where a
   test run's is temporary, show the first saving the best lap and the second loading it as the scene starts, telling
-  the ghost once, and keeping it. The HUD, the pause and the menus bring their checks with them, and an editor case
-  records the probe's lap with the Telemetry recorder at 30, 60 and 144 frames a second and compares the rows its marks
-  sit on.
+  the ghost once, and keeping it. **The HUD's and the pause's checks** (`Tools/HudChecks.py`, after the race's): the
+  `Hud Tests` entity's graph (`Scripts/HudTests.sgraph`) presses `Pause` by an action override in the ridden bike's
+  launch (the riding graph's `Throttle` open, the bike past 10 m/s, the director still idle and the HUD's riding group
+  shown). A frame's time step is scaled as the frame begins, before the press reaches the director, so the frame of the
+  press still runs its steps and the game stands still from the next: the graph notes the bike's speed in that frame,
+  reads two frames later and presses `Pause` again. Four checks read it: the HUD's speed, gear, engine speed and lean
+  are the vehicle's members written as the HUD writes them; its bars and lean mark stand where the applied inputs put
+  them (the throttle open); the map's mark stands where the bike is; and paused, time scale 0, the `Paused` snapshot,
+  the director's `Paused` and the pause screen together with the bike's speed held to the bit, then two frames after the
+  second press time scale 1, the mixer's own values and the screen hidden. Two more drive a fourth race against the
+  stand-in ghost, its lap 1 begun by a crossing of the line sent the director: with the stand-in's `BestLapTime` 90 s
+  and its `Delta` -1.25 s, then 0.4321 s, the HUD's delta reads `-1.250`, then `+0.432`; with no best lap on the ghost,
+  a crossing of `Gate 1` 2,006 steps after the line reads the split against the second scripted race's best split as the
+  lap began, `+0.608`; then the race is abandoned. The pause inserts frames without fixed steps, so the ride's and the
+  race's readings, and the state at the hash's step, stay what they are. The menus bring their checks with them, and an
+  editor case records the probe's lap with the Telemetry recorder at 30, 60 and 144 frames a second and compares the
+  rows its marks sit on.
 - The Showcase's **Graph Garden**: chimes played by six visual scripts (`Scripts/GraphGarden`; `Tools/GraphGarden.py`
   authors them and `Tools/Author.py --exhibit GraphGarden` rebuilds the exhibit in place, with a hash guard that names
   any file outside the exhibit that changed), whose score is a Timeline; seven of the Showcase's 68 checks look at it.

@@ -500,6 +500,16 @@
 			"Path": "Scripts/GhostStandIn.sgraph"
 		},
 		{
+			"Handle": "17597274584587810305",
+			"Type": "VisualScript",
+			"Path": "Scripts/Hud.sgraph"
+		},
+		{
+			"Handle": "13289157121568671249",
+			"Type": "VisualScript",
+			"Path": "Scripts/HudTests.sgraph"
+		},
+		{
 			"Handle": "12016132572530095741",
 			"Type": "VisualScript",
 			"Path": "Scripts/RaceDirector.sgraph"
@@ -573,6 +583,11 @@
 			"Handle": "1011663255898567750",
 			"Type": "Texture",
 			"Path": "Textures/Gravel.png"
+		},
+		{
+			"Handle": "3344179299930601657",
+			"Type": "Texture",
+			"Path": "Textures/Hud/TrackMap.png"
 		},
 		{
 			"Handle": "7036308293259310363",
