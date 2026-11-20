@@ -7,8 +7,9 @@ the race's. Two things drive what they read:
   time step is scaled as the frame begins, before the press reaches the director, so the frame of the press still runs
   its steps and the game stands still from the next: the graph notes the bike's speed in that frame and takes its
   readings two frames later (time scale 0, the mix's snapshot, the director's Paused, the pause screen, the bike's speed
-  again, and the HUD's texts, bars and mark against the vehicle's members), presses Pause again and reads the game going
-  on two frames later. The pause inserts frames without fixed steps, so the ride and the race read what they read
+  again, and the HUD's texts, bars and mark against the vehicle's members), writes STEADY over the HUD's speed and
+  presses Pause again; the next frame, still standing, the speed must read STEADY (the HUD writes a text only when its
+  value changes, and the speed has not), and the game goes on two frames later. The pause inserts frames without fixed steps, so the ride and the race read what they read
   without it, step for step;
 - three checks of the runner graph, after the race's: a fourth race started and its lap 1 begun by a crossing of the line
   sent the director as its gates send them, against the stand-in ghost, given a best lap and a Delta, then given none
@@ -51,6 +52,8 @@ LAUNCH_SPEED = 10.0
 STOPPED_FRAME = 1
 PAUSED_FRAMES = 3
 RESUMED_FRAMES = 2
+# What the checks write over the HUD's speed while the game stands still, which the HUD leaves while the speed stays.
+STEADY = "STEADY"
 # How far a bar's length or a mark's place may lie from the one the inputs and the place give (canvas units): they are
 # the same formula, so only float rounding.
 PLACE_TOLERANCE = 0.01
@@ -125,6 +128,7 @@ READOUTS = (
     ("ThrottleInput", "float", 0.0, "The throttle the vehicle applied while paused"),
     ("MarkError", "float", 1.0, "How far the map's mark stands from where the bike's place puts it (canvas units)"),
     ("MarkAt", VECTOR2, [0.0, 0.0], "Where the map's mark stands while paused (canvas units)"),
+    ("SteadyShown", "string", "", f"The HUD's speed the frame after {STEADY} was written over it, the game still standing"),
 )
 ENTITY_VARIABLES = (
     ("Race", "The race director"),
@@ -197,10 +201,14 @@ def write_functions(author):
         b.chain(b.entry, counted, stopped)
         b.chain(stopped["True"], moving, reached)
         b.flow(stopped["False"], reached)
-        b.chain(reached["True"], b.own("Read"), pause_pressed(b, True), *enter(b, "Release"), b.ret)
+        steady = b.call("Set:Strada.UITextComponent.Text", Target=element(b, "SpeedText"), Value=STEADY,
+                        comment="The speed stays while the game stands: the HUD leaves the text")
+        b.chain(reached["True"], b.own("Read"), steady, pause_pressed(b, True), *enter(b, "Release"), b.ret)
         b.flow(reached["False"], b.ret)
-    with author.region(HUD_TESTS, "Release: the second press let go", EVENTS, "Release") as b:
-        b.chain(b.entry, pause_pressed(b, False), *enter(b, "Resumed"), b.ret)
+    with author.region(HUD_TESTS, "Release: the second press let go; the speed's text kept as it stands", EVENTS,
+                       "Release") as b:
+        kept = b.set("SteadyShown", text_of(b, "SpeedText"))
+        b.chain(b.entry, kept, pause_pressed(b, False), *enter(b, "Resumed"), b.ret)
     with author.region(HUD_TESTS, "Resumed: frames later, the game going on", EVENTS, "Resumed") as b:
         counted, reached = frames_reached(b, RESUMED_FRAMES)
         readings = [b.set("ResumedScale", b.pure("Get:Strada.Time.TimeScale", "Value")),
@@ -287,6 +295,8 @@ def checks():
          "the HUD's bars and lean mark show the inputs the vehicle applied"),
         ("CheckHudMap", "HUD: the bike's mark on the track map where the bike is",
          "the track map's mark stands where the bike is"),
+        ("CheckHudSteady", "HUD: a text left as it is while its value stays",
+         "the HUD writes a text only when its value changes: a text written over while the game stands is left"),
         ("CheckPause", "Pause: the game stops, the mix muffles and the screen shows, then back",
          "the Pause action stops the game with the Paused snapshot and the pause screen, and lets it go on again"),
         ("CheckLiveDelta", "Live delta: the ghost's delta while it rides a best lap",
@@ -325,6 +335,14 @@ def write_hud_map(b, name):
     done = driver(b, "Done")
     passed = b.both(done, b.expr(f"error <= {PLACE_TOLERANCE}", error=driver(b, "MarkError")))
     detail = b.fmt("the mark at {At}, {Error} units from where the bike is", At=driver(b, "MarkAt"), Error=driver(b, "MarkError"))
+    run(b, Checks.check(b, name, done, HUD_WAIT, detail, passed))
+
+
+def write_hud_steady(b, name):
+    done = driver(b, "Done")
+    passed = b.both(done, b.equal(driver(b, "SteadyShown"), b.lit("string", STEADY)))
+    detail = b.fmt(f"the speed read '{{Steady}}' a frame after '{STEADY}' was written over it, the speed unchanged",
+                   Steady=driver(b, "SteadyShown"))
     run(b, Checks.check(b, name, done, HUD_WAIT, detail, passed))
 
 
@@ -436,6 +454,7 @@ WRITERS = {
     "CheckHudTexts": write_hud_texts,
     "CheckHudInputs": write_hud_inputs,
     "CheckHudMap": write_hud_map,
+    "CheckHudSteady": write_hud_steady,
     "CheckPause": write_pause,
     "CheckLiveDelta": write_live_delta,
     "CheckSplitDelta": write_split_delta,

@@ -28,20 +28,23 @@ using namespace Strada::RuntimeTesting;
 // Beside the ride, from the scene's first step, a graph of the race's checks (Tools/RaceChecks.py) sends a box through the
 // race's trigger gates, the bike's top speed among the speeds, and the race director two scripted three-lap races and a
 // third that the box's crossing of the line begins, then abandons; the director keeps its best lap in the game's save
-// slot, and the checks report after the ride's. Its readings are logged in one line too ("Moto's race: ...", by about step
-// 480), compared between the frame rates, and two short runs that keep their data (development runs, not test runs) show
-// the slot the first saved loaded by the second. Last come the HUD's and the pause's checks (Tools/HudChecks.py): a graph
-// presses the Pause action in the middle of the ride's lean and reads the stopped game and the HUD against the bike, and
-// a fourth race shows the ghost's live delta and the split delta at a sector gate, and a fifth's countdown neither. Then the
-// menus' checks (Tools/MenuChecks.py) press the menus as a player does: the title's RACE, a race to its results, the
-// settings screen's buttons read back through Settings, a binding that listens, the pad's selection and the pause screen.
+// slot once the results show (never in a fixed step), and the checks report after the ride's. Its readings are logged in
+// one line too ("Moto's race: ...", by about step 480), compared between the frame rates, and two short runs that keep
+// their data (development runs, not test runs) show the slot the first saved loaded by the second, which gives the ghost
+// its time. Last come the HUD's and the pause's checks (Tools/HudChecks.py): a graph presses the Pause action in the
+// middle of the ride's lean and reads the stopped game and the HUD against the bike (a text written over while the game
+// stands is left as it is), and a fourth race shows the ghost's live delta and the split delta at a sector gate, and a
+// fifth's countdown neither. Then the menus' checks (Tools/MenuChecks.py) press the menus as a player does: the title's
+// RACE, a race to its results, the settings screen's buttons read back through Settings, a binding that listens, the
+// pad's selection, the pause screen, and a race whose best lap is kept when it is left by the pause screen's QUIT TO
+// TITLE.
 // The pause inserts frames without fixed steps, so the ride's and the race's readings and the state at the hash's step stay
 // what they are.
 
 namespace
 {
 	// The ride test scene's checks.
-	constexpr std::string_view RideChecks = "Tests passed: 29 checks";
+	constexpr std::string_view RideChecks = "Tests passed: 31 checks";
 	// A fixed step of the ride after it was teleported into the gravel trap and back (by about step 1,650) and before it ends
 	// (about step 1,870): the physics state there is the same at every frame rate.
 	constexpr std::string_view HashStep = "1750";
@@ -162,8 +165,9 @@ TEST_CASE("Runtime: Moto's race keeps its best lap in the game's save slot, whic
 {
 	// Development runs of the ride test scene, which keep their game data in the project's folder (a test run's is
 	// temporary), each 560 frames at 1/60 s, past the race's readings: the first finds no best lap and saves the scripted
-	// races' best at their results, the second race's with the stand-in ghost's samples; the second run loads it as the scene
-	// starts and tells the ghost, and its races beat nothing, so the slot keeps the first run's. A run without a window that
+	// races' best once their results show, the second race's with the stand-in ghost's samples; the second run loads it as
+	// the scene starts, gives the ghost its time and tells it, and its races beat nothing, so the slot keeps the first run's
+	// and nothing is saved again. A run without a window that
 	// is not a test run is paced at 60 frames a second, so the runs stop well before the ride's end.
 	Testing::TemporaryDirectory directory;
 	std::filesystem::path const project = CopyRepositoryProject("Moto", directory.GetPath());
@@ -176,7 +180,8 @@ TEST_CASE("Runtime: Moto's race keeps its best lap in the game's save slot, whic
 	CHECK(first.ExitCode == 0);
 	std::string_view const saving = RaceReadings(first.Output);
 	REQUIRE_FALSE(saving.empty());
-	CHECK(Contains(saving, "loaded at start: 0 s, the ghost told 0 times"));
+	CHECK(Contains(saving, "loaded at start: 0 s, the ghost told 0 times with a best lap of 0 s; the best lap saved 2 times, "
+	                       "in a finish's step False"));
 	std::string const saved(RaceReading(saving, "the slot keeps ", " s, "));
 	REQUIRE_FALSE(saved.empty());
 	CHECK(saved != "-1");
@@ -190,5 +195,7 @@ TEST_CASE("Runtime: Moto's race keeps its best lap in the game's save slot, whic
 	REQUIRE_FALSE(loading.empty());
 	CHECK(RaceReading(loading, "loaded at start: ", " s, ") == saved);
 	CHECK(Contains(loading, "the ghost told 1 times"));
+	CHECK(RaceReading(loading, "with a best lap of ", " s; ") == saved);
+	CHECK(Contains(loading, "the best lap saved 0 times"));
 	CHECK(RaceReading(loading, "the slot keeps ", " s, ") == saved);
 }

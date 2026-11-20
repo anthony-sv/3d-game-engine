@@ -4,7 +4,7 @@
 		"Type": "VisualScript"
 	},
 	"VisualScript": {
-		"Description": "What the settings screen's assists write of a riding graph: the linked brakes and their share. The ride test scene's stand-in rider runs it.",
+		"Description": "What the settings screen's assists write of a riding graph: the linked brakes, their share and the automatic shifts. The ride test scene's stand-in rider runs it.",
 		"Variables": [
 			{
 				"ID": 1,
@@ -25,6 +25,14 @@
 					0.0,
 					1.0
 				]
+			},
+			{
+				"ID": 3,
+				"Name": "AutoShift",
+				"Type": "bool",
+				"Value": true,
+				"Public": true,
+				"Tooltip": "The automatic shifts: the gearbox shifts by itself at the definition's speeds"
 			}
 		],
 		"Functions": [],

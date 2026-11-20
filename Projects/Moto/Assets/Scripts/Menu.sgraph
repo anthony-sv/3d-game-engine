@@ -18,7 +18,7 @@
 				"Name": "Rider",
 				"Type": "Strada.Entity",
 				"Public": true,
-				"Tooltip": "The bike whose riding graph takes the linked brakes' settings"
+				"Tooltip": "The bike whose riding graph takes the assists' settings"
 			},
 			{
 				"ID": 3,
@@ -264,7 +264,7 @@
 				"Type": "int",
 				"Value": 0,
 				"Public": true,
-				"Tooltip": "How many times the linked brakes' settings were given to the rider (a read-out)"
+				"Tooltip": "How many times the assists' settings were given to the rider (a read-out)"
 			},
 			{
 				"ID": 35,
@@ -2647,7 +2647,7 @@
 							"ID": 77,
 							"Type": "Function.Return",
 							"Position": [
-								3552.0,
+								3856.0,
 								0.0
 							]
 						},
@@ -3273,7 +3273,81 @@
 							"ID": 273,
 							"Type": "Set:Strada.UITextComponent.Text",
 							"Position": [
-								3360.0,
+								3392.0,
+								144.0
+							]
+						},
+						{
+							"ID": 274,
+							"Type": "Array.Get",
+							"Position": [
+								3392.0,
+								0.0
+							],
+							"Inputs": {
+								"Index": 9
+							}
+						},
+						{
+							"ID": 275,
+							"Type": "Literal",
+							"Position": [
+								2816.0,
+								608.0
+							],
+							"Settings": {
+								"Type": "bool",
+								"Value": true
+							}
+						},
+						{
+							"ID": 276,
+							"Type": "Call:Strada.Settings.Get<T>(string,T)",
+							"Position": [
+								3088.0,
+								432.0
+							],
+							"Inputs": {
+								"Name": "AutoShift"
+							}
+						},
+						{
+							"ID": 277,
+							"Type": "Literal",
+							"Position": [
+								3088.0,
+								576.0
+							],
+							"Settings": {
+								"Type": "string",
+								"Value": "ON"
+							}
+						},
+						{
+							"ID": 278,
+							"Type": "Literal",
+							"Position": [
+								3088.0,
+								704.0
+							],
+							"Settings": {
+								"Type": "string",
+								"Value": "OFF"
+							}
+						},
+						{
+							"ID": 279,
+							"Type": "Select",
+							"Position": [
+								3392.0,
+								320.0
+							]
+						},
+						{
+							"ID": 280,
+							"Type": "Set:Strada.UITextComponent.Text",
+							"Position": [
+								3664.0,
 								0.0
 							]
 						}
@@ -3891,6 +3965,76 @@
 						},
 						{
 							"From": [
+								231,
+								"Value"
+							],
+							"To": [
+								274,
+								"Array"
+							]
+						},
+						{
+							"From": [
+								275,
+								"Value"
+							],
+							"To": [
+								276,
+								"Fallback"
+							]
+						},
+						{
+							"From": [
+								276,
+								"Result"
+							],
+							"To": [
+								279,
+								"Condition"
+							]
+						},
+						{
+							"From": [
+								277,
+								"Value"
+							],
+							"To": [
+								279,
+								"True"
+							]
+						},
+						{
+							"From": [
+								278,
+								"Value"
+							],
+							"To": [
+								279,
+								"False"
+							]
+						},
+						{
+							"From": [
+								274,
+								"Element"
+							],
+							"To": [
+								280,
+								"Target"
+							]
+						},
+						{
+							"From": [
+								279,
+								"Result"
+							],
+							"To": [
+								280,
+								"Value"
+							]
+						},
+						{
+							"From": [
 								76,
 								"Then"
 							],
@@ -3985,6 +4129,16 @@
 								"Then"
 							],
 							"To": [
+								280,
+								"Execute"
+							]
+						},
+						{
+							"From": [
+								280,
+								"Then"
+							],
+							"To": [
 								77,
 								"Execute"
 							]
@@ -3992,14 +4146,14 @@
 					],
 					"Comments": [
 						{
-							"ID": 274,
+							"ID": 281,
 							"Text": "Show values: each setting as Settings reads it",
 							"Position": [
 								-32.0,
 								-72.0
 							],
 							"Size": [
-								3736.0,
+								4040.0,
 								1050.0
 							],
 							"Color": [
@@ -4038,7 +4192,7 @@
 							]
 						},
 						{
-							"ID": 275,
+							"ID": 282,
 							"Type": "Variable.Get",
 							"Position": [
 								0.0,
@@ -4049,7 +4203,7 @@
 							}
 						},
 						{
-							"ID": 276,
+							"ID": 283,
 							"Type": "Flow.ForEach",
 							"Position": [
 								192.0,
@@ -4057,7 +4211,7 @@
 							]
 						},
 						{
-							"ID": 277,
+							"ID": 284,
 							"Type": "Variable.Get",
 							"Position": [
 								432.0,
@@ -4068,7 +4222,7 @@
 							}
 						},
 						{
-							"ID": 278,
+							"ID": 285,
 							"Type": "Array.Get",
 							"Position": [
 								720.0,
@@ -4076,7 +4230,7 @@
 							]
 						},
 						{
-							"ID": 279,
+							"ID": 286,
 							"Type": "Call:Strada.Input.GetBindingControls(string,int)",
 							"Position": [
 								432.0,
@@ -4087,7 +4241,7 @@
 							}
 						},
 						{
-							"ID": 280,
+							"ID": 287,
 							"Type": "Function.Call",
 							"Position": [
 								720.0,
@@ -4098,7 +4252,7 @@
 							}
 						},
 						{
-							"ID": 281,
+							"ID": 288,
 							"Type": "Set:Strada.UITextComponent.Text",
 							"Position": [
 								1008.0,
@@ -4106,7 +4260,7 @@
 							]
 						},
 						{
-							"ID": 282,
+							"ID": 289,
 							"Type": "Variable.Get",
 							"Position": [
 								720.0,
@@ -4117,7 +4271,7 @@
 							}
 						},
 						{
-							"ID": 283,
+							"ID": 290,
 							"Type": "Array.Get",
 							"Position": [
 								1008.0,
@@ -4125,7 +4279,7 @@
 							]
 						},
 						{
-							"ID": 284,
+							"ID": 291,
 							"Type": "Call:Strada.Input.GetBindingControls(string,int)",
 							"Position": [
 								720.0,
@@ -4136,7 +4290,7 @@
 							}
 						},
 						{
-							"ID": 285,
+							"ID": 292,
 							"Type": "Function.Call",
 							"Position": [
 								1008.0,
@@ -4147,7 +4301,7 @@
 							}
 						},
 						{
-							"ID": 286,
+							"ID": 293,
 							"Type": "Set:Strada.UITextComponent.Text",
 							"Position": [
 								1216.0,
@@ -4156,76 +4310,6 @@
 						}
 					],
 					"Links": [
-						{
-							"From": [
-								275,
-								"Value"
-							],
-							"To": [
-								276,
-								"Array"
-							]
-						},
-						{
-							"From": [
-								277,
-								"Value"
-							],
-							"To": [
-								278,
-								"Array"
-							]
-						},
-						{
-							"From": [
-								276,
-								"Index"
-							],
-							"To": [
-								278,
-								"Index"
-							]
-						},
-						{
-							"From": [
-								276,
-								"Element"
-							],
-							"To": [
-								279,
-								"Action"
-							]
-						},
-						{
-							"From": [
-								279,
-								"Result"
-							],
-							"To": [
-								280,
-								"Controls"
-							]
-						},
-						{
-							"From": [
-								278,
-								"Element"
-							],
-							"To": [
-								281,
-								"Target"
-							]
-						},
-						{
-							"From": [
-								280,
-								"Name"
-							],
-							"To": [
-								281,
-								"Value"
-							]
-						},
 						{
 							"From": [
 								282,
@@ -4238,32 +4322,82 @@
 						},
 						{
 							"From": [
-								276,
+								284,
+								"Value"
+							],
+							"To": [
+								285,
+								"Array"
+							]
+						},
+						{
+							"From": [
+								283,
 								"Index"
 							],
 							"To": [
-								283,
+								285,
 								"Index"
 							]
 						},
 						{
 							"From": [
-								276,
+								283,
 								"Element"
 							],
 							"To": [
-								284,
+								286,
 								"Action"
 							]
 						},
 						{
 							"From": [
-								284,
+								286,
 								"Result"
 							],
 							"To": [
-								285,
+								287,
 								"Controls"
+							]
+						},
+						{
+							"From": [
+								285,
+								"Element"
+							],
+							"To": [
+								288,
+								"Target"
+							]
+						},
+						{
+							"From": [
+								287,
+								"Name"
+							],
+							"To": [
+								288,
+								"Value"
+							]
+						},
+						{
+							"From": [
+								289,
+								"Value"
+							],
+							"To": [
+								290,
+								"Array"
+							]
+						},
+						{
+							"From": [
+								283,
+								"Index"
+							],
+							"To": [
+								290,
+								"Index"
 							]
 						},
 						{
@@ -4272,17 +4406,37 @@
 								"Element"
 							],
 							"To": [
-								286,
+								291,
+								"Action"
+							]
+						},
+						{
+							"From": [
+								291,
+								"Result"
+							],
+							"To": [
+								292,
+								"Controls"
+							]
+						},
+						{
+							"From": [
+								290,
+								"Element"
+							],
+							"To": [
+								293,
 								"Target"
 							]
 						},
 						{
 							"From": [
-								285,
+								292,
 								"Name"
 							],
 							"To": [
-								286,
+								293,
 								"Value"
 							]
 						},
@@ -4292,33 +4446,33 @@
 								"Then"
 							],
 							"To": [
-								276,
+								283,
 								"Execute"
 							]
 						},
 						{
 							"From": [
-								276,
+								283,
 								"Body"
 							],
 							"To": [
-								281,
+								288,
 								"Execute"
 							]
 						},
 						{
 							"From": [
-								281,
+								288,
 								"Then"
 							],
 							"To": [
-								286,
+								293,
 								"Execute"
 							]
 						},
 						{
 							"From": [
-								276,
+								283,
 								"Completed"
 							],
 							"To": [
@@ -4329,7 +4483,7 @@
 					],
 					"Comments": [
 						{
-							"ID": 287,
+							"ID": 294,
 							"Text": "Show controls: each riding action's keyboard and gamepad binding",
 							"Position": [
 								-32.0,
@@ -4375,7 +4529,7 @@
 							]
 						},
 						{
-							"ID": 288,
+							"ID": 295,
 							"Type": "Variable.Get",
 							"Position": [
 								0.0,
@@ -4386,7 +4540,7 @@
 							}
 						},
 						{
-							"ID": 289,
+							"ID": 296,
 							"Type": "Flow.ForEach",
 							"Position": [
 								192.0,
@@ -4394,7 +4548,7 @@
 							]
 						},
 						{
-							"ID": 290,
+							"ID": 297,
 							"Type": "Literal",
 							"Position": [
 								192.0,
@@ -4411,7 +4565,7 @@
 							}
 						},
 						{
-							"ID": 291,
+							"ID": 298,
 							"Type": "Set:Strada.UIButtonComponent.NormalColor",
 							"Position": [
 								432.0,
@@ -4419,7 +4573,7 @@
 							]
 						},
 						{
-							"ID": 292,
+							"ID": 299,
 							"Type": "Variable.Get",
 							"Position": [
 								0.0,
@@ -4430,7 +4584,7 @@
 							}
 						},
 						{
-							"ID": 293,
+							"ID": 300,
 							"Type": "String.IsEmpty",
 							"Position": [
 								192.0,
@@ -4438,7 +4592,7 @@
 							]
 						},
 						{
-							"ID": 294,
+							"ID": 301,
 							"Type": "Operator.Not",
 							"Position": [
 								432.0,
@@ -4446,7 +4600,7 @@
 							]
 						},
 						{
-							"ID": 295,
+							"ID": 302,
 							"Type": "Flow.Branch",
 							"Position": [
 								624.0,
@@ -4455,7 +4609,7 @@
 							"Comment": "A screen is shown"
 						},
 						{
-							"ID": 296,
+							"ID": 303,
 							"Type": "Variable.Get",
 							"Position": [
 								432.0,
@@ -4466,7 +4620,7 @@
 							}
 						},
 						{
-							"ID": 297,
+							"ID": 304,
 							"Type": "Variable.Get",
 							"Position": [
 								432.0,
@@ -4477,7 +4631,7 @@
 							}
 						},
 						{
-							"ID": 298,
+							"ID": 305,
 							"Type": "Array.Get",
 							"Position": [
 								624.0,
@@ -4485,7 +4639,7 @@
 							]
 						},
 						{
-							"ID": 299,
+							"ID": 306,
 							"Type": "Literal",
 							"Position": [
 								432.0,
@@ -4497,7 +4651,7 @@
 							}
 						},
 						{
-							"ID": 300,
+							"ID": 307,
 							"Type": "Operator.Equal",
 							"Position": [
 								624.0,
@@ -4505,7 +4659,7 @@
 							]
 						},
 						{
-							"ID": 301,
+							"ID": 308,
 							"Type": "Expression",
 							"Position": [
 								848.0,
@@ -4516,7 +4670,7 @@
 							}
 						},
 						{
-							"ID": 302,
+							"ID": 309,
 							"Type": "Function.Call",
 							"Position": [
 								848.0,
@@ -4530,7 +4684,7 @@
 							}
 						},
 						{
-							"ID": 303,
+							"ID": 310,
 							"Type": "Function.Call",
 							"Position": [
 								1072.0,
@@ -4544,7 +4698,7 @@
 							}
 						},
 						{
-							"ID": 304,
+							"ID": 311,
 							"Type": "Operator.Not",
 							"Position": [
 								1072.0,
@@ -4552,7 +4706,7 @@
 							]
 						},
 						{
-							"ID": 305,
+							"ID": 312,
 							"Type": "Flow.Branch",
 							"Position": [
 								1296.0,
@@ -4561,91 +4715,11 @@
 							"Comment": "A setting's < and >, or a button: both; a riding action: its chosen binding"
 						},
 						{
-							"ID": 306,
-							"Type": "Literal",
-							"Position": [
-								1296.0,
-								0.0
-							],
-							"Settings": {
-								"Type": "Strada.Color",
-								"Value": [
-									0.95,
-									0.5,
-									0.08,
-									1.0
-								]
-							}
-						},
-						{
-							"ID": 307,
-							"Type": "Set:Strada.UIButtonComponent.NormalColor",
-							"Position": [
-								1520.0,
-								0.0
-							]
-						},
-						{
-							"ID": 308,
-							"Type": "Literal",
-							"Position": [
-								1520.0,
-								176.0
-							],
-							"Settings": {
-								"Type": "Strada.Color",
-								"Value": [
-									0.95,
-									0.5,
-									0.08,
-									1.0
-								]
-							}
-						},
-						{
-							"ID": 309,
-							"Type": "Set:Strada.UIButtonComponent.NormalColor",
-							"Position": [
-								1712.0,
-								0.0
-							]
-						},
-						{
-							"ID": 310,
-							"Type": "Variable.Get",
-							"Position": [
-								848.0,
-								304.0
-							],
-							"Settings": {
-								"Variable": 29
-							}
-						},
-						{
-							"ID": 311,
-							"Type": "Expression",
-							"Position": [
-								1072.0,
-								272.0
-							],
-							"Settings": {
-								"Formula": "column == 1"
-							}
-						},
-						{
-							"ID": 312,
-							"Type": "Select",
-							"Position": [
-								1296.0,
-								256.0
-							]
-						},
-						{
 							"ID": 313,
 							"Type": "Literal",
 							"Position": [
 								1296.0,
-								416.0
+								0.0
 							],
 							"Settings": {
 								"Type": "Strada.Color",
@@ -4662,6 +4736,86 @@
 							"Type": "Set:Strada.UIButtonComponent.NormalColor",
 							"Position": [
 								1520.0,
+								0.0
+							]
+						},
+						{
+							"ID": 315,
+							"Type": "Literal",
+							"Position": [
+								1520.0,
+								176.0
+							],
+							"Settings": {
+								"Type": "Strada.Color",
+								"Value": [
+									0.95,
+									0.5,
+									0.08,
+									1.0
+								]
+							}
+						},
+						{
+							"ID": 316,
+							"Type": "Set:Strada.UIButtonComponent.NormalColor",
+							"Position": [
+								1712.0,
+								0.0
+							]
+						},
+						{
+							"ID": 317,
+							"Type": "Variable.Get",
+							"Position": [
+								848.0,
+								304.0
+							],
+							"Settings": {
+								"Variable": 29
+							}
+						},
+						{
+							"ID": 318,
+							"Type": "Expression",
+							"Position": [
+								1072.0,
+								272.0
+							],
+							"Settings": {
+								"Formula": "column == 1"
+							}
+						},
+						{
+							"ID": 319,
+							"Type": "Select",
+							"Position": [
+								1296.0,
+								256.0
+							]
+						},
+						{
+							"ID": 320,
+							"Type": "Literal",
+							"Position": [
+								1296.0,
+								416.0
+							],
+							"Settings": {
+								"Type": "Strada.Color",
+								"Value": [
+									0.95,
+									0.5,
+									0.08,
+									1.0
+								]
+							}
+						},
+						{
+							"ID": 321,
+							"Type": "Set:Strada.UIButtonComponent.NormalColor",
+							"Position": [
+								1520.0,
 								304.0
 							]
 						}
@@ -4669,62 +4823,22 @@
 					"Links": [
 						{
 							"From": [
-								288,
+								295,
 								"Value"
 							],
 							"To": [
-								289,
+								296,
 								"Array"
 							]
 						},
 						{
 							"From": [
-								289,
+								296,
 								"Element"
 							],
 							"To": [
-								291,
+								298,
 								"Target"
-							]
-						},
-						{
-							"From": [
-								290,
-								"Value"
-							],
-							"To": [
-								291,
-								"Value"
-							]
-						},
-						{
-							"From": [
-								292,
-								"Value"
-							],
-							"To": [
-								293,
-								"Text"
-							]
-						},
-						{
-							"From": [
-								293,
-								"Result"
-							],
-							"To": [
-								294,
-								"A"
-							]
-						},
-						{
-							"From": [
-								294,
-								"Result"
-							],
-							"To": [
-								295,
-								"Condition"
 							]
 						},
 						{
@@ -4734,27 +4848,7 @@
 							],
 							"To": [
 								298,
-								"Array"
-							]
-						},
-						{
-							"From": [
-								296,
 								"Value"
-							],
-							"To": [
-								298,
-								"Index"
-							]
-						},
-						{
-							"From": [
-								292,
-								"Value"
-							],
-							"To": [
-								300,
-								"A"
 							]
 						},
 						{
@@ -4764,7 +4858,7 @@
 							],
 							"To": [
 								300,
-								"B"
+								"Text"
 							]
 						},
 						{
@@ -4774,67 +4868,47 @@
 							],
 							"To": [
 								301,
-								"inside"
-							]
-						},
-						{
-							"From": [
-								298,
-								"Element"
-							],
-							"To": [
-								301,
-								"kind"
-							]
-						},
-						{
-							"From": [
-								296,
-								"Value"
-							],
-							"To": [
-								302,
-								"Index"
-							]
-						},
-						{
-							"From": [
-								296,
-								"Value"
-							],
-							"To": [
-								303,
-								"Index"
-							]
-						},
-						{
-							"From": [
-								301,
-								"Result"
-							],
-							"To": [
-								304,
 								"A"
 							]
 						},
 						{
 							"From": [
-								304,
+								301,
 								"Result"
 							],
 							"To": [
-								305,
+								302,
 								"Condition"
 							]
 						},
 						{
 							"From": [
-								302,
-								"Button"
+								304,
+								"Value"
+							],
+							"To": [
+								305,
+								"Array"
+							]
+						},
+						{
+							"From": [
+								303,
+								"Value"
+							],
+							"To": [
+								305,
+								"Index"
+							]
+						},
+						{
+							"From": [
+								299,
+								"Value"
 							],
 							"To": [
 								307,
-								"Target"
+								"A"
 							]
 						},
 						{
@@ -4844,37 +4918,57 @@
 							],
 							"To": [
 								307,
-								"Value"
+								"B"
+							]
+						},
+						{
+							"From": [
+								307,
+								"Result"
+							],
+							"To": [
+								308,
+								"inside"
+							]
+						},
+						{
+							"From": [
+								305,
+								"Element"
+							],
+							"To": [
+								308,
+								"kind"
 							]
 						},
 						{
 							"From": [
 								303,
-								"Button"
+								"Value"
 							],
 							"To": [
 								309,
-								"Target"
+								"Index"
+							]
+						},
+						{
+							"From": [
+								303,
+								"Value"
+							],
+							"To": [
+								310,
+								"Index"
 							]
 						},
 						{
 							"From": [
 								308,
-								"Value"
-							],
-							"To": [
-								309,
-								"Value"
-							]
-						},
-						{
-							"From": [
-								310,
-								"Value"
+								"Result"
 							],
 							"To": [
 								311,
-								"column"
+								"A"
 							]
 						},
 						{
@@ -4889,28 +4983,8 @@
 						},
 						{
 							"From": [
-								303,
+								309,
 								"Button"
-							],
-							"To": [
-								312,
-								"True"
-							]
-						},
-						{
-							"From": [
-								302,
-								"Button"
-							],
-							"To": [
-								312,
-								"False"
-							]
-						},
-						{
-							"From": [
-								312,
-								"Result"
 							],
 							"To": [
 								314,
@@ -4929,40 +5003,110 @@
 						},
 						{
 							"From": [
+								310,
+								"Button"
+							],
+							"To": [
+								316,
+								"Target"
+							]
+						},
+						{
+							"From": [
+								315,
+								"Value"
+							],
+							"To": [
+								316,
+								"Value"
+							]
+						},
+						{
+							"From": [
+								317,
+								"Value"
+							],
+							"To": [
+								318,
+								"column"
+							]
+						},
+						{
+							"From": [
+								318,
+								"Result"
+							],
+							"To": [
+								319,
+								"Condition"
+							]
+						},
+						{
+							"From": [
+								310,
+								"Button"
+							],
+							"To": [
+								319,
+								"True"
+							]
+						},
+						{
+							"From": [
+								309,
+								"Button"
+							],
+							"To": [
+								319,
+								"False"
+							]
+						},
+						{
+							"From": [
+								319,
+								"Result"
+							],
+							"To": [
+								321,
+								"Target"
+							]
+						},
+						{
+							"From": [
+								320,
+								"Value"
+							],
+							"To": [
+								321,
+								"Value"
+							]
+						},
+						{
+							"From": [
 								82,
 								"Then"
 							],
 							"To": [
-								289,
+								296,
 								"Execute"
 							]
 						},
 						{
 							"From": [
-								289,
+								296,
 								"Body"
 							],
 							"To": [
-								291,
+								298,
 								"Execute"
 							]
 						},
 						{
 							"From": [
-								289,
+								296,
 								"Completed"
 							],
 							"To": [
-								295,
-								"Execute"
-							]
-						},
-						{
-							"From": [
-								295,
-								"True"
-							],
-							"To": [
 								302,
 								"Execute"
 							]
@@ -4970,37 +5114,7 @@
 						{
 							"From": [
 								302,
-								"Then"
-							],
-							"To": [
-								303,
-								"Execute"
-							]
-						},
-						{
-							"From": [
-								303,
-								"Then"
-							],
-							"To": [
-								305,
-								"Execute"
-							]
-						},
-						{
-							"From": [
-								305,
 								"True"
-							],
-							"To": [
-								307,
-								"Execute"
-							]
-						},
-						{
-							"From": [
-								307,
-								"Then"
 							],
 							"To": [
 								309,
@@ -5010,6 +5124,46 @@
 						{
 							"From": [
 								309,
+								"Then"
+							],
+							"To": [
+								310,
+								"Execute"
+							]
+						},
+						{
+							"From": [
+								310,
+								"Then"
+							],
+							"To": [
+								312,
+								"Execute"
+							]
+						},
+						{
+							"From": [
+								312,
+								"True"
+							],
+							"To": [
+								314,
+								"Execute"
+							]
+						},
+						{
+							"From": [
+								314,
+								"Then"
+							],
+							"To": [
+								316,
+								"Execute"
+							]
+						},
+						{
+							"From": [
+								316,
 								"Then"
 							],
 							"To": [
@@ -5019,17 +5173,17 @@
 						},
 						{
 							"From": [
-								305,
+								312,
 								"False"
 							],
 							"To": [
-								314,
+								321,
 								"Execute"
 							]
 						},
 						{
 							"From": [
-								314,
+								321,
 								"Then"
 							],
 							"To": [
@@ -5039,7 +5193,7 @@
 						},
 						{
 							"From": [
-								295,
+								302,
 								"False"
 							],
 							"To": [
@@ -5050,7 +5204,7 @@
 					],
 					"Comments": [
 						{
-							"ID": 315,
+							"ID": 322,
 							"Text": "Tint: the selected buttons in their own colour",
 							"Position": [
 								-32.0,
@@ -5101,7 +5255,7 @@
 							]
 						},
 						{
-							"ID": 316,
+							"ID": 323,
 							"Type": "Variable.Set",
 							"Position": [
 								192.0,
@@ -5112,7 +5266,7 @@
 							}
 						},
 						{
-							"ID": 317,
+							"ID": 324,
 							"Type": "Variable.Get",
 							"Position": [
 								192.0,
@@ -5123,7 +5277,7 @@
 							}
 						},
 						{
-							"ID": 318,
+							"ID": 325,
 							"Type": "Variable.Get",
 							"Position": [
 								0.0,
@@ -5134,7 +5288,7 @@
 							}
 						},
 						{
-							"ID": 319,
+							"ID": 326,
 							"Type": "Literal",
 							"Position": [
 								0.0,
@@ -5146,7 +5300,7 @@
 							}
 						},
 						{
-							"ID": 320,
+							"ID": 327,
 							"Type": "Operator.Equal",
 							"Position": [
 								192.0,
@@ -5154,7 +5308,7 @@
 							]
 						},
 						{
-							"ID": 321,
+							"ID": 328,
 							"Type": "Set:Strada.UIRectComponent.Visible",
 							"Position": [
 								384.0,
@@ -5162,7 +5316,7 @@
 							]
 						},
 						{
-							"ID": 322,
+							"ID": 329,
 							"Type": "Variable.Get",
 							"Position": [
 								384.0,
@@ -5173,7 +5327,7 @@
 							}
 						},
 						{
-							"ID": 323,
+							"ID": 330,
 							"Type": "Literal",
 							"Position": [
 								192.0,
@@ -5185,7 +5339,7 @@
 							}
 						},
 						{
-							"ID": 324,
+							"ID": 331,
 							"Type": "Operator.Equal",
 							"Position": [
 								384.0,
@@ -5193,7 +5347,7 @@
 							]
 						},
 						{
-							"ID": 325,
+							"ID": 332,
 							"Type": "Set:Strada.UIRectComponent.Visible",
 							"Position": [
 								576.0,
@@ -5201,7 +5355,7 @@
 							]
 						},
 						{
-							"ID": 326,
+							"ID": 333,
 							"Type": "Variable.Get",
 							"Position": [
 								576.0,
@@ -5212,7 +5366,7 @@
 							}
 						},
 						{
-							"ID": 327,
+							"ID": 334,
 							"Type": "Literal",
 							"Position": [
 								384.0,
@@ -5224,7 +5378,7 @@
 							}
 						},
 						{
-							"ID": 328,
+							"ID": 335,
 							"Type": "Operator.Equal",
 							"Position": [
 								576.0,
@@ -5232,7 +5386,7 @@
 							]
 						},
 						{
-							"ID": 329,
+							"ID": 336,
 							"Type": "Set:Strada.UIRectComponent.Visible",
 							"Position": [
 								768.0,
@@ -5240,7 +5394,7 @@
 							]
 						},
 						{
-							"ID": 330,
+							"ID": 337,
 							"Type": "Variable.Get",
 							"Position": [
 								768.0,
@@ -5251,7 +5405,7 @@
 							}
 						},
 						{
-							"ID": 331,
+							"ID": 338,
 							"Type": "Literal",
 							"Position": [
 								576.0,
@@ -5263,7 +5417,7 @@
 							}
 						},
 						{
-							"ID": 332,
+							"ID": 339,
 							"Type": "Operator.Equal",
 							"Position": [
 								768.0,
@@ -5271,7 +5425,7 @@
 							]
 						},
 						{
-							"ID": 333,
+							"ID": 340,
 							"Type": "Set:Strada.UIRectComponent.Visible",
 							"Position": [
 								960.0,
@@ -5279,7 +5433,7 @@
 							]
 						},
 						{
-							"ID": 334,
+							"ID": 341,
 							"Type": "Variable.Set",
 							"Position": [
 								1152.0,
@@ -5293,7 +5447,7 @@
 							}
 						},
 						{
-							"ID": 335,
+							"ID": 342,
 							"Type": "Variable.Set",
 							"Position": [
 								1424.0,
@@ -5307,7 +5461,7 @@
 							}
 						},
 						{
-							"ID": 336,
+							"ID": 343,
 							"Type": "Literal",
 							"Position": [
 								1152.0,
@@ -5319,7 +5473,7 @@
 							}
 						},
 						{
-							"ID": 337,
+							"ID": 344,
 							"Type": "Operator.Equal",
 							"Position": [
 								1424.0,
@@ -5327,7 +5481,7 @@
 							]
 						},
 						{
-							"ID": 338,
+							"ID": 345,
 							"Type": "Flow.Branch",
 							"Position": [
 								1696.0,
@@ -5335,7 +5489,7 @@
 							]
 						},
 						{
-							"ID": 339,
+							"ID": 346,
 							"Type": "Literal",
 							"Position": [
 								1696.0,
@@ -5347,7 +5501,7 @@
 							}
 						},
 						{
-							"ID": 340,
+							"ID": 347,
 							"Type": "Operator.Equal",
 							"Position": [
 								1920.0,
@@ -5355,7 +5509,7 @@
 							]
 						},
 						{
-							"ID": 341,
+							"ID": 348,
 							"Type": "Flow.Branch",
 							"Position": [
 								2112.0,
@@ -5363,7 +5517,7 @@
 							]
 						},
 						{
-							"ID": 342,
+							"ID": 349,
 							"Type": "Function.Call",
 							"Position": [
 								2976.0,
@@ -5374,7 +5528,7 @@
 							}
 						},
 						{
-							"ID": 343,
+							"ID": 350,
 							"Type": "Function.Call",
 							"Position": [
 								1920.0,
@@ -5385,7 +5539,7 @@
 							}
 						},
 						{
-							"ID": 344,
+							"ID": 351,
 							"Type": "Function.Call",
 							"Position": [
 								2336.0,
@@ -5396,7 +5550,7 @@
 							}
 						},
 						{
-							"ID": 345,
+							"ID": 352,
 							"Type": "Function.Call",
 							"Position": [
 								2528.0,
@@ -5407,7 +5561,7 @@
 							}
 						},
 						{
-							"ID": 346,
+							"ID": 353,
 							"Type": "Variable.Get",
 							"Position": [
 								2528.0,
@@ -5418,7 +5572,7 @@
 							}
 						},
 						{
-							"ID": 347,
+							"ID": 354,
 							"Type": "Set:Strada.UITextComponent.Text",
 							"Position": [
 								2720.0,
@@ -5436,108 +5590,18 @@
 								"Name"
 							],
 							"To": [
-								316,
-								"Value"
-							]
-						},
-						{
-							"From": [
-								318,
-								"Value"
-							],
-							"To": [
-								320,
-								"A"
-							]
-						},
-						{
-							"From": [
-								319,
-								"Value"
-							],
-							"To": [
-								320,
-								"B"
-							]
-						},
-						{
-							"From": [
-								317,
-								"Value"
-							],
-							"To": [
-								321,
-								"Target"
-							]
-						},
-						{
-							"From": [
-								320,
-								"Result"
-							],
-							"To": [
-								321,
-								"Value"
-							]
-						},
-						{
-							"From": [
-								318,
-								"Value"
-							],
-							"To": [
-								324,
-								"A"
-							]
-						},
-						{
-							"From": [
 								323,
 								"Value"
-							],
-							"To": [
-								324,
-								"B"
 							]
 						},
 						{
 							"From": [
-								322,
-								"Value"
-							],
-							"To": [
-								325,
-								"Target"
-							]
-						},
-						{
-							"From": [
-								324,
-								"Result"
-							],
-							"To": [
 								325,
 								"Value"
-							]
-						},
-						{
-							"From": [
-								318,
-								"Value"
 							],
 							"To": [
-								328,
-								"A"
-							]
-						},
-						{
-							"From": [
 								327,
-								"Value"
-							],
-							"To": [
-								328,
-								"B"
+								"A"
 							]
 						},
 						{
@@ -5546,38 +5610,38 @@
 								"Value"
 							],
 							"To": [
-								329,
+								327,
+								"B"
+							]
+						},
+						{
+							"From": [
+								324,
+								"Value"
+							],
+							"To": [
+								328,
 								"Target"
 							]
 						},
 						{
 							"From": [
-								328,
+								327,
 								"Result"
 							],
 							"To": [
-								329,
+								328,
 								"Value"
 							]
 						},
 						{
 							"From": [
-								318,
+								325,
 								"Value"
 							],
 							"To": [
-								332,
-								"A"
-							]
-						},
-						{
-							"From": [
 								331,
-								"Value"
-							],
-							"To": [
-								332,
-								"B"
+								"A"
 							]
 						},
 						{
@@ -5586,188 +5650,148 @@
 								"Value"
 							],
 							"To": [
-								333,
+								331,
+								"B"
+							]
+						},
+						{
+							"From": [
+								329,
+								"Value"
+							],
+							"To": [
+								332,
 								"Target"
 							]
 						},
 						{
 							"From": [
-								332,
+								331,
 								"Result"
 							],
 							"To": [
-								333,
+								332,
 								"Value"
 							]
 						},
 						{
 							"From": [
-								318,
+								325,
 								"Value"
 							],
 							"To": [
-								337,
+								335,
 								"A"
 							]
 						},
 						{
 							"From": [
-								336,
+								334,
 								"Value"
 							],
 							"To": [
-								337,
+								335,
+								"B"
+							]
+						},
+						{
+							"From": [
+								333,
+								"Value"
+							],
+							"To": [
+								336,
+								"Target"
+							]
+						},
+						{
+							"From": [
+								335,
+								"Result"
+							],
+							"To": [
+								336,
+								"Value"
+							]
+						},
+						{
+							"From": [
+								325,
+								"Value"
+							],
+							"To": [
+								339,
+								"A"
+							]
+						},
+						{
+							"From": [
+								338,
+								"Value"
+							],
+							"To": [
+								339,
 								"B"
 							]
 						},
 						{
 							"From": [
 								337,
-								"Result"
-							],
-							"To": [
-								338,
-								"Condition"
-							]
-						},
-						{
-							"From": [
-								318,
 								"Value"
 							],
 							"To": [
 								340,
-								"A"
+								"Target"
 							]
 						},
 						{
 							"From": [
 								339,
-								"Value"
+								"Result"
 							],
 							"To": [
 								340,
+								"Value"
+							]
+						},
+						{
+							"From": [
+								325,
+								"Value"
+							],
+							"To": [
+								344,
+								"A"
+							]
+						},
+						{
+							"From": [
+								343,
+								"Value"
+							],
+							"To": [
+								344,
 								"B"
 							]
 						},
 						{
 							"From": [
-								340,
+								344,
 								"Result"
 							],
 							"To": [
-								341,
+								345,
 								"Condition"
 							]
 						},
 						{
 							"From": [
-								85,
-								"Then"
-							],
-							"To": [
-								316,
-								"Execute"
-							]
-						},
-						{
-							"From": [
-								316,
-								"Then"
-							],
-							"To": [
-								321,
-								"Execute"
-							]
-						},
-						{
-							"From": [
-								321,
-								"Then"
-							],
-							"To": [
 								325,
-								"Execute"
-							]
-						},
-						{
-							"From": [
-								325,
-								"Then"
+								"Value"
 							],
 							"To": [
-								329,
-								"Execute"
-							]
-						},
-						{
-							"From": [
-								329,
-								"Then"
-							],
-							"To": [
-								333,
-								"Execute"
-							]
-						},
-						{
-							"From": [
-								333,
-								"Then"
-							],
-							"To": [
-								334,
-								"Execute"
-							]
-						},
-						{
-							"From": [
-								334,
-								"Then"
-							],
-							"To": [
-								335,
-								"Execute"
-							]
-						},
-						{
-							"From": [
-								335,
-								"Then"
-							],
-							"To": [
-								338,
-								"Execute"
-							]
-						},
-						{
-							"From": [
-								338,
-								"True"
-							],
-							"To": [
-								343,
-								"Execute"
-							]
-						},
-						{
-							"From": [
-								343,
-								"Then"
-							],
-							"To": [
-								341,
-								"Execute"
-							]
-						},
-						{
-							"From": [
-								338,
-								"False"
-							],
-							"To": [
-								341,
-								"Execute"
+								347,
+								"A"
 							]
 						},
 						{
@@ -5777,62 +5801,192 @@
 							],
 							"To": [
 								347,
+								"B"
+							]
+						},
+						{
+							"From": [
+								347,
+								"Result"
+							],
+							"To": [
+								348,
+								"Condition"
+							]
+						},
+						{
+							"From": [
+								85,
+								"Then"
+							],
+							"To": [
+								323,
+								"Execute"
+							]
+						},
+						{
+							"From": [
+								323,
+								"Then"
+							],
+							"To": [
+								328,
+								"Execute"
+							]
+						},
+						{
+							"From": [
+								328,
+								"Then"
+							],
+							"To": [
+								332,
+								"Execute"
+							]
+						},
+						{
+							"From": [
+								332,
+								"Then"
+							],
+							"To": [
+								336,
+								"Execute"
+							]
+						},
+						{
+							"From": [
+								336,
+								"Then"
+							],
+							"To": [
+								340,
+								"Execute"
+							]
+						},
+						{
+							"From": [
+								340,
+								"Then"
+							],
+							"To": [
+								341,
+								"Execute"
+							]
+						},
+						{
+							"From": [
+								341,
+								"Then"
+							],
+							"To": [
+								342,
+								"Execute"
+							]
+						},
+						{
+							"From": [
+								342,
+								"Then"
+							],
+							"To": [
+								345,
+								"Execute"
+							]
+						},
+						{
+							"From": [
+								345,
+								"True"
+							],
+							"To": [
+								350,
+								"Execute"
+							]
+						},
+						{
+							"From": [
+								350,
+								"Then"
+							],
+							"To": [
+								348,
+								"Execute"
+							]
+						},
+						{
+							"From": [
+								345,
+								"False"
+							],
+							"To": [
+								348,
+								"Execute"
+							]
+						},
+						{
+							"From": [
+								353,
+								"Value"
+							],
+							"To": [
+								354,
 								"Target"
 							]
 						},
 						{
 							"From": [
-								341,
+								348,
 								"True"
 							],
 							"To": [
-								344,
+								351,
 								"Execute"
 							]
 						},
 						{
 							"From": [
-								344,
+								351,
 								"Then"
 							],
 							"To": [
-								345,
+								352,
 								"Execute"
 							]
 						},
 						{
 							"From": [
-								345,
+								352,
 								"Then"
 							],
 							"To": [
-								347,
+								354,
 								"Execute"
 							]
 						},
 						{
 							"From": [
-								347,
+								354,
 								"Then"
 							],
 							"To": [
-								342,
+								349,
 								"Execute"
 							]
 						},
 						{
 							"From": [
-								341,
+								348,
 								"False"
 							],
 							"To": [
-								342,
+								349,
 								"Execute"
 							]
 						},
 						{
 							"From": [
-								342,
+								349,
 								"Then"
 							],
 							"To": [
@@ -5843,7 +5997,7 @@
 					],
 					"Comments": [
 						{
-							"ID": 348,
+							"ID": 355,
 							"Text": "Show screen: one screen, its first button selected",
 							"Position": [
 								-32.0,
@@ -5884,12 +6038,12 @@
 							"ID": 89,
 							"Type": "Function.Return",
 							"Position": [
-								1440.0,
+								1728.0,
 								0.0
 							]
 						},
 						{
-							"ID": 349,
+							"ID": 356,
 							"Type": "Variable.Get",
 							"Position": [
 								0.0,
@@ -5900,7 +6054,7 @@
 							}
 						},
 						{
-							"ID": 350,
+							"ID": 357,
 							"Type": "RunsGraph",
 							"Position": [
 								192.0,
@@ -5911,7 +6065,7 @@
 							}
 						},
 						{
-							"ID": 351,
+							"ID": 358,
 							"Type": "Flow.Branch",
 							"Position": [
 								416.0,
@@ -5920,7 +6074,7 @@
 							"Comment": "A rider whose riding graph takes them"
 						},
 						{
-							"ID": 352,
+							"ID": 359,
 							"Type": "Variable.Get",
 							"Position": [
 								192.0,
@@ -5932,7 +6086,7 @@
 							}
 						},
 						{
-							"ID": 353,
+							"ID": 360,
 							"Type": "Call:Strada.Settings.Get<T>(string,T)",
 							"Position": [
 								416.0,
@@ -5943,7 +6097,7 @@
 							}
 						},
 						{
-							"ID": 354,
+							"ID": 361,
 							"Type": "Variable.Set",
 							"Position": [
 								720.0,
@@ -5955,7 +6109,7 @@
 							}
 						},
 						{
-							"ID": 355,
+							"ID": 362,
 							"Type": "Variable.Get",
 							"Position": [
 								416.0,
@@ -5967,7 +6121,7 @@
 							}
 						},
 						{
-							"ID": 356,
+							"ID": 363,
 							"Type": "Call:Strada.Settings.Get<T>(string,T)",
 							"Position": [
 								720.0,
@@ -5978,7 +6132,7 @@
 							}
 						},
 						{
-							"ID": 357,
+							"ID": 364,
 							"Type": "Variable.Set",
 							"Position": [
 								1024.0,
@@ -5990,10 +6144,45 @@
 							}
 						},
 						{
-							"ID": 358,
+							"ID": 365,
 							"Type": "Variable.Get",
 							"Position": [
 								720.0,
+								320.0
+							],
+							"Settings": {
+								"Variable": 3,
+								"Graph": "4174439098207623822"
+							}
+						},
+						{
+							"ID": 366,
+							"Type": "Call:Strada.Settings.Get<T>(string,T)",
+							"Position": [
+								1024.0,
+								176.0
+							],
+							"Inputs": {
+								"Name": "AutoShift"
+							}
+						},
+						{
+							"ID": 367,
+							"Type": "Variable.Set",
+							"Position": [
+								1328.0,
+								0.0
+							],
+							"Settings": {
+								"Variable": 3,
+								"Graph": "4174439098207623822"
+							}
+						},
+						{
+							"ID": 368,
+							"Type": "Variable.Get",
+							"Position": [
+								1024.0,
 								320.0
 							],
 							"Settings": {
@@ -6001,10 +6190,10 @@
 							}
 						},
 						{
-							"ID": 359,
+							"ID": 369,
 							"Type": "Expression",
 							"Position": [
-								1024.0,
+								1328.0,
 								176.0
 							],
 							"Settings": {
@@ -6012,10 +6201,10 @@
 							}
 						},
 						{
-							"ID": 360,
+							"ID": 370,
 							"Type": "Variable.Set",
 							"Position": [
-								1248.0,
+								1536.0,
 								0.0
 							],
 							"Settings": {
@@ -6026,121 +6215,161 @@
 					"Links": [
 						{
 							"From": [
-								349,
+								356,
 								"Value"
 							],
 							"To": [
-								350,
+								357,
 								"Target"
 							]
 						},
 						{
 							"From": [
-								350,
+								357,
 								"Result"
 							],
 							"To": [
-								351,
+								358,
 								"Condition"
 							]
 						},
 						{
 							"From": [
-								349,
-								"Value"
-							],
-							"To": [
-								352,
-								"Target"
-							]
-						},
-						{
-							"From": [
-								352,
-								"Value"
-							],
-							"To": [
-								353,
-								"Fallback"
-							]
-						},
-						{
-							"From": [
-								353,
-								"Result"
-							],
-							"To": [
-								354,
-								"Value"
-							]
-						},
-						{
-							"From": [
-								349,
-								"Value"
-							],
-							"To": [
-								354,
-								"Target"
-							]
-						},
-						{
-							"From": [
-								349,
-								"Value"
-							],
-							"To": [
-								355,
-								"Target"
-							]
-						},
-						{
-							"From": [
-								355,
-								"Value"
-							],
-							"To": [
 								356,
-								"Fallback"
-							]
-						},
-						{
-							"From": [
-								356,
-								"Result"
-							],
-							"To": [
-								357,
-								"Value"
-							]
-						},
-						{
-							"From": [
-								349,
-								"Value"
-							],
-							"To": [
-								357,
-								"Target"
-							]
-						},
-						{
-							"From": [
-								358,
 								"Value"
 							],
 							"To": [
 								359,
+								"Target"
+							]
+						},
+						{
+							"From": [
+								359,
+								"Value"
+							],
+							"To": [
+								360,
+								"Fallback"
+							]
+						},
+						{
+							"From": [
+								360,
+								"Result"
+							],
+							"To": [
+								361,
+								"Value"
+							]
+						},
+						{
+							"From": [
+								356,
+								"Value"
+							],
+							"To": [
+								361,
+								"Target"
+							]
+						},
+						{
+							"From": [
+								356,
+								"Value"
+							],
+							"To": [
+								362,
+								"Target"
+							]
+						},
+						{
+							"From": [
+								362,
+								"Value"
+							],
+							"To": [
+								363,
+								"Fallback"
+							]
+						},
+						{
+							"From": [
+								363,
+								"Result"
+							],
+							"To": [
+								364,
+								"Value"
+							]
+						},
+						{
+							"From": [
+								356,
+								"Value"
+							],
+							"To": [
+								364,
+								"Target"
+							]
+						},
+						{
+							"From": [
+								356,
+								"Value"
+							],
+							"To": [
+								365,
+								"Target"
+							]
+						},
+						{
+							"From": [
+								365,
+								"Value"
+							],
+							"To": [
+								366,
+								"Fallback"
+							]
+						},
+						{
+							"From": [
+								366,
+								"Result"
+							],
+							"To": [
+								367,
+								"Value"
+							]
+						},
+						{
+							"From": [
+								356,
+								"Value"
+							],
+							"To": [
+								367,
+								"Target"
+							]
+						},
+						{
+							"From": [
+								368,
+								"Value"
+							],
+							"To": [
+								369,
 								"applied"
 							]
 						},
 						{
 							"From": [
-								359,
+								369,
 								"Result"
 							],
 							"To": [
-								360,
+								370,
 								"Value"
 							]
 						},
@@ -6150,43 +6379,53 @@
 								"Then"
 							],
 							"To": [
-								351,
+								358,
 								"Execute"
 							]
 						},
 						{
 							"From": [
-								351,
+								358,
 								"True"
 							],
 							"To": [
-								354,
+								361,
 								"Execute"
 							]
 						},
 						{
 							"From": [
-								354,
+								361,
 								"Then"
 							],
 							"To": [
-								357,
+								364,
 								"Execute"
 							]
 						},
 						{
 							"From": [
-								357,
+								364,
 								"Then"
 							],
 							"To": [
-								360,
+								367,
 								"Execute"
 							]
 						},
 						{
 							"From": [
-								360,
+								367,
+								"Then"
+							],
+							"To": [
+								370,
+								"Execute"
+							]
+						},
+						{
+							"From": [
+								370,
 								"Then"
 							],
 							"To": [
@@ -6196,7 +6435,7 @@
 						},
 						{
 							"From": [
-								351,
+								358,
 								"False"
 							],
 							"To": [
@@ -6207,15 +6446,15 @@
 					],
 					"Comments": [
 						{
-							"ID": 361,
-							"Text": "Apply assists: the linked brakes' settings to the rider",
+							"ID": 371,
+							"Text": "Apply assists: the linked brakes' and the shifts' settings to the rider",
 							"Position": [
 								-32.0,
 								-72.0
 							],
 							"Size": [
-								1624.0,
-								458.0
+								1912.0,
+								506.0
 							],
 							"Color": [
 								0.6200000047683716,
@@ -6253,7 +6492,7 @@
 							]
 						},
 						{
-							"ID": 362,
+							"ID": 372,
 							"Type": "Call:Strada.Settings.Save()",
 							"Position": [
 								192.0,
@@ -6262,7 +6501,7 @@
 							"Comment": "Waits for the disk: a menu, never while riding"
 						},
 						{
-							"ID": 363,
+							"ID": 373,
 							"Type": "Variable.Get",
 							"Position": [
 								192.0,
@@ -6273,7 +6512,7 @@
 							}
 						},
 						{
-							"ID": 364,
+							"ID": 374,
 							"Type": "Expression",
 							"Position": [
 								384.0,
@@ -6284,7 +6523,7 @@
 							}
 						},
 						{
-							"ID": 365,
+							"ID": 375,
 							"Type": "Variable.Set",
 							"Position": [
 								592.0,
@@ -6295,7 +6534,7 @@
 							}
 						},
 						{
-							"ID": 366,
+							"ID": 376,
 							"Type": "Variable.Set",
 							"Position": [
 								784.0,
@@ -6309,7 +6548,7 @@
 							}
 						},
 						{
-							"ID": 367,
+							"ID": 377,
 							"Type": "Function.Call",
 							"Position": [
 								784.0,
@@ -6320,7 +6559,7 @@
 							}
 						},
 						{
-							"ID": 368,
+							"ID": 378,
 							"Type": "Function.Call",
 							"Position": [
 								1008.0,
@@ -6334,41 +6573,41 @@
 					"Links": [
 						{
 							"From": [
-								363,
+								373,
 								"Value"
 							],
 							"To": [
-								364,
+								374,
 								"saves"
 							]
 						},
 						{
 							"From": [
-								362,
+								372,
 								"Result"
 							],
 							"To": [
-								364,
+								374,
 								"saved"
 							]
 						},
 						{
 							"From": [
-								364,
+								374,
 								"Result"
 							],
 							"To": [
-								365,
+								375,
 								"Value"
 							]
 						},
 						{
 							"From": [
-								367,
+								377,
 								"Name"
 							],
 							"To": [
-								368,
+								378,
 								"Name"
 							]
 						},
@@ -6378,43 +6617,43 @@
 								"Then"
 							],
 							"To": [
-								362,
+								372,
 								"Execute"
 							]
 						},
 						{
 							"From": [
-								362,
+								372,
 								"Then"
 							],
 							"To": [
-								365,
+								375,
 								"Execute"
 							]
 						},
 						{
 							"From": [
-								365,
+								375,
 								"Then"
 							],
 							"To": [
-								366,
+								376,
 								"Execute"
 							]
 						},
 						{
 							"From": [
-								366,
+								376,
 								"Then"
 							],
 							"To": [
-								368,
+								378,
 								"Execute"
 							]
 						},
 						{
 							"From": [
-								368,
+								378,
 								"Then"
 							],
 							"To": [
@@ -6425,7 +6664,7 @@
 					],
 					"Comments": [
 						{
-							"ID": 369,
+							"ID": 379,
 							"Text": "Close settings: saved, then the screen the race asks for",
 							"Position": [
 								-32.0,
@@ -6493,7 +6732,7 @@
 							]
 						},
 						{
-							"ID": 370,
+							"ID": 380,
 							"Type": "Flow.Switch",
 							"Position": [
 								208.0,
@@ -6510,12 +6749,13 @@
 									5,
 									6,
 									7,
-									8
+									8,
+									9
 								]
 							}
 						},
 						{
-							"ID": 371,
+							"ID": 381,
 							"Type": "Get:Strada.Settings.Quality",
 							"Position": [
 								0.0,
@@ -6523,7 +6763,7 @@
 							]
 						},
 						{
-							"ID": 372,
+							"ID": 382,
 							"Type": "Convert",
 							"Position": [
 								208.0,
@@ -6534,7 +6774,7 @@
 							}
 						},
 						{
-							"ID": 373,
+							"ID": 383,
 							"Type": "Expression",
 							"Position": [
 								512.0,
@@ -6545,7 +6785,7 @@
 							}
 						},
 						{
-							"ID": 374,
+							"ID": 384,
 							"Type": "Convert",
 							"Position": [
 								720.0,
@@ -6556,7 +6796,7 @@
 							}
 						},
 						{
-							"ID": 375,
+							"ID": 385,
 							"Type": "Set:Strada.Settings.Quality",
 							"Position": [
 								992.0,
@@ -6564,7 +6804,7 @@
 							]
 						},
 						{
-							"ID": 376,
+							"ID": 386,
 							"Type": "Get:Strada.Settings.WindowMode",
 							"Position": [
 								0.0,
@@ -6572,18 +6812,18 @@
 							]
 						},
 						{
-							"ID": 377,
+							"ID": 387,
 							"Type": "Convert",
 							"Position": [
 								208.0,
-								576.0
+								608.0
 							],
 							"Settings": {
 								"To": "int"
 							}
 						},
 						{
-							"ID": 378,
+							"ID": 388,
 							"Type": "Expression",
 							"Position": [
 								512.0,
@@ -6594,7 +6834,7 @@
 							}
 						},
 						{
-							"ID": 379,
+							"ID": 389,
 							"Type": "Convert",
 							"Position": [
 								720.0,
@@ -6605,7 +6845,7 @@
 							}
 						},
 						{
-							"ID": 380,
+							"ID": 390,
 							"Type": "Set:Strada.Settings.WindowMode",
 							"Position": [
 								992.0,
@@ -6613,7 +6853,7 @@
 							]
 						},
 						{
-							"ID": 381,
+							"ID": 391,
 							"Type": "Variable.Get",
 							"Position": [
 								0.0,
@@ -6624,7 +6864,7 @@
 							}
 						},
 						{
-							"ID": 382,
+							"ID": 392,
 							"Type": "Get:Strada.Settings.WindowWidth",
 							"Position": [
 								0.0,
@@ -6632,23 +6872,23 @@
 							]
 						},
 						{
-							"ID": 383,
+							"ID": 393,
 							"Type": "Array.IndexOf",
 							"Position": [
 								208.0,
-								1008.0
+								1040.0
 							]
 						},
 						{
-							"ID": 384,
+							"ID": 394,
 							"Type": "Array.Length",
 							"Position": [
 								208.0,
-								880.0
+								912.0
 							]
 						},
 						{
-							"ID": 385,
+							"ID": 395,
 							"Type": "Expression",
 							"Position": [
 								512.0,
@@ -6659,7 +6899,7 @@
 							}
 						},
 						{
-							"ID": 386,
+							"ID": 396,
 							"Type": "Variable.Set",
 							"Position": [
 								720.0,
@@ -6671,7 +6911,7 @@
 							"Comment": "A size not listed steps to the first or the last"
 						},
 						{
-							"ID": 387,
+							"ID": 397,
 							"Type": "Variable.Get",
 							"Position": [
 								512.0,
@@ -6682,7 +6922,7 @@
 							}
 						},
 						{
-							"ID": 388,
+							"ID": 398,
 							"Type": "Array.Get",
 							"Position": [
 								720.0,
@@ -6690,7 +6930,7 @@
 							]
 						},
 						{
-							"ID": 389,
+							"ID": 399,
 							"Type": "Variable.Get",
 							"Position": [
 								512.0,
@@ -6701,7 +6941,7 @@
 							}
 						},
 						{
-							"ID": 390,
+							"ID": 400,
 							"Type": "Array.Get",
 							"Position": [
 								720.0,
@@ -6709,7 +6949,7 @@
 							]
 						},
 						{
-							"ID": 391,
+							"ID": 401,
 							"Type": "Call:Strada.Settings.SetWindowSize(int,int)",
 							"Position": [
 								992.0,
@@ -6717,7 +6957,7 @@
 							]
 						},
 						{
-							"ID": 392,
+							"ID": 402,
 							"Type": "Get:Strada.Settings.MasterVolume",
 							"Position": [
 								0.0,
@@ -6725,7 +6965,7 @@
 							]
 						},
 						{
-							"ID": 393,
+							"ID": 403,
 							"Type": "Expression",
 							"Position": [
 								208.0,
@@ -6736,7 +6976,7 @@
 							}
 						},
 						{
-							"ID": 394,
+							"ID": 404,
 							"Type": "Set:Strada.Settings.MasterVolume",
 							"Position": [
 								512.0,
@@ -6744,29 +6984,29 @@
 							]
 						},
 						{
-							"ID": 395,
+							"ID": 405,
 							"Type": "Expression",
 							"Position": [
 								208.0,
-								688.0
+								720.0
 							],
 							"Settings": {
 								"Formula": "row - 4"
 							}
 						},
 						{
-							"ID": 396,
+							"ID": 406,
 							"Type": "Variable.Get",
 							"Position": [
 								208.0,
-								816.0
+								848.0
 							],
 							"Settings": {
 								"Variable": 49
 							}
 						},
 						{
-							"ID": 397,
+							"ID": 407,
 							"Type": "Array.Get",
 							"Position": [
 								512.0,
@@ -6774,7 +7014,7 @@
 							]
 						},
 						{
-							"ID": 398,
+							"ID": 408,
 							"Type": "Call:Strada.Settings.GetBusVolume(string)",
 							"Position": [
 								720.0,
@@ -6782,7 +7022,7 @@
 							]
 						},
 						{
-							"ID": 399,
+							"ID": 409,
 							"Type": "Expression",
 							"Position": [
 								992.0,
@@ -6793,7 +7033,7 @@
 							}
 						},
 						{
-							"ID": 400,
+							"ID": 410,
 							"Type": "Expression",
 							"Position": [
 								1200.0,
@@ -6804,7 +7044,7 @@
 							}
 						},
 						{
-							"ID": 401,
+							"ID": 411,
 							"Type": "Variable.Set",
 							"Position": [
 								1408.0,
@@ -6815,7 +7055,7 @@
 							}
 						},
 						{
-							"ID": 402,
+							"ID": 412,
 							"Type": "Variable.Get",
 							"Position": [
 								1200.0,
@@ -6826,7 +7066,7 @@
 							}
 						},
 						{
-							"ID": 403,
+							"ID": 413,
 							"Type": "Expression",
 							"Position": [
 								1408.0,
@@ -6837,7 +7077,7 @@
 							}
 						},
 						{
-							"ID": 404,
+							"ID": 414,
 							"Type": "Call:Strada.Settings.SetBusVolume(string,float)",
 							"Position": [
 								1616.0,
@@ -6846,7 +7086,7 @@
 							"Comment": "A tenth of the game's mix a step; none is silence"
 						},
 						{
-							"ID": 405,
+							"ID": 415,
 							"Type": "Literal",
 							"Position": [
 								0.0,
@@ -6858,18 +7098,18 @@
 							}
 						},
 						{
-							"ID": 406,
+							"ID": 416,
 							"Type": "Call:Strada.Settings.Get<T>(string,T)",
 							"Position": [
 								208.0,
-								1184.0
+								1216.0
 							],
 							"Inputs": {
 								"Name": "LinkedBrakes"
 							}
 						},
 						{
-							"ID": 407,
+							"ID": 417,
 							"Type": "Operator.Not",
 							"Position": [
 								512.0,
@@ -6877,7 +7117,7 @@
 							]
 						},
 						{
-							"ID": 408,
+							"ID": 418,
 							"Type": "Call:Strada.Settings.Set<T>(string,T)",
 							"Position": [
 								720.0,
@@ -6888,7 +7128,7 @@
 							}
 						},
 						{
-							"ID": 409,
+							"ID": 419,
 							"Type": "Literal",
 							"Position": [
 								0.0,
@@ -6900,18 +7140,18 @@
 							}
 						},
 						{
-							"ID": 410,
+							"ID": 420,
 							"Type": "Call:Strada.Settings.Get<T>(string,T)",
 							"Position": [
 								208.0,
-								1328.0
+								1360.0
 							],
 							"Inputs": {
 								"Name": "LinkedBrakeShare"
 							}
 						},
 						{
-							"ID": 411,
+							"ID": 421,
 							"Type": "Expression",
 							"Position": [
 								512.0,
@@ -6922,7 +7162,7 @@
 							}
 						},
 						{
-							"ID": 412,
+							"ID": 422,
 							"Type": "Call:Strada.Settings.Set<T>(string,T)",
 							"Position": [
 								720.0,
@@ -6933,7 +7173,49 @@
 							}
 						},
 						{
-							"ID": 413,
+							"ID": 423,
+							"Type": "Literal",
+							"Position": [
+								0.0,
+								992.0
+							],
+							"Settings": {
+								"Type": "bool",
+								"Value": true
+							}
+						},
+						{
+							"ID": 424,
+							"Type": "Call:Strada.Settings.Get<T>(string,T)",
+							"Position": [
+								208.0,
+								1504.0
+							],
+							"Inputs": {
+								"Name": "AutoShift"
+							}
+						},
+						{
+							"ID": 425,
+							"Type": "Operator.Not",
+							"Position": [
+								512.0,
+								1136.0
+							]
+						},
+						{
+							"ID": 426,
+							"Type": "Call:Strada.Settings.Set<T>(string,T)",
+							"Position": [
+								720.0,
+								1120.0
+							],
+							"Inputs": {
+								"Name": "AutoShift"
+							}
+						},
+						{
+							"ID": 427,
 							"Type": "Function.Call",
 							"Position": [
 								992.0,
@@ -6944,7 +7226,7 @@
 							}
 						},
 						{
-							"ID": 414,
+							"ID": 428,
 							"Type": "Function.Call",
 							"Position": [
 								1808.0,
@@ -6962,27 +7244,27 @@
 								"Row"
 							],
 							"To": [
-								370,
+								380,
 								"Selection"
 							]
 						},
 						{
 							"From": [
-								371,
+								381,
 								"Value"
 							],
 							"To": [
-								372,
+								382,
 								"Value"
 							]
 						},
 						{
 							"From": [
-								372,
+								382,
 								"Result"
 							],
 							"To": [
-								373,
+								383,
 								"q"
 							]
 						},
@@ -6992,47 +7274,47 @@
 								"Direction"
 							],
 							"To": [
-								373,
+								383,
 								"d"
 							]
 						},
 						{
 							"From": [
-								373,
+								383,
 								"Result"
 							],
 							"To": [
-								374,
+								384,
 								"Value"
 							]
 						},
 						{
 							"From": [
-								374,
+								384,
 								"Result"
 							],
 							"To": [
-								375,
+								385,
 								"Value"
 							]
 						},
 						{
 							"From": [
-								376,
+								386,
 								"Value"
 							],
 							"To": [
-								377,
+								387,
 								"Value"
 							]
 						},
 						{
 							"From": [
-								377,
+								387,
 								"Result"
 							],
 							"To": [
-								378,
+								388,
 								"m"
 							]
 						},
@@ -7042,158 +7324,38 @@
 								"Direction"
 							],
 							"To": [
-								378,
+								388,
 								"d"
 							]
 						},
 						{
 							"From": [
-								378,
-								"Result"
-							],
-							"To": [
-								379,
-								"Value"
-							]
-						},
-						{
-							"From": [
-								379,
-								"Result"
-							],
-							"To": [
-								380,
-								"Value"
-							]
-						},
-						{
-							"From": [
-								381,
-								"Value"
-							],
-							"To": [
-								383,
-								"Array"
-							]
-						},
-						{
-							"From": [
-								382,
-								"Value"
-							],
-							"To": [
-								383,
-								"Value"
-							]
-						},
-						{
-							"From": [
-								381,
-								"Value"
-							],
-							"To": [
-								384,
-								"Array"
-							]
-						},
-						{
-							"From": [
-								383,
-								"Index"
-							],
-							"To": [
-								385,
-								"i"
-							]
-						},
-						{
-							"From": [
-								94,
-								"Direction"
-							],
-							"To": [
-								385,
-								"d"
-							]
-						},
-						{
-							"From": [
-								384,
-								"Length"
-							],
-							"To": [
-								385,
-								"n"
-							]
-						},
-						{
-							"From": [
-								385,
-								"Result"
-							],
-							"To": [
-								386,
-								"Value"
-							]
-						},
-						{
-							"From": [
-								381,
-								"Value"
-							],
-							"To": [
 								388,
-								"Array"
-							]
-						},
-						{
-							"From": [
-								387,
-								"Value"
+								"Result"
 							],
 							"To": [
-								388,
-								"Index"
+								389,
+								"Value"
 							]
 						},
 						{
 							"From": [
 								389,
-								"Value"
+								"Result"
 							],
 							"To": [
 								390,
+								"Value"
+							]
+						},
+						{
+							"From": [
+								391,
+								"Value"
+							],
+							"To": [
+								393,
 								"Array"
-							]
-						},
-						{
-							"From": [
-								387,
-								"Value"
-							],
-							"To": [
-								390,
-								"Index"
-							]
-						},
-						{
-							"From": [
-								388,
-								"Element"
-							],
-							"To": [
-								391,
-								"Width"
-							]
-						},
-						{
-							"From": [
-								390,
-								"Element"
-							],
-							"To": [
-								391,
-								"Height"
 							]
 						},
 						{
@@ -7203,87 +7365,27 @@
 							],
 							"To": [
 								393,
-								"v"
+								"Value"
 							]
 						},
 						{
 							"From": [
-								94,
-								"Direction"
-							],
-							"To": [
-								393,
-								"d"
-							]
-						},
-						{
-							"From": [
-								393,
-								"Result"
+								391,
+								"Value"
 							],
 							"To": [
 								394,
-								"Value"
-							]
-						},
-						{
-							"From": [
-								94,
-								"Row"
-							],
-							"To": [
-								395,
-								"row"
-							]
-						},
-						{
-							"From": [
-								396,
-								"Value"
-							],
-							"To": [
-								397,
 								"Array"
 							]
 						},
 						{
 							"From": [
-								395,
-								"Result"
-							],
-							"To": [
-								397,
+								393,
 								"Index"
-							]
-						},
-						{
-							"From": [
-								397,
-								"Element"
 							],
 							"To": [
-								398,
-								"Bus"
-							]
-						},
-						{
-							"From": [
-								398,
-								"Result"
-							],
-							"To": [
-								399,
-								"db"
-							]
-						},
-						{
-							"From": [
-								399,
-								"Result"
-							],
-							"To": [
-								400,
-								"share"
+								395,
+								"i"
 							]
 						},
 						{
@@ -7292,18 +7394,88 @@
 								"Direction"
 							],
 							"To": [
-								400,
+								395,
 								"d"
 							]
 						},
 						{
 							"From": [
-								400,
+								394,
+								"Length"
+							],
+							"To": [
+								395,
+								"n"
+							]
+						},
+						{
+							"From": [
+								395,
 								"Result"
 							],
 							"To": [
-								401,
+								396,
 								"Value"
+							]
+						},
+						{
+							"From": [
+								391,
+								"Value"
+							],
+							"To": [
+								398,
+								"Array"
+							]
+						},
+						{
+							"From": [
+								397,
+								"Value"
+							],
+							"To": [
+								398,
+								"Index"
+							]
+						},
+						{
+							"From": [
+								399,
+								"Value"
+							],
+							"To": [
+								400,
+								"Array"
+							]
+						},
+						{
+							"From": [
+								397,
+								"Value"
+							],
+							"To": [
+								400,
+								"Index"
+							]
+						},
+						{
+							"From": [
+								398,
+								"Element"
+							],
+							"To": [
+								401,
+								"Width"
+							]
+						},
+						{
+							"From": [
+								400,
+								"Element"
+							],
+							"To": [
+								401,
+								"Height"
 							]
 						},
 						{
@@ -7313,17 +7485,17 @@
 							],
 							"To": [
 								403,
-								"share"
+								"v"
 							]
 						},
 						{
 							"From": [
-								397,
-								"Element"
+								94,
+								"Direction"
 							],
 							"To": [
-								404,
-								"Bus"
+								403,
+								"d"
 							]
 						},
 						{
@@ -7333,47 +7505,77 @@
 							],
 							"To": [
 								404,
-								"Decibels"
+								"Value"
+							]
+						},
+						{
+							"From": [
+								94,
+								"Row"
+							],
+							"To": [
+								405,
+								"row"
+							]
+						},
+						{
+							"From": [
+								406,
+								"Value"
+							],
+							"To": [
+								407,
+								"Array"
 							]
 						},
 						{
 							"From": [
 								405,
-								"Value"
-							],
-							"To": [
-								406,
-								"Fallback"
-							]
-						},
-						{
-							"From": [
-								406,
 								"Result"
 							],
 							"To": [
 								407,
-								"A"
+								"Index"
 							]
 						},
 						{
 							"From": [
 								407,
-								"Result"
+								"Element"
 							],
 							"To": [
 								408,
-								"Value"
+								"Bus"
+							]
+						},
+						{
+							"From": [
+								408,
+								"Result"
+							],
+							"To": [
+								409,
+								"db"
 							]
 						},
 						{
 							"From": [
 								409,
-								"Value"
+								"Result"
 							],
 							"To": [
 								410,
-								"Fallback"
+								"share"
+							]
+						},
+						{
+							"From": [
+								94,
+								"Direction"
+							],
+							"To": [
+								410,
+								"d"
 							]
 						},
 						{
@@ -7383,6 +7585,86 @@
 							],
 							"To": [
 								411,
+								"Value"
+							]
+						},
+						{
+							"From": [
+								412,
+								"Value"
+							],
+							"To": [
+								413,
+								"share"
+							]
+						},
+						{
+							"From": [
+								407,
+								"Element"
+							],
+							"To": [
+								414,
+								"Bus"
+							]
+						},
+						{
+							"From": [
+								413,
+								"Result"
+							],
+							"To": [
+								414,
+								"Decibels"
+							]
+						},
+						{
+							"From": [
+								415,
+								"Value"
+							],
+							"To": [
+								416,
+								"Fallback"
+							]
+						},
+						{
+							"From": [
+								416,
+								"Result"
+							],
+							"To": [
+								417,
+								"A"
+							]
+						},
+						{
+							"From": [
+								417,
+								"Result"
+							],
+							"To": [
+								418,
+								"Value"
+							]
+						},
+						{
+							"From": [
+								419,
+								"Value"
+							],
+							"To": [
+								420,
+								"Fallback"
+							]
+						},
+						{
+							"From": [
+								420,
+								"Result"
+							],
+							"To": [
+								421,
 								"s"
 							]
 						},
@@ -7392,17 +7674,47 @@
 								"Direction"
 							],
 							"To": [
-								411,
+								421,
 								"d"
 							]
 						},
 						{
 							"From": [
-								411,
+								421,
 								"Result"
 							],
 							"To": [
-								412,
+								422,
+								"Value"
+							]
+						},
+						{
+							"From": [
+								423,
+								"Value"
+							],
+							"To": [
+								424,
+								"Fallback"
+							]
+						},
+						{
+							"From": [
+								424,
+								"Result"
+							],
+							"To": [
+								425,
+								"A"
+							]
+						},
+						{
+							"From": [
+								425,
+								"Result"
+							],
+							"To": [
+								426,
 								"Value"
 							]
 						},
@@ -7412,143 +7724,133 @@
 								"Then"
 							],
 							"To": [
-								370,
+								380,
 								"Execute"
 							]
 						},
 						{
 							"From": [
-								370,
+								380,
 								"Case:0"
 							],
 							"To": [
-								375,
+								385,
 								"Execute"
 							]
 						},
 						{
 							"From": [
-								375,
+								385,
 								"Then"
 							],
 							"To": [
-								414,
+								428,
 								"Execute"
 							]
 						},
 						{
 							"From": [
-								370,
+								380,
 								"Case:1"
 							],
 							"To": [
-								380,
+								390,
 								"Execute"
 							]
 						},
 						{
 							"From": [
-								380,
+								390,
 								"Then"
 							],
 							"To": [
-								414,
+								428,
 								"Execute"
 							]
 						},
 						{
 							"From": [
-								370,
+								380,
 								"Case:2"
 							],
 							"To": [
-								386,
+								396,
 								"Execute"
 							]
 						},
 						{
 							"From": [
-								386,
+								396,
 								"Then"
 							],
 							"To": [
-								391,
+								401,
 								"Execute"
 							]
 						},
 						{
 							"From": [
-								391,
+								401,
 								"Then"
 							],
 							"To": [
-								414,
+								428,
 								"Execute"
 							]
 						},
 						{
 							"From": [
-								370,
+								380,
 								"Case:3"
 							],
 							"To": [
-								394,
+								404,
 								"Execute"
 							]
 						},
 						{
 							"From": [
-								394,
+								404,
 								"Then"
 							],
 							"To": [
-								414,
+								428,
 								"Execute"
 							]
 						},
 						{
 							"From": [
-								370,
+								380,
 								"Case:4"
 							],
 							"To": [
-								401,
+								411,
 								"Execute"
 							]
 						},
 						{
 							"From": [
-								370,
+								380,
 								"Case:5"
 							],
 							"To": [
-								401,
+								411,
 								"Execute"
 							]
 						},
 						{
 							"From": [
-								370,
+								380,
 								"Case:6"
 							],
 							"To": [
-								401,
+								411,
 								"Execute"
 							]
 						},
 						{
 							"From": [
-								401,
-								"Then"
-							],
-							"To": [
-								404,
-								"Execute"
-							]
-						},
-						{
-							"From": [
-								404,
+								411,
 								"Then"
 							],
 							"To": [
@@ -7558,57 +7860,87 @@
 						},
 						{
 							"From": [
-								370,
+								414,
+								"Then"
+							],
+							"To": [
+								428,
+								"Execute"
+							]
+						},
+						{
+							"From": [
+								380,
 								"Case:7"
 							],
 							"To": [
-								408,
+								418,
 								"Execute"
 							]
 						},
 						{
 							"From": [
-								408,
+								418,
 								"Then"
 							],
 							"To": [
-								413,
+								427,
 								"Execute"
 							]
 						},
 						{
 							"From": [
-								370,
+								380,
 								"Case:8"
 							],
 							"To": [
-								412,
+								422,
 								"Execute"
 							]
 						},
 						{
 							"From": [
-								412,
+								422,
 								"Then"
 							],
 							"To": [
-								413,
+								427,
 								"Execute"
 							]
 						},
 						{
 							"From": [
-								413,
+								380,
+								"Case:9"
+							],
+							"To": [
+								426,
+								"Execute"
+							]
+						},
+						{
+							"From": [
+								426,
 								"Then"
 							],
 							"To": [
-								414,
+								427,
 								"Execute"
 							]
 						},
 						{
 							"From": [
-								414,
+								427,
+								"Then"
+							],
+							"To": [
+								428,
+								"Execute"
+							]
+						},
+						{
+							"From": [
+								428,
 								"Then"
 							],
 							"To": [
@@ -7618,7 +7950,7 @@
 						},
 						{
 							"From": [
-								370,
+								380,
 								"Default"
 							],
 							"To": [
@@ -7629,7 +7961,7 @@
 					],
 					"Comments": [
 						{
-							"ID": 415,
+							"ID": 429,
 							"Text": "Step: a setting one step down or up, then shown as it reads",
 							"Position": [
 								-32.0,
@@ -7637,7 +7969,7 @@
 							],
 							"Size": [
 								2184.0,
-								1538.0
+								1714.0
 							],
 							"Color": [
 								0.949999988079071,
@@ -7675,7 +8007,7 @@
 							]
 						},
 						{
-							"ID": 416,
+							"ID": 430,
 							"Type": "Variable.Get",
 							"Position": [
 								608.0,
@@ -7686,7 +8018,7 @@
 							}
 						},
 						{
-							"ID": 417,
+							"ID": 431,
 							"Type": "Expression",
 							"Position": [
 								832.0,
@@ -7697,7 +8029,7 @@
 							}
 						},
 						{
-							"ID": 418,
+							"ID": 432,
 							"Type": "Variable.Get",
 							"Position": [
 								0.0,
@@ -7708,7 +8040,7 @@
 							}
 						},
 						{
-							"ID": 419,
+							"ID": 433,
 							"Type": "Expression",
 							"Position": [
 								384.0,
@@ -7719,7 +8051,7 @@
 							}
 						},
 						{
-							"ID": 420,
+							"ID": 434,
 							"Type": "Literal",
 							"Position": [
 								384.0,
@@ -7731,7 +8063,7 @@
 							}
 						},
 						{
-							"ID": 421,
+							"ID": 435,
 							"Type": "Expression",
 							"Position": [
 								192.0,
@@ -7742,7 +8074,7 @@
 							}
 						},
 						{
-							"ID": 422,
+							"ID": 436,
 							"Type": "Literal",
 							"Position": [
 								192.0,
@@ -7754,7 +8086,7 @@
 							}
 						},
 						{
-							"ID": 423,
+							"ID": 437,
 							"Type": "Literal",
 							"Position": [
 								192.0,
@@ -7766,7 +8098,7 @@
 							}
 						},
 						{
-							"ID": 424,
+							"ID": 438,
 							"Type": "Select",
 							"Position": [
 								384.0,
@@ -7774,7 +8106,7 @@
 							]
 						},
 						{
-							"ID": 425,
+							"ID": 439,
 							"Type": "Select",
 							"Position": [
 								608.0,
@@ -7782,7 +8114,7 @@
 							]
 						},
 						{
-							"ID": 426,
+							"ID": 440,
 							"Type": "Variable.Get",
 							"Position": [
 								608.0,
@@ -7793,7 +8125,7 @@
 							}
 						},
 						{
-							"ID": 427,
+							"ID": 441,
 							"Type": "FormatString",
 							"Position": [
 								832.0,
@@ -7804,7 +8136,7 @@
 							}
 						},
 						{
-							"ID": 428,
+							"ID": 442,
 							"Type": "FormatString",
 							"Position": [
 								832.0,
@@ -7815,7 +8147,7 @@
 							}
 						},
 						{
-							"ID": 429,
+							"ID": 443,
 							"Type": "Select",
 							"Position": [
 								1040.0,
@@ -7823,7 +8155,7 @@
 							]
 						},
 						{
-							"ID": 430,
+							"ID": 444,
 							"Type": "Variable.Get",
 							"Position": [
 								1040.0,
@@ -7834,7 +8166,7 @@
 							}
 						},
 						{
-							"ID": 431,
+							"ID": 445,
 							"Type": "String.IsEmpty",
 							"Position": [
 								1264.0,
@@ -7842,7 +8174,7 @@
 							]
 						},
 						{
-							"ID": 432,
+							"ID": 446,
 							"Type": "FormatString",
 							"Position": [
 								1264.0,
@@ -7853,7 +8185,7 @@
 							}
 						},
 						{
-							"ID": 433,
+							"ID": 447,
 							"Type": "Select",
 							"Position": [
 								1472.0,
@@ -7861,7 +8193,7 @@
 							]
 						},
 						{
-							"ID": 434,
+							"ID": 448,
 							"Type": "Variable.Get",
 							"Position": [
 								1472.0,
@@ -7872,7 +8204,7 @@
 							}
 						},
 						{
-							"ID": 435,
+							"ID": 449,
 							"Type": "Set:Strada.UITextComponent.Text",
 							"Position": [
 								1696.0,
@@ -7883,212 +8215,72 @@
 					"Links": [
 						{
 							"From": [
-								416,
+								430,
 								"Value"
 							],
 							"To": [
-								417,
+								431,
 								"binding"
 							]
 						},
 						{
 							"From": [
-								418,
+								432,
 								"Value"
 							],
 							"To": [
-								419,
+								433,
 								"part"
 							]
 						},
 						{
 							"From": [
-								418,
+								432,
 								"Value"
 							],
 							"To": [
-								421,
+								435,
 								"part"
 							]
 						},
 						{
 							"From": [
-								421,
+								435,
 								"Result"
 							],
 							"To": [
-								424,
+								438,
 								"Condition"
 							]
 						},
 						{
 							"From": [
-								422,
+								436,
 								"Value"
 							],
 							"To": [
-								424,
+								438,
 								"True"
 							]
 						},
 						{
 							"From": [
-								423,
+								437,
 								"Value"
 							],
 							"To": [
-								424,
+								438,
 								"False"
 							]
 						},
 						{
 							"From": [
-								419,
-								"Result"
-							],
-							"To": [
-								425,
-								"Condition"
-							]
-						},
-						{
-							"From": [
-								420,
-								"Value"
-							],
-							"To": [
-								425,
-								"True"
-							]
-						},
-						{
-							"From": [
-								424,
-								"Result"
-							],
-							"To": [
-								425,
-								"False"
-							]
-						},
-						{
-							"From": [
-								426,
-								"Value"
-							],
-							"To": [
-								427,
-								"Name"
-							]
-						},
-						{
-							"From": [
-								425,
-								"Result"
-							],
-							"To": [
-								427,
-								"Side"
-							]
-						},
-						{
-							"From": [
-								426,
-								"Value"
-							],
-							"To": [
-								428,
-								"Name"
-							]
-						},
-						{
-							"From": [
-								417,
-								"Result"
-							],
-							"To": [
-								429,
-								"Condition"
-							]
-						},
-						{
-							"From": [
-								427,
-								"Result"
-							],
-							"To": [
-								429,
-								"True"
-							]
-						},
-						{
-							"From": [
-								428,
-								"Result"
-							],
-							"To": [
-								429,
-								"False"
-							]
-						},
-						{
-							"From": [
-								430,
-								"Value"
-							],
-							"To": [
-								431,
-								"Text"
-							]
-						},
-						{
-							"From": [
-								430,
-								"Value"
-							],
-							"To": [
-								432,
-								"Refused"
-							]
-						},
-						{
-							"From": [
-								429,
-								"Result"
-							],
-							"To": [
-								432,
-								"Ask"
-							]
-						},
-						{
-							"From": [
-								431,
-								"Result"
-							],
-							"To": [
 								433,
+								"Result"
+							],
+							"To": [
+								439,
 								"Condition"
-							]
-						},
-						{
-							"From": [
-								429,
-								"Result"
-							],
-							"To": [
-								433,
-								"True"
-							]
-						},
-						{
-							"From": [
-								432,
-								"Result"
-							],
-							"To": [
-								433,
-								"False"
 							]
 						},
 						{
@@ -8097,17 +8289,157 @@
 								"Value"
 							],
 							"To": [
-								435,
+								439,
+								"True"
+							]
+						},
+						{
+							"From": [
+								438,
+								"Result"
+							],
+							"To": [
+								439,
+								"False"
+							]
+						},
+						{
+							"From": [
+								440,
+								"Value"
+							],
+							"To": [
+								441,
+								"Name"
+							]
+						},
+						{
+							"From": [
+								439,
+								"Result"
+							],
+							"To": [
+								441,
+								"Side"
+							]
+						},
+						{
+							"From": [
+								440,
+								"Value"
+							],
+							"To": [
+								442,
+								"Name"
+							]
+						},
+						{
+							"From": [
+								431,
+								"Result"
+							],
+							"To": [
+								443,
+								"Condition"
+							]
+						},
+						{
+							"From": [
+								441,
+								"Result"
+							],
+							"To": [
+								443,
+								"True"
+							]
+						},
+						{
+							"From": [
+								442,
+								"Result"
+							],
+							"To": [
+								443,
+								"False"
+							]
+						},
+						{
+							"From": [
+								444,
+								"Value"
+							],
+							"To": [
+								445,
+								"Text"
+							]
+						},
+						{
+							"From": [
+								444,
+								"Value"
+							],
+							"To": [
+								446,
+								"Refused"
+							]
+						},
+						{
+							"From": [
+								443,
+								"Result"
+							],
+							"To": [
+								446,
+								"Ask"
+							]
+						},
+						{
+							"From": [
+								445,
+								"Result"
+							],
+							"To": [
+								447,
+								"Condition"
+							]
+						},
+						{
+							"From": [
+								443,
+								"Result"
+							],
+							"To": [
+								447,
+								"True"
+							]
+						},
+						{
+							"From": [
+								446,
+								"Result"
+							],
+							"To": [
+								447,
+								"False"
+							]
+						},
+						{
+							"From": [
+								448,
+								"Value"
+							],
+							"To": [
+								449,
 								"Target"
 							]
 						},
 						{
 							"From": [
-								433,
+								447,
 								"Result"
 							],
 							"To": [
-								435,
+								449,
 								"Value"
 							]
 						},
@@ -8117,13 +8449,13 @@
 								"Then"
 							],
 							"To": [
-								435,
+								449,
 								"Execute"
 							]
 						},
 						{
 							"From": [
-								435,
+								449,
 								"Then"
 							],
 							"To": [
@@ -8134,7 +8466,7 @@
 					],
 					"Comments": [
 						{
-							"ID": 436,
+							"ID": 450,
 							"Text": "Show prompt: what the listening binding waits for",
 							"Position": [
 								-32.0,
@@ -8189,18 +8521,18 @@
 							]
 						},
 						{
-							"ID": 437,
+							"ID": 451,
 							"Type": "Expression",
 							"Position": [
 								192.0,
 								0.0
 							],
 							"Settings": {
-								"Formula": "row - 9"
+								"Formula": "row - 10"
 							}
 						},
 						{
-							"ID": 438,
+							"ID": 452,
 							"Type": "Variable.Get",
 							"Position": [
 								192.0,
@@ -8211,7 +8543,7 @@
 							}
 						},
 						{
-							"ID": 439,
+							"ID": 453,
 							"Type": "Array.Get",
 							"Position": [
 								384.0,
@@ -8219,7 +8551,7 @@
 							]
 						},
 						{
-							"ID": 440,
+							"ID": 454,
 							"Type": "Variable.Set",
 							"Position": [
 								592.0,
@@ -8230,7 +8562,7 @@
 							}
 						},
 						{
-							"ID": 441,
+							"ID": 455,
 							"Type": "Variable.Get",
 							"Position": [
 								384.0,
@@ -8241,7 +8573,7 @@
 							}
 						},
 						{
-							"ID": 442,
+							"ID": 456,
 							"Type": "Array.Get",
 							"Position": [
 								592.0,
@@ -8249,7 +8581,7 @@
 							]
 						},
 						{
-							"ID": 443,
+							"ID": 457,
 							"Type": "Variable.Set",
 							"Position": [
 								800.0,
@@ -8260,7 +8592,7 @@
 							}
 						},
 						{
-							"ID": 444,
+							"ID": 458,
 							"Type": "Variable.Set",
 							"Position": [
 								992.0,
@@ -8271,7 +8603,7 @@
 							}
 						},
 						{
-							"ID": 445,
+							"ID": 459,
 							"Type": "Variable.Get",
 							"Position": [
 								592.0,
@@ -8282,7 +8614,7 @@
 							}
 						},
 						{
-							"ID": 446,
+							"ID": 460,
 							"Type": "Literal",
 							"Position": [
 								592.0,
@@ -8294,7 +8626,7 @@
 							}
 						},
 						{
-							"ID": 447,
+							"ID": 461,
 							"Type": "Operator.Equal",
 							"Position": [
 								800.0,
@@ -8302,7 +8634,7 @@
 							]
 						},
 						{
-							"ID": 448,
+							"ID": 462,
 							"Type": "Expression",
 							"Position": [
 								992.0,
@@ -8313,7 +8645,7 @@
 							}
 						},
 						{
-							"ID": 449,
+							"ID": 463,
 							"Type": "Variable.Set",
 							"Position": [
 								1216.0,
@@ -8325,7 +8657,7 @@
 							"Comment": "The lean's two keys one after the other: left, then right"
 						},
 						{
-							"ID": 450,
+							"ID": 464,
 							"Type": "Variable.Get",
 							"Position": [
 								992.0,
@@ -8336,7 +8668,7 @@
 							}
 						},
 						{
-							"ID": 451,
+							"ID": 465,
 							"Type": "Call:Strada.Input.GetBindingControls(string,int)",
 							"Position": [
 								1216.0,
@@ -8344,7 +8676,7 @@
 							]
 						},
 						{
-							"ID": 452,
+							"ID": 466,
 							"Type": "Variable.Set",
 							"Position": [
 								1440.0,
@@ -8356,7 +8688,7 @@
 							"Comment": "Kept to give back an answer the binding cannot take"
 						},
 						{
-							"ID": 453,
+							"ID": 467,
 							"Type": "Variable.Set",
 							"Position": [
 								1632.0,
@@ -8370,7 +8702,7 @@
 							}
 						},
 						{
-							"ID": 454,
+							"ID": 468,
 							"Type": "Variable.Get",
 							"Position": [
 								1632.0,
@@ -8381,7 +8713,7 @@
 							}
 						},
 						{
-							"ID": 455,
+							"ID": 469,
 							"Type": "Call:Strada.Input.StartRebind(string,int,int)",
 							"Position": [
 								1936.0,
@@ -8389,7 +8721,7 @@
 							]
 						},
 						{
-							"ID": 456,
+							"ID": 470,
 							"Type": "Variable.Set",
 							"Position": [
 								2144.0,
@@ -8403,7 +8735,7 @@
 							}
 						},
 						{
-							"ID": 457,
+							"ID": 471,
 							"Type": "Function.Call",
 							"Position": [
 								2368.0,
@@ -8421,67 +8753,67 @@
 								"Row"
 							],
 							"To": [
-								437,
+								451,
 								"row"
 							]
 						},
 						{
 							"From": [
-								438,
+								452,
 								"Value"
 							],
 							"To": [
-								439,
+								453,
 								"Array"
 							]
 						},
 						{
 							"From": [
-								437,
+								451,
 								"Result"
 							],
 							"To": [
-								439,
+								453,
 								"Index"
 							]
 						},
 						{
 							"From": [
-								439,
+								453,
 								"Element"
 							],
 							"To": [
-								440,
+								454,
 								"Value"
 							]
 						},
 						{
 							"From": [
-								441,
+								455,
 								"Value"
 							],
 							"To": [
-								442,
+								456,
 								"Array"
 							]
 						},
 						{
 							"From": [
-								437,
+								451,
 								"Result"
 							],
 							"To": [
-								442,
+								456,
 								"Index"
 							]
 						},
 						{
 							"From": [
-								442,
+								456,
 								"Element"
 							],
 							"To": [
-								443,
+								457,
 								"Value"
 							]
 						},
@@ -8491,37 +8823,37 @@
 								"Binding"
 							],
 							"To": [
-								444,
+								458,
 								"Value"
 							]
 						},
 						{
 							"From": [
-								445,
+								459,
 								"Value"
 							],
 							"To": [
-								447,
+								461,
 								"A"
 							]
 						},
 						{
 							"From": [
-								446,
+								460,
 								"Value"
 							],
 							"To": [
-								447,
+								461,
 								"B"
 							]
 						},
 						{
 							"From": [
-								447,
+								461,
 								"Result"
 							],
 							"To": [
-								448,
+								462,
 								"composite"
 							]
 						},
@@ -8531,77 +8863,77 @@
 								"Binding"
 							],
 							"To": [
-								448,
+								462,
 								"binding"
 							]
 						},
 						{
 							"From": [
-								448,
+								462,
 								"Result"
 							],
 							"To": [
-								449,
+								463,
 								"Value"
 							]
 						},
 						{
 							"From": [
-								445,
+								459,
 								"Value"
 							],
 							"To": [
-								451,
+								465,
 								"Action"
 							]
 						},
 						{
 							"From": [
-								450,
+								464,
 								"Value"
 							],
 							"To": [
-								451,
+								465,
 								"Binding"
 							]
 						},
 						{
 							"From": [
-								451,
+								465,
 								"Result"
 							],
 							"To": [
-								452,
+								466,
 								"Value"
 							]
 						},
 						{
 							"From": [
-								445,
+								459,
 								"Value"
 							],
 							"To": [
-								455,
+								469,
 								"Action"
 							]
 						},
 						{
 							"From": [
-								450,
+								464,
 								"Value"
 							],
 							"To": [
-								455,
+								469,
 								"Binding"
 							]
 						},
 						{
 							"From": [
-								454,
+								468,
 								"Value"
 							],
 							"To": [
-								455,
+								469,
 								"Part"
 							]
 						},
@@ -8611,83 +8943,13 @@
 								"Then"
 							],
 							"To": [
-								440,
+								454,
 								"Execute"
 							]
 						},
 						{
 							"From": [
-								440,
-								"Then"
-							],
-							"To": [
-								443,
-								"Execute"
-							]
-						},
-						{
-							"From": [
-								443,
-								"Then"
-							],
-							"To": [
-								444,
-								"Execute"
-							]
-						},
-						{
-							"From": [
-								444,
-								"Then"
-							],
-							"To": [
-								449,
-								"Execute"
-							]
-						},
-						{
-							"From": [
-								449,
-								"Then"
-							],
-							"To": [
-								452,
-								"Execute"
-							]
-						},
-						{
-							"From": [
-								452,
-								"Then"
-							],
-							"To": [
-								453,
-								"Execute"
-							]
-						},
-						{
-							"From": [
-								453,
-								"Then"
-							],
-							"To": [
-								455,
-								"Execute"
-							]
-						},
-						{
-							"From": [
-								455,
-								"Then"
-							],
-							"To": [
-								456,
-								"Execute"
-							]
-						},
-						{
-							"From": [
-								456,
+								454,
 								"Then"
 							],
 							"To": [
@@ -8698,6 +8960,76 @@
 						{
 							"From": [
 								457,
+								"Then"
+							],
+							"To": [
+								458,
+								"Execute"
+							]
+						},
+						{
+							"From": [
+								458,
+								"Then"
+							],
+							"To": [
+								463,
+								"Execute"
+							]
+						},
+						{
+							"From": [
+								463,
+								"Then"
+							],
+							"To": [
+								466,
+								"Execute"
+							]
+						},
+						{
+							"From": [
+								466,
+								"Then"
+							],
+							"To": [
+								467,
+								"Execute"
+							]
+						},
+						{
+							"From": [
+								467,
+								"Then"
+							],
+							"To": [
+								469,
+								"Execute"
+							]
+						},
+						{
+							"From": [
+								469,
+								"Then"
+							],
+							"To": [
+								470,
+								"Execute"
+							]
+						},
+						{
+							"From": [
+								470,
+								"Then"
+							],
+							"To": [
+								471,
+								"Execute"
+							]
+						},
+						{
+							"From": [
+								471,
 								"Then"
 							],
 							"To": [
@@ -8708,7 +9040,7 @@
 					],
 					"Comments": [
 						{
-							"ID": 458,
+							"ID": 472,
 							"Text": "Start bind: a riding action's binding listens for a control",
 							"Position": [
 								-32.0,
@@ -8767,7 +9099,7 @@
 							]
 						},
 						{
-							"ID": 459,
+							"ID": 473,
 							"Type": "Get:Strada.Input.CurrentRebind",
 							"Position": [
 								0.0,
@@ -8775,7 +9107,7 @@
 							]
 						},
 						{
-							"ID": 460,
+							"ID": 474,
 							"Type": "Get:Strada.RebindResult.Status",
 							"Position": [
 								208.0,
@@ -8783,7 +9115,7 @@
 							]
 						},
 						{
-							"ID": 461,
+							"ID": 475,
 							"Type": "Literal",
 							"Position": [
 								208.0,
@@ -8795,7 +9127,7 @@
 							}
 						},
 						{
-							"ID": 462,
+							"ID": 476,
 							"Type": "Operator.Equal",
 							"Position": [
 								416.0,
@@ -8803,7 +9135,7 @@
 							]
 						},
 						{
-							"ID": 463,
+							"ID": 477,
 							"Type": "Flow.Branch",
 							"Position": [
 								624.0,
@@ -8812,7 +9144,7 @@
 							"Comment": "The answer is polled; there is no event"
 						},
 						{
-							"ID": 464,
+							"ID": 478,
 							"Type": "Get:Strada.RebindResult.Status",
 							"Position": [
 								416.0,
@@ -8820,7 +9152,7 @@
 							]
 						},
 						{
-							"ID": 465,
+							"ID": 479,
 							"Type": "Literal",
 							"Position": [
 								416.0,
@@ -8832,7 +9164,7 @@
 							}
 						},
 						{
-							"ID": 466,
+							"ID": 480,
 							"Type": "Operator.Equal",
 							"Position": [
 								624.0,
@@ -8840,7 +9172,7 @@
 							]
 						},
 						{
-							"ID": 467,
+							"ID": 481,
 							"Type": "Flow.Branch",
 							"Position": [
 								944.0,
@@ -8848,7 +9180,7 @@
 							]
 						},
 						{
-							"ID": 468,
+							"ID": 482,
 							"Type": "Get:Strada.RebindResult.Controls",
 							"Position": [
 								944.0,
@@ -8856,7 +9188,7 @@
 							]
 						},
 						{
-							"ID": 469,
+							"ID": 483,
 							"Type": "Variable.Set",
 							"Position": [
 								1264.0,
@@ -8867,7 +9199,7 @@
 							}
 						},
 						{
-							"ID": 470,
+							"ID": 484,
 							"Type": "Variable.Get",
 							"Position": [
 								416.0,
@@ -8878,7 +9210,7 @@
 							}
 						},
 						{
-							"ID": 471,
+							"ID": 485,
 							"Type": "Expression",
 							"Position": [
 								944.0,
@@ -8889,7 +9221,7 @@
 							}
 						},
 						{
-							"ID": 472,
+							"ID": 486,
 							"Type": "Variable.Get",
 							"Position": [
 								416.0,
@@ -8900,7 +9232,7 @@
 							}
 						},
 						{
-							"ID": 473,
+							"ID": 487,
 							"Type": "String.Contains",
 							"Position": [
 								944.0,
@@ -8911,7 +9243,7 @@
 							}
 						},
 						{
-							"ID": 474,
+							"ID": 488,
 							"Type": "String.Contains",
 							"Position": [
 								624.0,
@@ -8922,7 +9254,7 @@
 							}
 						},
 						{
-							"ID": 475,
+							"ID": 489,
 							"Type": "String.Contains",
 							"Position": [
 								624.0,
@@ -8933,7 +9265,7 @@
 							}
 						},
 						{
-							"ID": 476,
+							"ID": 490,
 							"Type": "Operator.Or",
 							"Position": [
 								944.0,
@@ -8941,7 +9273,7 @@
 							]
 						},
 						{
-							"ID": 477,
+							"ID": 491,
 							"Type": "Select",
 							"Position": [
 								1264.0,
@@ -8949,7 +9281,7 @@
 							]
 						},
 						{
-							"ID": 478,
+							"ID": 492,
 							"Type": "Variable.Set",
 							"Position": [
 								1488.0,
@@ -8961,7 +9293,7 @@
 							"Comment": "The keyboard's binding takes keys, the gamepad's its controls"
 						},
 						{
-							"ID": 479,
+							"ID": 493,
 							"Type": "Variable.Get",
 							"Position": [
 								1488.0,
@@ -8972,7 +9304,7 @@
 							}
 						},
 						{
-							"ID": 480,
+							"ID": 494,
 							"Type": "Flow.Branch",
 							"Position": [
 								1696.0,
@@ -8980,7 +9312,7 @@
 							]
 						},
 						{
-							"ID": 481,
+							"ID": 495,
 							"Type": "Literal",
 							"Position": [
 								1488.0,
@@ -8992,7 +9324,7 @@
 							}
 						},
 						{
-							"ID": 482,
+							"ID": 496,
 							"Type": "Literal",
 							"Position": [
 								1488.0,
@@ -9004,7 +9336,7 @@
 							}
 						},
 						{
-							"ID": 483,
+							"ID": 497,
 							"Type": "Select",
 							"Position": [
 								1696.0,
@@ -9012,7 +9344,7 @@
 							]
 						},
 						{
-							"ID": 484,
+							"ID": 498,
 							"Type": "Variable.Set",
 							"Position": [
 								2016.0,
@@ -9023,7 +9355,7 @@
 							}
 						},
 						{
-							"ID": 485,
+							"ID": 499,
 							"Type": "Variable.Get",
 							"Position": [
 								416.0,
@@ -9034,7 +9366,7 @@
 							}
 						},
 						{
-							"ID": 486,
+							"ID": 500,
 							"Type": "Variable.Get",
 							"Position": [
 								2016.0,
@@ -9045,7 +9377,7 @@
 							}
 						},
 						{
-							"ID": 487,
+							"ID": 501,
 							"Type": "Call:Strada.Input.Rebind(string,int,string,int)",
 							"Position": [
 								2240.0,
@@ -9057,7 +9389,7 @@
 							"Comment": "The binding is given back as it was"
 						},
 						{
-							"ID": 488,
+							"ID": 502,
 							"Type": "Variable.Get",
 							"Position": [
 								1488.0,
@@ -9068,7 +9400,7 @@
 							}
 						},
 						{
-							"ID": 489,
+							"ID": 503,
 							"Type": "Call:Strada.Input.StartRebind(string,int,int)",
 							"Position": [
 								2512.0,
@@ -9076,7 +9408,7 @@
 							]
 						},
 						{
-							"ID": 490,
+							"ID": 504,
 							"Type": "Expression",
 							"Position": [
 								1696.0,
@@ -9087,7 +9419,7 @@
 							}
 						},
 						{
-							"ID": 491,
+							"ID": 505,
 							"Type": "Flow.Branch",
 							"Position": [
 								2016.0,
@@ -9096,7 +9428,7 @@
 							"Comment": "The lean's left key taken: now its right"
 						},
 						{
-							"ID": 492,
+							"ID": 506,
 							"Type": "Variable.Set",
 							"Position": [
 								2240.0,
@@ -9110,7 +9442,7 @@
 							}
 						},
 						{
-							"ID": 493,
+							"ID": 507,
 							"Type": "Call:Strada.Input.GetBindingControls(string,int)",
 							"Position": [
 								2240.0,
@@ -9118,7 +9450,7 @@
 							]
 						},
 						{
-							"ID": 494,
+							"ID": 508,
 							"Type": "Variable.Set",
 							"Position": [
 								2512.0,
@@ -9129,7 +9461,7 @@
 							}
 						},
 						{
-							"ID": 495,
+							"ID": 509,
 							"Type": "Call:Strada.Input.StartRebind(string,int,int)",
 							"Position": [
 								2736.0,
@@ -9140,7 +9472,7 @@
 							}
 						},
 						{
-							"ID": 496,
+							"ID": 510,
 							"Type": "Get:Strada.RebindResult.Conflicts",
 							"Position": [
 								1488.0,
@@ -9148,7 +9480,7 @@
 							]
 						},
 						{
-							"ID": 497,
+							"ID": 511,
 							"Type": "String.Join",
 							"Position": [
 								1696.0,
@@ -9159,7 +9491,7 @@
 							}
 						},
 						{
-							"ID": 498,
+							"ID": 512,
 							"Type": "String.ToUpper",
 							"Position": [
 								2016.0,
@@ -9167,7 +9499,7 @@
 							]
 						},
 						{
-							"ID": 499,
+							"ID": 513,
 							"Type": "Variable.Set",
 							"Position": [
 								2240.0,
@@ -9178,7 +9510,7 @@
 							}
 						},
 						{
-							"ID": 500,
+							"ID": 514,
 							"Type": "Variable.Set",
 							"Position": [
 								2512.0,
@@ -9192,7 +9524,7 @@
 							}
 						},
 						{
-							"ID": 501,
+							"ID": 515,
 							"Type": "Variable.Get",
 							"Position": [
 								2240.0,
@@ -9203,7 +9535,7 @@
 							}
 						},
 						{
-							"ID": 502,
+							"ID": 516,
 							"Type": "Expression",
 							"Position": [
 								2512.0,
@@ -9214,7 +9546,7 @@
 							}
 						},
 						{
-							"ID": 503,
+							"ID": 517,
 							"Type": "Variable.Set",
 							"Position": [
 								2736.0,
@@ -9225,7 +9557,7 @@
 							}
 						},
 						{
-							"ID": 504,
+							"ID": 518,
 							"Type": "Call:Strada.Input.GetBindingControls(string,int)",
 							"Position": [
 								624.0,
@@ -9233,7 +9565,7 @@
 							]
 						},
 						{
-							"ID": 505,
+							"ID": 519,
 							"Type": "Function.Call",
 							"Position": [
 								944.0,
@@ -9244,7 +9576,7 @@
 							}
 						},
 						{
-							"ID": 506,
+							"ID": 520,
 							"Type": "Variable.Get",
 							"Position": [
 								2240.0,
@@ -9255,7 +9587,7 @@
 							}
 						},
 						{
-							"ID": 507,
+							"ID": 521,
 							"Type": "String.IsEmpty",
 							"Position": [
 								2512.0,
@@ -9263,7 +9595,7 @@
 							]
 						},
 						{
-							"ID": 508,
+							"ID": 522,
 							"Type": "Variable.Get",
 							"Position": [
 								944.0,
@@ -9274,7 +9606,7 @@
 							}
 						},
 						{
-							"ID": 509,
+							"ID": 523,
 							"Type": "FormatString",
 							"Position": [
 								2512.0,
@@ -9285,7 +9617,7 @@
 							}
 						},
 						{
-							"ID": 510,
+							"ID": 524,
 							"Type": "FormatString",
 							"Position": [
 								2512.0,
@@ -9296,7 +9628,7 @@
 							}
 						},
 						{
-							"ID": 511,
+							"ID": 525,
 							"Type": "Select",
 							"Position": [
 								2736.0,
@@ -9304,7 +9636,7 @@
 							]
 						},
 						{
-							"ID": 512,
+							"ID": 526,
 							"Type": "Variable.Get",
 							"Position": [
 								1264.0,
@@ -9315,7 +9647,7 @@
 							}
 						},
 						{
-							"ID": 513,
+							"ID": 527,
 							"Type": "Set:Strada.UITextComponent.Text",
 							"Position": [
 								2992.0,
@@ -9323,7 +9655,7 @@
 							]
 						},
 						{
-							"ID": 514,
+							"ID": 528,
 							"Type": "Variable.Set",
 							"Position": [
 								1264.0,
@@ -9338,7 +9670,7 @@
 							"Comment": "Cancelled, timed out or refused: the binding keeps its control"
 						},
 						{
-							"ID": 515,
+							"ID": 529,
 							"Type": "FormatString",
 							"Position": [
 								1264.0,
@@ -9349,7 +9681,7 @@
 							}
 						},
 						{
-							"ID": 516,
+							"ID": 530,
 							"Type": "Set:Strada.UITextComponent.Text",
 							"Position": [
 								1488.0,
@@ -9357,7 +9689,7 @@
 							]
 						},
 						{
-							"ID": 517,
+							"ID": 531,
 							"Type": "Function.Call",
 							"Position": [
 								3184.0,
@@ -9368,7 +9700,7 @@
 							}
 						},
 						{
-							"ID": 518,
+							"ID": 532,
 							"Type": "Function.Call",
 							"Position": [
 								2736.0,
@@ -9379,7 +9711,7 @@
 							}
 						},
 						{
-							"ID": 519,
+							"ID": 533,
 							"Type": "Function.Call",
 							"Position": [
 								2992.0,
@@ -9393,148 +9725,18 @@
 					"Links": [
 						{
 							"From": [
-								459,
-								"Value"
-							],
-							"To": [
-								460,
-								"Target"
-							]
-						},
-						{
-							"From": [
-								460,
-								"Value"
-							],
-							"To": [
-								462,
-								"A"
-							]
-						},
-						{
-							"From": [
-								461,
-								"Value"
-							],
-							"To": [
-								462,
-								"B"
-							]
-						},
-						{
-							"From": [
-								462,
-								"Result"
-							],
-							"To": [
-								463,
-								"Condition"
-							]
-						},
-						{
-							"From": [
-								459,
-								"Value"
-							],
-							"To": [
-								464,
-								"Target"
-							]
-						},
-						{
-							"From": [
-								464,
-								"Value"
-							],
-							"To": [
-								466,
-								"A"
-							]
-						},
-						{
-							"From": [
-								465,
-								"Value"
-							],
-							"To": [
-								466,
-								"B"
-							]
-						},
-						{
-							"From": [
-								466,
-								"Result"
-							],
-							"To": [
-								467,
-								"Condition"
-							]
-						},
-						{
-							"From": [
-								459,
-								"Value"
-							],
-							"To": [
-								468,
-								"Target"
-							]
-						},
-						{
-							"From": [
-								468,
-								"Value"
-							],
-							"To": [
-								469,
-								"Value"
-							]
-						},
-						{
-							"From": [
-								470,
-								"Value"
-							],
-							"To": [
-								471,
-								"binding"
-							]
-						},
-						{
-							"From": [
-								472,
-								"Value"
-							],
-							"To": [
 								473,
-								"Text"
-							]
-						},
-						{
-							"From": [
-								472,
 								"Value"
 							],
 							"To": [
 								474,
-								"Text"
-							]
-						},
-						{
-							"From": [
-								472,
-								"Value"
-							],
-							"To": [
-								475,
-								"Text"
+								"Target"
 							]
 						},
 						{
 							"From": [
 								474,
-								"Result"
+								"Value"
 							],
 							"To": [
 								476,
@@ -9544,7 +9746,7 @@
 						{
 							"From": [
 								475,
-								"Result"
+								"Value"
 							],
 							"To": [
 								476,
@@ -9553,7 +9755,7 @@
 						},
 						{
 							"From": [
-								471,
+								476,
 								"Result"
 							],
 							"To": [
@@ -9564,31 +9766,21 @@
 						{
 							"From": [
 								473,
-								"Result"
-							],
-							"To": [
-								477,
-								"True"
-							]
-						},
-						{
-							"From": [
-								476,
-								"Result"
-							],
-							"To": [
-								477,
-								"False"
-							]
-						},
-						{
-							"From": [
-								477,
-								"Result"
+								"Value"
 							],
 							"To": [
 								478,
+								"Target"
+							]
+						},
+						{
+							"From": [
+								478,
 								"Value"
+							],
+							"To": [
+								480,
+								"A"
 							]
 						},
 						{
@@ -9598,27 +9790,27 @@
 							],
 							"To": [
 								480,
-								"Condition"
+								"B"
 							]
 						},
 						{
 							"From": [
-								471,
+								480,
 								"Result"
 							],
 							"To": [
-								483,
+								481,
 								"Condition"
 							]
 						},
 						{
 							"From": [
-								481,
+								473,
 								"Value"
 							],
 							"To": [
-								483,
-								"True"
+								482,
+								"Target"
 							]
 						},
 						{
@@ -9628,37 +9820,17 @@
 							],
 							"To": [
 								483,
-								"False"
+								"Value"
 							]
 						},
 						{
 							"From": [
-								483,
-								"Result"
-							],
-							"To": [
 								484,
 								"Value"
-							]
-						},
-						{
-							"From": [
+							],
+							"To": [
 								485,
-								"Value"
-							],
-							"To": [
-								487,
-								"Action"
-							]
-						},
-						{
-							"From": [
-								470,
-								"Value"
-							],
-							"To": [
-								487,
-								"Binding"
+								"binding"
 							]
 						},
 						{
@@ -9668,52 +9840,52 @@
 							],
 							"To": [
 								487,
-								"Controls"
+								"Text"
+							]
+						},
+						{
+							"From": [
+								486,
+								"Value"
+							],
+							"To": [
+								488,
+								"Text"
+							]
+						},
+						{
+							"From": [
+								486,
+								"Value"
+							],
+							"To": [
+								489,
+								"Text"
+							]
+						},
+						{
+							"From": [
+								488,
+								"Result"
+							],
+							"To": [
+								490,
+								"A"
+							]
+						},
+						{
+							"From": [
+								489,
+								"Result"
+							],
+							"To": [
+								490,
+								"B"
 							]
 						},
 						{
 							"From": [
 								485,
-								"Value"
-							],
-							"To": [
-								489,
-								"Action"
-							]
-						},
-						{
-							"From": [
-								470,
-								"Value"
-							],
-							"To": [
-								489,
-								"Binding"
-							]
-						},
-						{
-							"From": [
-								488,
-								"Value"
-							],
-							"To": [
-								489,
-								"Part"
-							]
-						},
-						{
-							"From": [
-								488,
-								"Value"
-							],
-							"To": [
-								490,
-								"part"
-							]
-						},
-						{
-							"From": [
-								490,
 								"Result"
 							],
 							"To": [
@@ -9723,242 +9895,232 @@
 						},
 						{
 							"From": [
-								485,
-								"Value"
-							],
-							"To": [
-								493,
-								"Action"
-							]
-						},
-						{
-							"From": [
-								470,
-								"Value"
-							],
-							"To": [
-								493,
-								"Binding"
-							]
-						},
-						{
-							"From": [
-								493,
+								487,
 								"Result"
 							],
 							"To": [
-								494,
-								"Value"
-							]
-						},
-						{
-							"From": [
-								485,
-								"Value"
-							],
-							"To": [
-								495,
-								"Action"
-							]
-						},
-						{
-							"From": [
-								470,
-								"Value"
-							],
-							"To": [
-								495,
-								"Binding"
-							]
-						},
-						{
-							"From": [
-								459,
-								"Value"
-							],
-							"To": [
-								496,
-								"Target"
-							]
-						},
-						{
-							"From": [
-								496,
-								"Value"
-							],
-							"To": [
-								497,
-								"Parts"
-							]
-						},
-						{
-							"From": [
-								497,
-								"Result"
-							],
-							"To": [
-								498,
-								"Text"
-							]
-						},
-						{
-							"From": [
-								498,
-								"Result"
-							],
-							"To": [
-								499,
-								"Value"
-							]
-						},
-						{
-							"From": [
-								501,
-								"Value"
-							],
-							"To": [
-								502,
-								"rebinds"
-							]
-						},
-						{
-							"From": [
-								502,
-								"Result"
-							],
-							"To": [
-								503,
-								"Value"
-							]
-						},
-						{
-							"From": [
-								485,
-								"Value"
-							],
-							"To": [
-								504,
-								"Action"
-							]
-						},
-						{
-							"From": [
-								470,
-								"Value"
-							],
-							"To": [
-								504,
-								"Binding"
-							]
-						},
-						{
-							"From": [
-								504,
-								"Result"
-							],
-							"To": [
-								505,
-								"Controls"
-							]
-						},
-						{
-							"From": [
-								506,
-								"Value"
-							],
-							"To": [
-								507,
-								"Text"
-							]
-						},
-						{
-							"From": [
-								508,
-								"Value"
-							],
-							"To": [
-								509,
-								"Name"
-							]
-						},
-						{
-							"From": [
-								505,
-								"Name"
-							],
-							"To": [
-								509,
-								"Control"
-							]
-						},
-						{
-							"From": [
-								508,
-								"Value"
-							],
-							"To": [
-								510,
-								"Name"
-							]
-						},
-						{
-							"From": [
-								505,
-								"Name"
-							],
-							"To": [
-								510,
-								"Control"
-							]
-						},
-						{
-							"From": [
-								506,
-								"Value"
-							],
-							"To": [
-								510,
-								"Others"
-							]
-						},
-						{
-							"From": [
-								507,
-								"Result"
-							],
-							"To": [
-								511,
-								"Condition"
-							]
-						},
-						{
-							"From": [
-								509,
-								"Result"
-							],
-							"To": [
-								511,
+								491,
 								"True"
 							]
 						},
 						{
 							"From": [
-								510,
+								490,
 								"Result"
 							],
 							"To": [
-								511,
+								491,
 								"False"
 							]
 						},
 						{
 							"From": [
-								512,
+								491,
+								"Result"
+							],
+							"To": [
+								492,
+								"Value"
+							]
+						},
+						{
+							"From": [
+								493,
 								"Value"
 							],
 							"To": [
-								513,
+								494,
+								"Condition"
+							]
+						},
+						{
+							"From": [
+								485,
+								"Result"
+							],
+							"To": [
+								497,
+								"Condition"
+							]
+						},
+						{
+							"From": [
+								495,
+								"Value"
+							],
+							"To": [
+								497,
+								"True"
+							]
+						},
+						{
+							"From": [
+								496,
+								"Value"
+							],
+							"To": [
+								497,
+								"False"
+							]
+						},
+						{
+							"From": [
+								497,
+								"Result"
+							],
+							"To": [
+								498,
+								"Value"
+							]
+						},
+						{
+							"From": [
+								499,
+								"Value"
+							],
+							"To": [
+								501,
+								"Action"
+							]
+						},
+						{
+							"From": [
+								484,
+								"Value"
+							],
+							"To": [
+								501,
+								"Binding"
+							]
+						},
+						{
+							"From": [
+								500,
+								"Value"
+							],
+							"To": [
+								501,
+								"Controls"
+							]
+						},
+						{
+							"From": [
+								499,
+								"Value"
+							],
+							"To": [
+								503,
+								"Action"
+							]
+						},
+						{
+							"From": [
+								484,
+								"Value"
+							],
+							"To": [
+								503,
+								"Binding"
+							]
+						},
+						{
+							"From": [
+								502,
+								"Value"
+							],
+							"To": [
+								503,
+								"Part"
+							]
+						},
+						{
+							"From": [
+								502,
+								"Value"
+							],
+							"To": [
+								504,
+								"part"
+							]
+						},
+						{
+							"From": [
+								504,
+								"Result"
+							],
+							"To": [
+								505,
+								"Condition"
+							]
+						},
+						{
+							"From": [
+								499,
+								"Value"
+							],
+							"To": [
+								507,
+								"Action"
+							]
+						},
+						{
+							"From": [
+								484,
+								"Value"
+							],
+							"To": [
+								507,
+								"Binding"
+							]
+						},
+						{
+							"From": [
+								507,
+								"Result"
+							],
+							"To": [
+								508,
+								"Value"
+							]
+						},
+						{
+							"From": [
+								499,
+								"Value"
+							],
+							"To": [
+								509,
+								"Action"
+							]
+						},
+						{
+							"From": [
+								484,
+								"Value"
+							],
+							"To": [
+								509,
+								"Binding"
+							]
+						},
+						{
+							"From": [
+								473,
+								"Value"
+							],
+							"To": [
+								510,
 								"Target"
+							]
+						},
+						{
+							"From": [
+								510,
+								"Value"
+							],
+							"To": [
+								511,
+								"Parts"
 							]
 						},
 						{
@@ -9967,47 +10129,217 @@
 								"Result"
 							],
 							"To": [
+								512,
+								"Text"
+							]
+						},
+						{
+							"From": [
+								512,
+								"Result"
+							],
+							"To": [
 								513,
 								"Value"
 							]
 						},
 						{
 							"From": [
-								508,
+								515,
 								"Value"
 							],
 							"To": [
-								515,
+								516,
+								"rebinds"
+							]
+						},
+						{
+							"From": [
+								516,
+								"Result"
+							],
+							"To": [
+								517,
+								"Value"
+							]
+						},
+						{
+							"From": [
+								499,
+								"Value"
+							],
+							"To": [
+								518,
+								"Action"
+							]
+						},
+						{
+							"From": [
+								484,
+								"Value"
+							],
+							"To": [
+								518,
+								"Binding"
+							]
+						},
+						{
+							"From": [
+								518,
+								"Result"
+							],
+							"To": [
+								519,
+								"Controls"
+							]
+						},
+						{
+							"From": [
+								520,
+								"Value"
+							],
+							"To": [
+								521,
+								"Text"
+							]
+						},
+						{
+							"From": [
+								522,
+								"Value"
+							],
+							"To": [
+								523,
 								"Name"
 							]
 						},
 						{
 							"From": [
-								505,
+								519,
 								"Name"
 							],
 							"To": [
-								515,
+								523,
 								"Control"
 							]
 						},
 						{
 							"From": [
-								512,
+								522,
 								"Value"
 							],
 							"To": [
-								516,
+								524,
+								"Name"
+							]
+						},
+						{
+							"From": [
+								519,
+								"Name"
+							],
+							"To": [
+								524,
+								"Control"
+							]
+						},
+						{
+							"From": [
+								520,
+								"Value"
+							],
+							"To": [
+								524,
+								"Others"
+							]
+						},
+						{
+							"From": [
+								521,
+								"Result"
+							],
+							"To": [
+								525,
+								"Condition"
+							]
+						},
+						{
+							"From": [
+								523,
+								"Result"
+							],
+							"To": [
+								525,
+								"True"
+							]
+						},
+						{
+							"From": [
+								524,
+								"Result"
+							],
+							"To": [
+								525,
+								"False"
+							]
+						},
+						{
+							"From": [
+								526,
+								"Value"
+							],
+							"To": [
+								527,
 								"Target"
 							]
 						},
 						{
 							"From": [
-								515,
+								525,
 								"Result"
 							],
 							"To": [
-								516,
+								527,
+								"Value"
+							]
+						},
+						{
+							"From": [
+								522,
+								"Value"
+							],
+							"To": [
+								529,
+								"Name"
+							]
+						},
+						{
+							"From": [
+								519,
+								"Name"
+							],
+							"To": [
+								529,
+								"Control"
+							]
+						},
+						{
+							"From": [
+								526,
+								"Value"
+							],
+							"To": [
+								530,
+								"Target"
+							]
+						},
+						{
+							"From": [
+								529,
+								"Result"
+							],
+							"To": [
+								530,
 								"Value"
 							]
 						},
@@ -10017,13 +10349,13 @@
 								"Then"
 							],
 							"To": [
-								463,
+								477,
 								"Execute"
 							]
 						},
 						{
 							"From": [
-								463,
+								477,
 								"True"
 							],
 							"To": [
@@ -10033,108 +10365,28 @@
 						},
 						{
 							"From": [
-								463,
+								477,
 								"False"
 							],
 							"To": [
-								467,
+								481,
 								"Execute"
 							]
 						},
 						{
 							"From": [
-								467,
+								481,
 								"True"
 							],
 							"To": [
-								469,
+								483,
 								"Execute"
 							]
 						},
 						{
 							"From": [
-								469,
+								483,
 								"Then"
-							],
-							"To": [
-								478,
-								"Execute"
-							]
-						},
-						{
-							"From": [
-								478,
-								"Then"
-							],
-							"To": [
-								480,
-								"Execute"
-							]
-						},
-						{
-							"From": [
-								480,
-								"True"
-							],
-							"To": [
-								484,
-								"Execute"
-							]
-						},
-						{
-							"From": [
-								484,
-								"Then"
-							],
-							"To": [
-								487,
-								"Execute"
-							]
-						},
-						{
-							"From": [
-								487,
-								"Then"
-							],
-							"To": [
-								489,
-								"Execute"
-							]
-						},
-						{
-							"From": [
-								489,
-								"Then"
-							],
-							"To": [
-								518,
-								"Execute"
-							]
-						},
-						{
-							"From": [
-								518,
-								"Then"
-							],
-							"To": [
-								106,
-								"Execute"
-							]
-						},
-						{
-							"From": [
-								480,
-								"False"
-							],
-							"To": [
-								491,
-								"Execute"
-							]
-						},
-						{
-							"From": [
-								491,
-								"True"
 							],
 							"To": [
 								492,
@@ -10154,26 +10406,46 @@
 						{
 							"From": [
 								494,
-								"Then"
+								"True"
 							],
 							"To": [
-								495,
+								498,
 								"Execute"
 							]
 						},
 						{
 							"From": [
-								495,
+								498,
 								"Then"
 							],
 							"To": [
-								519,
+								501,
 								"Execute"
 							]
 						},
 						{
 							"From": [
-								519,
+								501,
+								"Then"
+							],
+							"To": [
+								503,
+								"Execute"
+							]
+						},
+						{
+							"From": [
+								503,
+								"Then"
+							],
+							"To": [
+								532,
+								"Execute"
+							]
+						},
+						{
+							"From": [
+								532,
 								"Then"
 							],
 							"To": [
@@ -10183,38 +10455,68 @@
 						},
 						{
 							"From": [
-								491,
+								494,
 								"False"
 							],
 							"To": [
-								499,
+								505,
 								"Execute"
 							]
 						},
 						{
 							"From": [
-								499,
+								505,
+								"True"
+							],
+							"To": [
+								506,
+								"Execute"
+							]
+						},
+						{
+							"From": [
+								506,
 								"Then"
 							],
 							"To": [
-								500,
+								508,
 								"Execute"
 							]
 						},
 						{
 							"From": [
-								500,
+								508,
 								"Then"
 							],
 							"To": [
-								503,
+								509,
 								"Execute"
 							]
 						},
 						{
 							"From": [
-								503,
+								509,
 								"Then"
+							],
+							"To": [
+								533,
+								"Execute"
+							]
+						},
+						{
+							"From": [
+								533,
+								"Then"
+							],
+							"To": [
+								106,
+								"Execute"
+							]
+						},
+						{
+							"From": [
+								505,
+								"False"
 							],
 							"To": [
 								513,
@@ -10227,43 +10529,73 @@
 								"Then"
 							],
 							"To": [
+								514,
+								"Execute"
+							]
+						},
+						{
+							"From": [
+								514,
+								"Then"
+							],
+							"To": [
 								517,
 								"Execute"
 							]
 						},
 						{
 							"From": [
-								467,
+								517,
+								"Then"
+							],
+							"To": [
+								527,
+								"Execute"
+							]
+						},
+						{
+							"From": [
+								527,
+								"Then"
+							],
+							"To": [
+								531,
+								"Execute"
+							]
+						},
+						{
+							"From": [
+								481,
 								"False"
 							],
 							"To": [
-								514,
+								528,
 								"Execute"
 							]
 						},
 						{
 							"From": [
-								514,
+								528,
 								"Then"
 							],
 							"To": [
-								516,
+								530,
 								"Execute"
 							]
 						},
 						{
 							"From": [
-								516,
+								530,
 								"Then"
 							],
 							"To": [
-								517,
+								531,
 								"Execute"
 							]
 						},
 						{
 							"From": [
-								517,
+								531,
 								"Then"
 							],
 							"To": [
@@ -10274,7 +10606,7 @@
 					],
 					"Comments": [
 						{
-							"ID": 520,
+							"ID": 534,
 							"Text": "Poll rebind: a binding's answer taken, refused or kept",
 							"Position": [
 								-32.0,
@@ -10325,7 +10657,7 @@
 							]
 						},
 						{
-							"ID": 521,
+							"ID": 535,
 							"Type": "Variable.Get",
 							"Position": [
 								192.0,
@@ -10336,7 +10668,7 @@
 							}
 						},
 						{
-							"ID": 522,
+							"ID": 536,
 							"Type": "Variable.Get",
 							"Position": [
 								0.0,
@@ -10347,7 +10679,7 @@
 							}
 						},
 						{
-							"ID": 523,
+							"ID": 537,
 							"Type": "String.Join",
 							"Position": [
 								192.0,
@@ -10358,7 +10690,7 @@
 							}
 						},
 						{
-							"ID": 524,
+							"ID": 538,
 							"Type": "Set:Strada.UITextComponent.Text",
 							"Position": [
 								512.0,
@@ -10366,7 +10698,7 @@
 							]
 						},
 						{
-							"ID": 525,
+							"ID": 539,
 							"Type": "Variable.Get",
 							"Position": [
 								512.0,
@@ -10377,7 +10709,7 @@
 							}
 						},
 						{
-							"ID": 526,
+							"ID": 540,
 							"Type": "Function.Call",
 							"Position": [
 								192.0,
@@ -10388,7 +10720,7 @@
 							}
 						},
 						{
-							"ID": 527,
+							"ID": 541,
 							"Type": "FormatString",
 							"Position": [
 								512.0,
@@ -10399,7 +10731,7 @@
 							}
 						},
 						{
-							"ID": 528,
+							"ID": 542,
 							"Type": "Set:Strada.UITextComponent.Text",
 							"Position": [
 								720.0,
@@ -10407,7 +10739,7 @@
 							]
 						},
 						{
-							"ID": 529,
+							"ID": 543,
 							"Type": "Variable.Get",
 							"Position": [
 								0.0,
@@ -10418,7 +10750,7 @@
 							}
 						},
 						{
-							"ID": 530,
+							"ID": 544,
 							"Type": "Variable.Get",
 							"Position": [
 								192.0,
@@ -10430,7 +10762,7 @@
 							}
 						},
 						{
-							"ID": 531,
+							"ID": 545,
 							"Type": "Function.Call",
 							"Position": [
 								512.0,
@@ -10441,7 +10773,7 @@
 							}
 						},
 						{
-							"ID": 532,
+							"ID": 546,
 							"Type": "Variable.Get",
 							"Position": [
 								912.0,
@@ -10452,7 +10784,7 @@
 							}
 						},
 						{
-							"ID": 533,
+							"ID": 547,
 							"Type": "Variable.Get",
 							"Position": [
 								720.0,
@@ -10463,7 +10795,7 @@
 							}
 						},
 						{
-							"ID": 534,
+							"ID": 548,
 							"Type": "FormatString",
 							"Position": [
 								720.0,
@@ -10474,7 +10806,7 @@
 							}
 						},
 						{
-							"ID": 535,
+							"ID": 549,
 							"Type": "FormatString",
 							"Position": [
 								720.0,
@@ -10485,7 +10817,7 @@
 							}
 						},
 						{
-							"ID": 536,
+							"ID": 550,
 							"Type": "Select",
 							"Position": [
 								912.0,
@@ -10493,7 +10825,7 @@
 							]
 						},
 						{
-							"ID": 537,
+							"ID": 551,
 							"Type": "Set:Strada.UITextComponent.Text",
 							"Position": [
 								1136.0,
@@ -10504,31 +10836,31 @@
 					"Links": [
 						{
 							"From": [
-								522,
+								536,
 								"Value"
 							],
 							"To": [
-								523,
+								537,
 								"Parts"
 							]
 						},
 						{
 							"From": [
-								521,
+								535,
 								"Value"
 							],
 							"To": [
-								524,
+								538,
 								"Target"
 							]
 						},
 						{
 							"From": [
-								523,
+								537,
 								"Result"
 							],
 							"To": [
-								524,
+								538,
 								"Value"
 							]
 						},
@@ -10538,127 +10870,127 @@
 								"Total"
 							],
 							"To": [
-								526,
+								540,
 								"Seconds"
 							]
 						},
 						{
 							"From": [
-								526,
+								540,
 								"Text"
 							],
 							"To": [
-								527,
+								541,
 								"Time"
 							]
 						},
 						{
 							"From": [
-								525,
+								539,
 								"Value"
 							],
 							"To": [
-								528,
+								542,
 								"Target"
 							]
 						},
 						{
 							"From": [
-								527,
+								541,
 								"Result"
 							],
 							"To": [
-								528,
+								542,
 								"Value"
 							]
 						},
 						{
 							"From": [
-								529,
+								543,
 								"Value"
 							],
 							"To": [
-								530,
+								544,
 								"Target"
 							]
 						},
 						{
 							"From": [
-								530,
+								544,
 								"Value"
 							],
 							"To": [
-								531,
+								545,
 								"Seconds"
 							]
 						},
 						{
 							"From": [
-								531,
+								545,
 								"Text"
 							],
 							"To": [
-								534,
+								548,
 								"Time"
 							]
 						},
 						{
 							"From": [
-								531,
+								545,
 								"Text"
 							],
 							"To": [
-								535,
+								549,
 								"Time"
 							]
 						},
 						{
 							"From": [
-								533,
+								547,
 								"Value"
 							],
 							"To": [
-								536,
+								550,
 								"Condition"
 							]
 						},
 						{
 							"From": [
-								534,
+								548,
 								"Result"
 							],
 							"To": [
-								536,
+								550,
 								"True"
 							]
 						},
 						{
 							"From": [
-								535,
+								549,
 								"Result"
 							],
 							"To": [
-								536,
+								550,
 								"False"
 							]
 						},
 						{
 							"From": [
-								532,
+								546,
 								"Value"
 							],
 							"To": [
-								537,
+								551,
 								"Target"
 							]
 						},
 						{
 							"From": [
-								536,
+								550,
 								"Result"
 							],
 							"To": [
-								537,
+								551,
 								"Value"
 							]
 						},
@@ -10668,33 +11000,33 @@
 								"Then"
 							],
 							"To": [
-								524,
+								538,
 								"Execute"
 							]
 						},
 						{
 							"From": [
-								524,
+								538,
 								"Then"
 							],
 							"To": [
-								528,
+								542,
 								"Execute"
 							]
 						},
 						{
 							"From": [
-								528,
+								542,
 								"Then"
 							],
 							"To": [
-								537,
+								551,
 								"Execute"
 							]
 						},
 						{
 							"From": [
-								537,
+								551,
 								"Then"
 							],
 							"To": [
@@ -10705,7 +11037,7 @@
 					],
 					"Comments": [
 						{
-							"ID": 538,
+							"ID": 552,
 							"Text": "Show results: each lap, the total and the best lap",
 							"Position": [
 								-32.0,
@@ -10763,7 +11095,7 @@
 							]
 						},
 						{
-							"ID": 539,
+							"ID": 553,
 							"Type": "Function.Call",
 							"Position": [
 								192.0,
@@ -10774,7 +11106,7 @@
 							}
 						},
 						{
-							"ID": 540,
+							"ID": 554,
 							"Type": "Variable.Set",
 							"Position": [
 								384.0,
@@ -10785,7 +11117,7 @@
 							}
 						},
 						{
-							"ID": 541,
+							"ID": 555,
 							"Type": "Variable.Get",
 							"Position": [
 								384.0,
@@ -10796,7 +11128,7 @@
 							}
 						},
 						{
-							"ID": 542,
+							"ID": 556,
 							"Type": "Variable.Get",
 							"Position": [
 								192.0,
@@ -10807,7 +11139,7 @@
 							}
 						},
 						{
-							"ID": 543,
+							"ID": 557,
 							"Type": "Expression",
 							"Position": [
 								592.0,
@@ -10818,7 +11150,7 @@
 							}
 						},
 						{
-							"ID": 544,
+							"ID": 558,
 							"Type": "Variable.Set",
 							"Position": [
 								816.0,
@@ -10829,7 +11161,7 @@
 							}
 						},
 						{
-							"ID": 545,
+							"ID": 559,
 							"Type": "Expression",
 							"Position": [
 								384.0,
@@ -10840,7 +11172,7 @@
 							}
 						},
 						{
-							"ID": 546,
+							"ID": 560,
 							"Type": "Flow.Branch",
 							"Position": [
 								592.0,
@@ -10848,7 +11180,7 @@
 							]
 						},
 						{
-							"ID": 547,
+							"ID": 561,
 							"Type": "Function.Call",
 							"Position": [
 								1008.0,
@@ -10862,21 +11194,21 @@
 					"Links": [
 						{
 							"From": [
-								539,
+								553,
 								"Count"
 							],
 							"To": [
-								540,
+								554,
 								"Value"
 							]
 						},
 						{
 							"From": [
-								541,
+								555,
 								"Value"
 							],
 							"To": [
-								543,
+								557,
 								"selected"
 							]
 						},
@@ -10886,47 +11218,47 @@
 								"Delta"
 							],
 							"To": [
-								543,
+								557,
 								"delta"
 							]
 						},
 						{
 							"From": [
-								542,
+								556,
 								"Value"
 							],
 							"To": [
-								543,
+								557,
 								"count"
 							]
 						},
 						{
 							"From": [
-								543,
+								557,
 								"Result"
 							],
 							"To": [
-								544,
+								558,
 								"Value"
 							]
 						},
 						{
 							"From": [
-								542,
+								556,
 								"Value"
 							],
 							"To": [
-								545,
+								559,
 								"count"
 							]
 						},
 						{
 							"From": [
-								545,
+								559,
 								"Result"
 							],
 							"To": [
-								546,
+								560,
 								"Condition"
 							]
 						},
@@ -10936,53 +11268,53 @@
 								"Then"
 							],
 							"To": [
-								539,
+								553,
 								"Execute"
 							]
 						},
 						{
 							"From": [
-								539,
+								553,
 								"Then"
 							],
 							"To": [
-								540,
+								554,
 								"Execute"
 							]
 						},
 						{
 							"From": [
-								540,
+								554,
 								"Then"
 							],
 							"To": [
-								546,
+								560,
 								"Execute"
 							]
 						},
 						{
 							"From": [
-								546,
+								560,
 								"True"
 							],
 							"To": [
-								544,
+								558,
 								"Execute"
 							]
 						},
 						{
 							"From": [
-								544,
+								558,
 								"Then"
 							],
 							"To": [
-								547,
+								561,
 								"Execute"
 							]
 						},
 						{
 							"From": [
-								547,
+								561,
 								"Then"
 							],
 							"To": [
@@ -10992,7 +11324,7 @@
 						},
 						{
 							"From": [
-								546,
+								560,
 								"False"
 							],
 							"To": [
@@ -11003,7 +11335,7 @@
 					],
 					"Comments": [
 						{
-							"ID": 548,
+							"ID": 562,
 							"Text": "Navigate: the selection up or down the screen, round",
 							"Position": [
 								-32.0,
@@ -11054,7 +11386,7 @@
 							]
 						},
 						{
-							"ID": 549,
+							"ID": 563,
 							"Type": "Variable.Get",
 							"Position": [
 								0.0,
@@ -11065,7 +11397,7 @@
 							}
 						},
 						{
-							"ID": 550,
+							"ID": 564,
 							"Type": "Literal",
 							"Position": [
 								0.0,
@@ -11077,7 +11409,7 @@
 							}
 						},
 						{
-							"ID": 551,
+							"ID": 565,
 							"Type": "Operator.Equal",
 							"Position": [
 								192.0,
@@ -11085,7 +11417,7 @@
 							]
 						},
 						{
-							"ID": 552,
+							"ID": 566,
 							"Type": "Flow.Branch",
 							"Position": [
 								352.0,
@@ -11093,7 +11425,7 @@
 							]
 						},
 						{
-							"ID": 553,
+							"ID": 567,
 							"Type": "Variable.Get",
 							"Position": [
 								192.0,
@@ -11104,7 +11436,7 @@
 							}
 						},
 						{
-							"ID": 554,
+							"ID": 568,
 							"Type": "Variable.Get",
 							"Position": [
 								192.0,
@@ -11115,7 +11447,7 @@
 							}
 						},
 						{
-							"ID": 555,
+							"ID": 569,
 							"Type": "Array.Get",
 							"Position": [
 								352.0,
@@ -11123,7 +11455,7 @@
 							]
 						},
 						{
-							"ID": 556,
+							"ID": 570,
 							"Type": "Flow.Switch",
 							"Position": [
 								576.0,
@@ -11138,7 +11470,7 @@
 							}
 						},
 						{
-							"ID": 557,
+							"ID": 571,
 							"Type": "Expression",
 							"Position": [
 								576.0,
@@ -11149,7 +11481,7 @@
 							}
 						},
 						{
-							"ID": 558,
+							"ID": 572,
 							"Type": "Function.Call",
 							"Position": [
 								800.0,
@@ -11160,7 +11492,7 @@
 							}
 						},
 						{
-							"ID": 559,
+							"ID": 573,
 							"Type": "Call:Strada.UIButtonComponent.Click()",
 							"Position": [
 								1008.0,
@@ -11168,7 +11500,7 @@
 							]
 						},
 						{
-							"ID": 560,
+							"ID": 574,
 							"Type": "Expression",
 							"Position": [
 								576.0,
@@ -11179,7 +11511,7 @@
 							}
 						},
 						{
-							"ID": 561,
+							"ID": 575,
 							"Type": "Variable.Set",
 							"Position": [
 								800.0,
@@ -11190,7 +11522,7 @@
 							}
 						},
 						{
-							"ID": 562,
+							"ID": 576,
 							"Type": "Function.Call",
 							"Position": [
 								1008.0,
@@ -11204,61 +11536,61 @@
 					"Links": [
 						{
 							"From": [
-								549,
+								563,
 								"Value"
 							],
 							"To": [
-								551,
+								565,
 								"A"
 							]
 						},
 						{
 							"From": [
-								550,
+								564,
 								"Value"
 							],
 							"To": [
-								551,
+								565,
 								"B"
 							]
 						},
 						{
 							"From": [
-								551,
+								565,
 								"Result"
 							],
 							"To": [
-								552,
+								566,
 								"Condition"
 							]
 						},
 						{
 							"From": [
-								554,
+								568,
 								"Value"
 							],
 							"To": [
-								555,
+								569,
 								"Array"
 							]
 						},
 						{
 							"From": [
-								553,
+								567,
 								"Value"
 							],
 							"To": [
-								555,
+								569,
 								"Index"
 							]
 						},
 						{
 							"From": [
-								555,
+								569,
 								"Element"
 							],
 							"To": [
-								556,
+								570,
 								"Selection"
 							]
 						},
@@ -11268,37 +11600,37 @@
 								"Direction"
 							],
 							"To": [
-								557,
+								571,
 								"direction"
 							]
 						},
 						{
 							"From": [
-								553,
+								567,
 								"Value"
 							],
 							"To": [
-								558,
+								572,
 								"Index"
 							]
 						},
 						{
 							"From": [
-								557,
+								571,
 								"Result"
 							],
 							"To": [
-								558,
+								572,
 								"Upper"
 							]
 						},
 						{
 							"From": [
-								558,
+								572,
 								"Button"
 							],
 							"To": [
-								559,
+								573,
 								"Target"
 							]
 						},
@@ -11308,17 +11640,17 @@
 								"Direction"
 							],
 							"To": [
-								560,
+								574,
 								"direction"
 							]
 						},
 						{
 							"From": [
-								560,
+								574,
 								"Result"
 							],
 							"To": [
-								561,
+								575,
 								"Value"
 							]
 						},
@@ -11328,43 +11660,43 @@
 								"Then"
 							],
 							"To": [
-								552,
+								566,
 								"Execute"
 							]
 						},
 						{
 							"From": [
-								552,
+								566,
 								"True"
 							],
 							"To": [
-								556,
+								570,
 								"Execute"
 							]
 						},
 						{
 							"From": [
-								556,
+								570,
 								"Case:0"
 							],
 							"To": [
-								558,
+								572,
 								"Execute"
 							]
 						},
 						{
 							"From": [
-								558,
+								572,
 								"Then"
 							],
 							"To": [
-								559,
+								573,
 								"Execute"
 							]
 						},
 						{
 							"From": [
-								559,
+								573,
 								"Then"
 							],
 							"To": [
@@ -11374,27 +11706,27 @@
 						},
 						{
 							"From": [
-								556,
+								570,
 								"Case:1"
 							],
 							"To": [
-								561,
+								575,
 								"Execute"
 							]
 						},
 						{
 							"From": [
-								561,
+								575,
 								"Then"
 							],
 							"To": [
-								562,
+								576,
 								"Execute"
 							]
 						},
 						{
 							"From": [
-								562,
+								576,
 								"Then"
 							],
 							"To": [
@@ -11404,7 +11736,7 @@
 						},
 						{
 							"From": [
-								556,
+								570,
 								"Default"
 							],
 							"To": [
@@ -11414,7 +11746,7 @@
 						},
 						{
 							"From": [
-								552,
+								566,
 								"False"
 							],
 							"To": [
@@ -11425,7 +11757,7 @@
 					],
 					"Comments": [
 						{
-							"ID": 563,
+							"ID": 577,
 							"Text": "Side: a setting stepped, or a riding action's binding chosen",
 							"Position": [
 								-32.0,
@@ -11471,7 +11803,7 @@
 							]
 						},
 						{
-							"ID": 564,
+							"ID": 578,
 							"Type": "Variable.Get",
 							"Position": [
 								0.0,
@@ -11482,7 +11814,7 @@
 							}
 						},
 						{
-							"ID": 565,
+							"ID": 579,
 							"Type": "Variable.Get",
 							"Position": [
 								0.0,
@@ -11493,7 +11825,7 @@
 							}
 						},
 						{
-							"ID": 566,
+							"ID": 580,
 							"Type": "Array.Get",
 							"Position": [
 								192.0,
@@ -11501,7 +11833,7 @@
 							]
 						},
 						{
-							"ID": 567,
+							"ID": 581,
 							"Type": "Variable.Get",
 							"Position": [
 								0.0,
@@ -11512,7 +11844,7 @@
 							}
 						},
 						{
-							"ID": 568,
+							"ID": 582,
 							"Type": "Literal",
 							"Position": [
 								0.0,
@@ -11524,7 +11856,7 @@
 							}
 						},
 						{
-							"ID": 569,
+							"ID": 583,
 							"Type": "Operator.Equal",
 							"Position": [
 								192.0,
@@ -11532,7 +11864,7 @@
 							]
 						},
 						{
-							"ID": 570,
+							"ID": 584,
 							"Type": "Variable.Get",
 							"Position": [
 								192.0,
@@ -11543,7 +11875,7 @@
 							}
 						},
 						{
-							"ID": 571,
+							"ID": 585,
 							"Type": "Expression",
 							"Position": [
 								400.0,
@@ -11554,7 +11886,7 @@
 							}
 						},
 						{
-							"ID": 572,
+							"ID": 586,
 							"Type": "Function.Call",
 							"Position": [
 								608.0,
@@ -11565,7 +11897,7 @@
 							}
 						},
 						{
-							"ID": 573,
+							"ID": 587,
 							"Type": "IsValid",
 							"Position": [
 								816.0,
@@ -11573,7 +11905,7 @@
 							]
 						},
 						{
-							"ID": 574,
+							"ID": 588,
 							"Type": "Flow.Branch",
 							"Position": [
 								1024.0,
@@ -11581,7 +11913,7 @@
 							]
 						},
 						{
-							"ID": 575,
+							"ID": 589,
 							"Type": "Call:Strada.UIButtonComponent.Click()",
 							"Position": [
 								1248.0,
@@ -11592,111 +11924,111 @@
 					"Links": [
 						{
 							"From": [
-								565,
+								579,
 								"Value"
 							],
 							"To": [
-								566,
+								580,
 								"Array"
 							]
 						},
 						{
 							"From": [
-								564,
+								578,
 								"Value"
 							],
 							"To": [
-								566,
+								580,
 								"Index"
 							]
 						},
 						{
 							"From": [
-								567,
+								581,
 								"Value"
 							],
 							"To": [
-								569,
+								583,
 								"A"
 							]
 						},
 						{
 							"From": [
-								568,
+								582,
 								"Value"
 							],
 							"To": [
-								569,
+								583,
 								"B"
 							]
 						},
 						{
 							"From": [
-								569,
+								583,
 								"Result"
 							],
 							"To": [
-								571,
+								585,
 								"inside"
 							]
 						},
 						{
 							"From": [
-								566,
+								580,
 								"Element"
 							],
 							"To": [
-								571,
+								585,
 								"kind"
 							]
 						},
 						{
 							"From": [
-								570,
+								584,
 								"Value"
 							],
 							"To": [
-								571,
+								585,
 								"column"
 							]
 						},
 						{
 							"From": [
-								564,
+								578,
 								"Value"
 							],
 							"To": [
-								572,
+								586,
 								"Index"
 							]
 						},
 						{
 							"From": [
-								571,
+								585,
 								"Result"
 							],
 							"To": [
-								572,
+								586,
 								"Upper"
 							]
 						},
 						{
 							"From": [
-								572,
+								586,
 								"Button"
 							],
 							"To": [
-								573,
+								587,
 								"Value"
 							]
 						},
 						{
 							"From": [
-								573,
+								587,
 								"Result"
 							],
 							"To": [
-								574,
+								588,
 								"Condition"
 							]
 						},
@@ -11706,43 +12038,43 @@
 								"Then"
 							],
 							"To": [
-								572,
+								586,
 								"Execute"
 							]
 						},
 						{
 							"From": [
-								572,
+								586,
 								"Then"
 							],
 							"To": [
-								574,
+								588,
 								"Execute"
 							]
 						},
 						{
 							"From": [
-								572,
+								586,
 								"Button"
 							],
 							"To": [
-								575,
+								589,
 								"Target"
 							]
 						},
 						{
 							"From": [
-								574,
+								588,
 								"True"
 							],
 							"To": [
-								575,
+								589,
 								"Execute"
 							]
 						},
 						{
 							"From": [
-								575,
+								589,
 								"Then"
 							],
 							"To": [
@@ -11752,7 +12084,7 @@
 						},
 						{
 							"From": [
-								574,
+								588,
 								"False"
 							],
 							"To": [
@@ -11763,7 +12095,7 @@
 					],
 					"Comments": [
 						{
-							"ID": 576,
+							"ID": 590,
 							"Text": "Press: the selected button clicked, as the mouse clicks it",
 							"Position": [
 								-32.0,
@@ -11809,7 +12141,7 @@
 							]
 						},
 						{
-							"ID": 577,
+							"ID": 591,
 							"Type": "Variable.Get",
 							"Position": [
 								0.0,
@@ -11820,7 +12152,7 @@
 							}
 						},
 						{
-							"ID": 578,
+							"ID": 592,
 							"Type": "Flow.Switch",
 							"Position": [
 								192.0,
@@ -11836,7 +12168,7 @@
 							}
 						},
 						{
-							"ID": 579,
+							"ID": 593,
 							"Type": "Function.Call",
 							"Position": [
 								416.0,
@@ -11847,7 +12179,7 @@
 							}
 						},
 						{
-							"ID": 580,
+							"ID": 594,
 							"Type": "Variable.Get",
 							"Position": [
 								192.0,
@@ -11858,7 +12190,7 @@
 							}
 						},
 						{
-							"ID": 581,
+							"ID": 595,
 							"Type": "Event.Send",
 							"Position": [
 								416.0,
@@ -11879,7 +12211,7 @@
 							}
 						},
 						{
-							"ID": 582,
+							"ID": 596,
 							"Type": "Event.Send",
 							"Position": [
 								416.0,
@@ -11895,11 +12227,11 @@
 					"Links": [
 						{
 							"From": [
-								577,
+								591,
 								"Value"
 							],
 							"To": [
-								578,
+								592,
 								"Selection"
 							]
 						},
@@ -11909,23 +12241,23 @@
 								"Then"
 							],
 							"To": [
-								578,
+								592,
 								"Execute"
 							]
 						},
 						{
 							"From": [
-								578,
+								592,
 								"Case:Settings"
 							],
 							"To": [
-								579,
+								593,
 								"Execute"
 							]
 						},
 						{
 							"From": [
-								579,
+								593,
 								"Then"
 							],
 							"To": [
@@ -11935,27 +12267,27 @@
 						},
 						{
 							"From": [
-								580,
+								594,
 								"Value"
 							],
 							"To": [
-								581,
+								595,
 								"Target"
 							]
 						},
 						{
 							"From": [
-								578,
+								592,
 								"Case:Pause"
 							],
 							"To": [
-								581,
+								595,
 								"Execute"
 							]
 						},
 						{
 							"From": [
-								581,
+								595,
 								"Then"
 							],
 							"To": [
@@ -11965,27 +12297,27 @@
 						},
 						{
 							"From": [
-								580,
+								594,
 								"Value"
 							],
 							"To": [
-								582,
+								596,
 								"Target"
 							]
 						},
 						{
 							"From": [
-								578,
+								592,
 								"Case:Results"
 							],
 							"To": [
-								582,
+								596,
 								"Execute"
 							]
 						},
 						{
 							"From": [
-								582,
+								596,
 								"Then"
 							],
 							"To": [
@@ -11995,7 +12327,7 @@
 						},
 						{
 							"From": [
-								578,
+								592,
 								"Default"
 							],
 							"To": [
@@ -12006,7 +12338,7 @@
 					],
 					"Comments": [
 						{
-							"ID": 583,
+							"ID": 597,
 							"Text": "Go back: the settings saved, the game resumed, the title",
 							"Position": [
 								-32.0,
@@ -12064,7 +12396,7 @@
 							]
 						},
 						{
-							"ID": 584,
+							"ID": 598,
 							"Type": "Variable.Get",
 							"Position": [
 								0.0,
@@ -12075,7 +12407,7 @@
 							}
 						},
 						{
-							"ID": 585,
+							"ID": 599,
 							"Type": "Array.IndexOf",
 							"Position": [
 								192.0,
@@ -12083,7 +12415,7 @@
 							]
 						},
 						{
-							"ID": 586,
+							"ID": 600,
 							"Type": "Variable.Set",
 							"Position": [
 								480.0,
@@ -12094,7 +12426,7 @@
 							}
 						},
 						{
-							"ID": 587,
+							"ID": 601,
 							"Type": "Variable.Get",
 							"Position": [
 								192.0,
@@ -12105,7 +12437,7 @@
 							}
 						},
 						{
-							"ID": 588,
+							"ID": 602,
 							"Type": "Expression",
 							"Position": [
 								480.0,
@@ -12116,7 +12448,7 @@
 							}
 						},
 						{
-							"ID": 589,
+							"ID": 603,
 							"Type": "Flow.Branch",
 							"Position": [
 								672.0,
@@ -12125,7 +12457,7 @@
 							"Comment": "One of the menus' buttons"
 						},
 						{
-							"ID": 590,
+							"ID": 604,
 							"Type": "Variable.Get",
 							"Position": [
 								480.0,
@@ -12136,7 +12468,7 @@
 							}
 						},
 						{
-							"ID": 591,
+							"ID": 605,
 							"Type": "Array.Get",
 							"Position": [
 								672.0,
@@ -12144,7 +12476,7 @@
 							]
 						},
 						{
-							"ID": 592,
+							"ID": 606,
 							"Type": "Flow.Switch",
 							"Position": [
 								896.0,
@@ -12166,7 +12498,7 @@
 							}
 						},
 						{
-							"ID": 593,
+							"ID": 607,
 							"Type": "Variable.Get",
 							"Position": [
 								672.0,
@@ -12177,7 +12509,7 @@
 							}
 						},
 						{
-							"ID": 594,
+							"ID": 608,
 							"Type": "Array.Get",
 							"Position": [
 								896.0,
@@ -12185,7 +12517,7 @@
 							]
 						},
 						{
-							"ID": 595,
+							"ID": 609,
 							"Type": "Variable.Get",
 							"Position": [
 								672.0,
@@ -12196,7 +12528,7 @@
 							}
 						},
 						{
-							"ID": 596,
+							"ID": 610,
 							"Type": "Array.Get",
 							"Position": [
 								896.0,
@@ -12204,7 +12536,7 @@
 							]
 						},
 						{
-							"ID": 597,
+							"ID": 611,
 							"Type": "Variable.Get",
 							"Position": [
 								896.0,
@@ -12215,7 +12547,7 @@
 							}
 						},
 						{
-							"ID": 598,
+							"ID": 612,
 							"Type": "Variable.Set",
 							"Position": [
 								1120.0,
@@ -12226,7 +12558,7 @@
 							}
 						},
 						{
-							"ID": 599,
+							"ID": 613,
 							"Type": "Variable.Set",
 							"Position": [
 								1344.0,
@@ -12240,7 +12572,7 @@
 							}
 						},
 						{
-							"ID": 600,
+							"ID": 614,
 							"Type": "Variable.Get",
 							"Position": [
 								896.0,
@@ -12251,7 +12583,7 @@
 							}
 						},
 						{
-							"ID": 601,
+							"ID": 615,
 							"Type": "Flow.Branch",
 							"Position": [
 								1120.0,
@@ -12260,7 +12592,7 @@
 							"Comment": "Quit to the title: the game goes on"
 						},
 						{
-							"ID": 602,
+							"ID": 616,
 							"Type": "Variable.Get",
 							"Position": [
 								896.0,
@@ -12271,7 +12603,7 @@
 							}
 						},
 						{
-							"ID": 603,
+							"ID": 617,
 							"Type": "Event.Send",
 							"Position": [
 								1120.0,
@@ -12284,7 +12616,7 @@
 							}
 						},
 						{
-							"ID": 604,
+							"ID": 618,
 							"Type": "Function.Call",
 							"Position": [
 								1568.0,
@@ -12298,7 +12630,7 @@
 							}
 						},
 						{
-							"ID": 605,
+							"ID": 619,
 							"Type": "Call:Strada.Application.Quit()",
 							"Position": [
 								1120.0,
@@ -12306,7 +12638,7 @@
 							]
 						},
 						{
-							"ID": 606,
+							"ID": 620,
 							"Type": "Event.Send",
 							"Position": [
 								1344.0,
@@ -12327,7 +12659,7 @@
 							}
 						},
 						{
-							"ID": 607,
+							"ID": 621,
 							"Type": "Event.Send",
 							"Position": [
 								1568.0,
@@ -12340,7 +12672,7 @@
 							}
 						},
 						{
-							"ID": 608,
+							"ID": 622,
 							"Type": "Event.Send",
 							"Position": [
 								1120.0,
@@ -12361,7 +12693,7 @@
 							}
 						},
 						{
-							"ID": 609,
+							"ID": 623,
 							"Type": "Function.Call",
 							"Position": [
 								1120.0,
@@ -12372,7 +12704,7 @@
 							}
 						},
 						{
-							"ID": 610,
+							"ID": 624,
 							"Type": "Function.Call",
 							"Position": [
 								1120.0,
@@ -12383,7 +12715,7 @@
 							}
 						},
 						{
-							"ID": 611,
+							"ID": 625,
 							"Type": "Call:Strada.Input.ResetBindings()",
 							"Position": [
 								1120.0,
@@ -12391,7 +12723,7 @@
 							]
 						},
 						{
-							"ID": 612,
+							"ID": 626,
 							"Type": "Function.Call",
 							"Position": [
 								1344.0,
@@ -12402,7 +12734,7 @@
 							}
 						},
 						{
-							"ID": 613,
+							"ID": 627,
 							"Type": "Variable.Get",
 							"Position": [
 								1344.0,
@@ -12413,7 +12745,7 @@
 							}
 						},
 						{
-							"ID": 614,
+							"ID": 628,
 							"Type": "Set:Strada.UITextComponent.Text",
 							"Position": [
 								1568.0,
@@ -12424,7 +12756,7 @@
 							}
 						},
 						{
-							"ID": 615,
+							"ID": 629,
 							"Type": "Function.Call",
 							"Position": [
 								1120.0,
@@ -12438,11 +12770,11 @@
 					"Links": [
 						{
 							"From": [
-								584,
+								598,
 								"Value"
 							],
 							"To": [
-								585,
+								599,
 								"Array"
 							]
 						},
@@ -12452,127 +12784,127 @@
 								"Button"
 							],
 							"To": [
-								585,
+								599,
 								"Value"
 							]
 						},
 						{
 							"From": [
-								585,
+								599,
 								"Index"
 							],
 							"To": [
-								586,
+								600,
 								"Value"
 							]
 						},
 						{
 							"From": [
-								587,
+								601,
 								"Value"
 							],
 							"To": [
-								588,
+								602,
 								"index"
 							]
 						},
 						{
 							"From": [
-								588,
+								602,
 								"Result"
 							],
 							"To": [
-								589,
+								603,
 								"Condition"
 							]
 						},
 						{
 							"From": [
-								590,
+								604,
 								"Value"
 							],
 							"To": [
-								591,
+								605,
 								"Array"
 							]
 						},
 						{
 							"From": [
-								587,
+								601,
 								"Value"
 							],
 							"To": [
-								591,
+								605,
 								"Index"
 							]
 						},
 						{
 							"From": [
-								591,
+								605,
 								"Element"
 							],
 							"To": [
-								592,
+								606,
 								"Selection"
 							]
 						},
 						{
 							"From": [
-								593,
+								607,
 								"Value"
 							],
 							"To": [
-								594,
+								608,
 								"Array"
 							]
 						},
 						{
 							"From": [
-								587,
-								"Value"
-							],
-							"To": [
-								594,
-								"Index"
-							]
-						},
-						{
-							"From": [
-								595,
-								"Value"
-							],
-							"To": [
-								596,
-								"Array"
-							]
-						},
-						{
-							"From": [
-								587,
-								"Value"
-							],
-							"To": [
-								596,
-								"Index"
-							]
-						},
-						{
-							"From": [
-								597,
-								"Value"
-							],
-							"To": [
-								598,
-								"Value"
-							]
-						},
-						{
-							"From": [
-								600,
-								"Value"
-							],
-							"To": [
 								601,
+								"Value"
+							],
+							"To": [
+								608,
+								"Index"
+							]
+						},
+						{
+							"From": [
+								609,
+								"Value"
+							],
+							"To": [
+								610,
+								"Array"
+							]
+						},
+						{
+							"From": [
+								601,
+								"Value"
+							],
+							"To": [
+								610,
+								"Index"
+							]
+						},
+						{
+							"From": [
+								611,
+								"Value"
+							],
+							"To": [
+								612,
+								"Value"
+							]
+						},
+						{
+							"From": [
+								614,
+								"Value"
+							],
+							"To": [
+								615,
 								"Condition"
 							]
 						},
@@ -12582,33 +12914,33 @@
 								"Then"
 							],
 							"To": [
-								586,
+								600,
 								"Execute"
 							]
 						},
 						{
 							"From": [
-								586,
+								600,
 								"Then"
 							],
 							"To": [
-								589,
+								603,
 								"Execute"
 							]
 						},
 						{
 							"From": [
-								589,
+								603,
 								"True"
 							],
 							"To": [
-								592,
+								606,
 								"Execute"
 							]
 						},
 						{
 							"From": [
-								589,
+								603,
 								"False"
 							],
 							"To": [
@@ -12618,27 +12950,27 @@
 						},
 						{
 							"From": [
-								602,
+								616,
 								"Value"
 							],
 							"To": [
-								603,
+								617,
 								"Target"
 							]
 						},
 						{
 							"From": [
-								592,
+								606,
 								"Case:0"
 							],
 							"To": [
-								603,
+								617,
 								"Execute"
 							]
 						},
 						{
 							"From": [
-								603,
+								617,
 								"Then"
 							],
 							"To": [
@@ -12648,287 +12980,287 @@
 						},
 						{
 							"From": [
-								592,
+								606,
 								"Case:1"
 							],
 							"To": [
-								598,
+								612,
 								"Execute"
 							]
 						},
 						{
 							"From": [
-								598,
+								612,
 								"Then"
 							],
 							"To": [
-								599,
-								"Execute"
-							]
-						},
-						{
-							"From": [
-								599,
-								"Then"
-							],
-							"To": [
-								604,
-								"Execute"
-							]
-						},
-						{
-							"From": [
-								604,
-								"Then"
-							],
-							"To": [
-								127,
-								"Execute"
-							]
-						},
-						{
-							"From": [
-								592,
-								"Case:2"
-							],
-							"To": [
-								605,
-								"Execute"
-							]
-						},
-						{
-							"From": [
-								605,
-								"Then"
-							],
-							"To": [
-								127,
-								"Execute"
-							]
-						},
-						{
-							"From": [
-								592,
-								"Case:3"
-							],
-							"To": [
-								601,
-								"Execute"
-							]
-						},
-						{
-							"From": [
-								602,
-								"Value"
-							],
-							"To": [
-								606,
-								"Target"
-							]
-						},
-						{
-							"From": [
-								602,
-								"Value"
-							],
-							"To": [
-								607,
-								"Target"
-							]
-						},
-						{
-							"From": [
-								601,
-								"True"
-							],
-							"To": [
-								606,
-								"Execute"
-							]
-						},
-						{
-							"From": [
-								606,
-								"Then"
-							],
-							"To": [
-								607,
-								"Execute"
-							]
-						},
-						{
-							"From": [
-								601,
-								"False"
-							],
-							"To": [
-								607,
-								"Execute"
-							]
-						},
-						{
-							"From": [
-								607,
-								"Then"
-							],
-							"To": [
-								127,
-								"Execute"
-							]
-						},
-						{
-							"From": [
-								602,
-								"Value"
-							],
-							"To": [
-								608,
-								"Target"
-							]
-						},
-						{
-							"From": [
-								592,
-								"Case:4"
-							],
-							"To": [
-								608,
-								"Execute"
-							]
-						},
-						{
-							"From": [
-								608,
-								"Then"
-							],
-							"To": [
-								127,
-								"Execute"
-							]
-						},
-						{
-							"From": [
-								594,
-								"Element"
-							],
-							"To": [
-								609,
-								"Row"
-							]
-						},
-						{
-							"From": [
-								596,
-								"Element"
-							],
-							"To": [
-								609,
-								"Direction"
-							]
-						},
-						{
-							"From": [
-								592,
-								"Case:5"
-							],
-							"To": [
-								609,
-								"Execute"
-							]
-						},
-						{
-							"From": [
-								609,
-								"Then"
-							],
-							"To": [
-								127,
-								"Execute"
-							]
-						},
-						{
-							"From": [
-								594,
-								"Element"
-							],
-							"To": [
-								610,
-								"Row"
-							]
-						},
-						{
-							"From": [
-								596,
-								"Element"
-							],
-							"To": [
-								610,
-								"Binding"
-							]
-						},
-						{
-							"From": [
-								592,
-								"Case:6"
-							],
-							"To": [
-								610,
-								"Execute"
-							]
-						},
-						{
-							"From": [
-								610,
-								"Then"
-							],
-							"To": [
-								127,
+								613,
 								"Execute"
 							]
 						},
 						{
 							"From": [
 								613,
+								"Then"
+							],
+							"To": [
+								618,
+								"Execute"
+							]
+						},
+						{
+							"From": [
+								618,
+								"Then"
+							],
+							"To": [
+								127,
+								"Execute"
+							]
+						},
+						{
+							"From": [
+								606,
+								"Case:2"
+							],
+							"To": [
+								619,
+								"Execute"
+							]
+						},
+						{
+							"From": [
+								619,
+								"Then"
+							],
+							"To": [
+								127,
+								"Execute"
+							]
+						},
+						{
+							"From": [
+								606,
+								"Case:3"
+							],
+							"To": [
+								615,
+								"Execute"
+							]
+						},
+						{
+							"From": [
+								616,
 								"Value"
 							],
 							"To": [
-								614,
+								620,
 								"Target"
 							]
 						},
 						{
 							"From": [
-								592,
+								616,
+								"Value"
+							],
+							"To": [
+								621,
+								"Target"
+							]
+						},
+						{
+							"From": [
+								615,
+								"True"
+							],
+							"To": [
+								620,
+								"Execute"
+							]
+						},
+						{
+							"From": [
+								620,
+								"Then"
+							],
+							"To": [
+								621,
+								"Execute"
+							]
+						},
+						{
+							"From": [
+								615,
+								"False"
+							],
+							"To": [
+								621,
+								"Execute"
+							]
+						},
+						{
+							"From": [
+								621,
+								"Then"
+							],
+							"To": [
+								127,
+								"Execute"
+							]
+						},
+						{
+							"From": [
+								616,
+								"Value"
+							],
+							"To": [
+								622,
+								"Target"
+							]
+						},
+						{
+							"From": [
+								606,
+								"Case:4"
+							],
+							"To": [
+								622,
+								"Execute"
+							]
+						},
+						{
+							"From": [
+								622,
+								"Then"
+							],
+							"To": [
+								127,
+								"Execute"
+							]
+						},
+						{
+							"From": [
+								608,
+								"Element"
+							],
+							"To": [
+								623,
+								"Row"
+							]
+						},
+						{
+							"From": [
+								610,
+								"Element"
+							],
+							"To": [
+								623,
+								"Direction"
+							]
+						},
+						{
+							"From": [
+								606,
+								"Case:5"
+							],
+							"To": [
+								623,
+								"Execute"
+							]
+						},
+						{
+							"From": [
+								623,
+								"Then"
+							],
+							"To": [
+								127,
+								"Execute"
+							]
+						},
+						{
+							"From": [
+								608,
+								"Element"
+							],
+							"To": [
+								624,
+								"Row"
+							]
+						},
+						{
+							"From": [
+								610,
+								"Element"
+							],
+							"To": [
+								624,
+								"Binding"
+							]
+						},
+						{
+							"From": [
+								606,
+								"Case:6"
+							],
+							"To": [
+								624,
+								"Execute"
+							]
+						},
+						{
+							"From": [
+								624,
+								"Then"
+							],
+							"To": [
+								127,
+								"Execute"
+							]
+						},
+						{
+							"From": [
+								627,
+								"Value"
+							],
+							"To": [
+								628,
+								"Target"
+							]
+						},
+						{
+							"From": [
+								606,
 								"Case:7"
 							],
 							"To": [
-								611,
+								625,
 								"Execute"
 							]
 						},
 						{
 							"From": [
-								611,
+								625,
 								"Then"
 							],
 							"To": [
-								612,
+								626,
 								"Execute"
 							]
 						},
 						{
 							"From": [
-								612,
+								626,
 								"Then"
 							],
 							"To": [
-								614,
+								628,
 								"Execute"
 							]
 						},
 						{
 							"From": [
-								614,
+								628,
 								"Then"
 							],
 							"To": [
@@ -12938,17 +13270,17 @@
 						},
 						{
 							"From": [
-								592,
+								606,
 								"Case:8"
 							],
 							"To": [
-								615,
+								629,
 								"Execute"
 							]
 						},
 						{
 							"From": [
-								615,
+								629,
 								"Then"
 							],
 							"To": [
@@ -12958,7 +13290,7 @@
 						},
 						{
 							"From": [
-								592,
+								606,
 								"Default"
 							],
 							"To": [
@@ -12969,7 +13301,7 @@
 					],
 					"Comments": [
 						{
-							"ID": 616,
+							"ID": 630,
 							"Text": "Command: what a clicked button does",
 							"Position": [
 								-32.0,
@@ -12993,7 +13325,7 @@
 		"Graph": {
 			"Nodes": [
 				{
-					"ID": 617,
+					"ID": 631,
 					"Type": "Flow.WaitFrames",
 					"Position": [
 						192.0,
@@ -13005,7 +13337,7 @@
 					"Comment": "Every entity has run its Create first"
 				},
 				{
-					"ID": 618,
+					"ID": 632,
 					"Type": "Event.Create",
 					"Position": [
 						0.0,
@@ -13013,7 +13345,7 @@
 					]
 				},
 				{
-					"ID": 619,
+					"ID": 633,
 					"Type": "Function.Call",
 					"Position": [
 						496.0,
@@ -13024,7 +13356,7 @@
 					}
 				},
 				{
-					"ID": 620,
+					"ID": 634,
 					"Type": "Function.Call",
 					"Position": [
 						688.0,
@@ -13035,7 +13367,7 @@
 					}
 				},
 				{
-					"ID": 621,
+					"ID": 635,
 					"Type": "Function.Call",
 					"Position": [
 						880.0,
@@ -13046,7 +13378,7 @@
 					}
 				},
 				{
-					"ID": 623,
+					"ID": 637,
 					"Type": "Event.Update",
 					"Position": [
 						0.0,
@@ -13054,7 +13386,7 @@
 					]
 				},
 				{
-					"ID": 624,
+					"ID": 638,
 					"Type": "Variable.Get",
 					"Position": [
 						0.0,
@@ -13065,7 +13397,7 @@
 					}
 				},
 				{
-					"ID": 625,
+					"ID": 639,
 					"Type": "Variable.Get",
 					"Position": [
 						400.0,
@@ -13077,7 +13409,7 @@
 					}
 				},
 				{
-					"ID": 626,
+					"ID": 640,
 					"Type": "Variable.Set",
 					"Position": [
 						624.0,
@@ -13088,7 +13420,7 @@
 					}
 				},
 				{
-					"ID": 627,
+					"ID": 641,
 					"Type": "Variable.Get",
 					"Position": [
 						624.0,
@@ -13100,7 +13432,7 @@
 					}
 				},
 				{
-					"ID": 628,
+					"ID": 642,
 					"Type": "Variable.Set",
 					"Position": [
 						832.0,
@@ -13111,7 +13443,7 @@
 					}
 				},
 				{
-					"ID": 629,
+					"ID": 643,
 					"Type": "Variable.Get",
 					"Position": [
 						832.0,
@@ -13122,7 +13454,7 @@
 					}
 				},
 				{
-					"ID": 630,
+					"ID": 644,
 					"Type": "Flow.Branch",
 					"Position": [
 						1024.0,
@@ -13131,7 +13463,7 @@
 					"Comment": "While a binding listens, the answer is the player's"
 				},
 				{
-					"ID": 631,
+					"ID": 645,
 					"Type": "Variable.Get",
 					"Position": [
 						1024.0,
@@ -13142,7 +13474,7 @@
 					}
 				},
 				{
-					"ID": 632,
+					"ID": 646,
 					"Type": "Flow.Branch",
 					"Position": [
 						1248.0,
@@ -13150,7 +13482,7 @@
 					]
 				},
 				{
-					"ID": 633,
+					"ID": 647,
 					"Type": "Variable.Get",
 					"Position": [
 						832.0,
@@ -13161,7 +13493,7 @@
 					}
 				},
 				{
-					"ID": 634,
+					"ID": 648,
 					"Type": "Literal",
 					"Position": [
 						832.0,
@@ -13173,7 +13505,7 @@
 					}
 				},
 				{
-					"ID": 635,
+					"ID": 649,
 					"Type": "Operator.Equal",
 					"Position": [
 						1024.0,
@@ -13181,7 +13513,7 @@
 					]
 				},
 				{
-					"ID": 636,
+					"ID": 650,
 					"Type": "Variable.Get",
 					"Position": [
 						1024.0,
@@ -13192,7 +13524,7 @@
 					}
 				},
 				{
-					"ID": 637,
+					"ID": 651,
 					"Type": "Variable.Get",
 					"Position": [
 						832.0,
@@ -13203,7 +13535,7 @@
 					}
 				},
 				{
-					"ID": 638,
+					"ID": 652,
 					"Type": "Literal",
 					"Position": [
 						832.0,
@@ -13215,7 +13547,7 @@
 					}
 				},
 				{
-					"ID": 639,
+					"ID": 653,
 					"Type": "Operator.Equal",
 					"Position": [
 						1024.0,
@@ -13223,7 +13555,7 @@
 					]
 				},
 				{
-					"ID": 640,
+					"ID": 654,
 					"Type": "Expression",
 					"Position": [
 						1248.0,
@@ -13234,7 +13566,7 @@
 					}
 				},
 				{
-					"ID": 641,
+					"ID": 655,
 					"Type": "Flow.Branch",
 					"Position": [
 						1472.0,
@@ -13243,7 +13575,7 @@
 					"Comment": "The screen the settings came from still shows: they stay"
 				},
 				{
-					"ID": 642,
+					"ID": 656,
 					"Type": "Function.Call",
 					"Position": [
 						1024.0,
@@ -13254,7 +13586,7 @@
 					}
 				},
 				{
-					"ID": 643,
+					"ID": 657,
 					"Type": "Variable.Get",
 					"Position": [
 						1024.0,
@@ -13265,7 +13597,7 @@
 					}
 				},
 				{
-					"ID": 644,
+					"ID": 658,
 					"Type": "Operator.NotEqual",
 					"Position": [
 						1248.0,
@@ -13273,7 +13605,7 @@
 					]
 				},
 				{
-					"ID": 645,
+					"ID": 659,
 					"Type": "Flow.Branch",
 					"Position": [
 						1472.0,
@@ -13281,7 +13613,7 @@
 					]
 				},
 				{
-					"ID": 646,
+					"ID": 660,
 					"Type": "RunsGraph",
 					"Position": [
 						192.0,
@@ -13292,7 +13624,7 @@
 					}
 				},
 				{
-					"ID": 647,
+					"ID": 661,
 					"Type": "Flow.Branch",
 					"Position": [
 						400.0,
@@ -13300,7 +13632,7 @@
 					]
 				},
 				{
-					"ID": 648,
+					"ID": 662,
 					"Type": "Function.Call",
 					"Position": [
 						1248.0,
@@ -13311,7 +13643,7 @@
 					}
 				},
 				{
-					"ID": 649,
+					"ID": 663,
 					"Type": "Function.Call",
 					"Position": [
 						1696.0,
@@ -13322,7 +13654,7 @@
 					}
 				},
 				{
-					"ID": 650,
+					"ID": 664,
 					"Type": "Function.Call",
 					"Position": [
 						1696.0,
@@ -13333,7 +13665,7 @@
 					}
 				},
 				{
-					"ID": 652,
+					"ID": 666,
 					"Type": "Event.ActionPressed",
 					"Position": [
 						0.0,
@@ -13344,7 +13676,7 @@
 					}
 				},
 				{
-					"ID": 653,
+					"ID": 667,
 					"Type": "Variable.Get",
 					"Position": [
 						400.0,
@@ -13355,7 +13687,7 @@
 					}
 				},
 				{
-					"ID": 654,
+					"ID": 668,
 					"Type": "Variable.Get",
 					"Position": [
 						0.0,
@@ -13366,7 +13698,7 @@
 					}
 				},
 				{
-					"ID": 655,
+					"ID": 669,
 					"Type": "String.IsEmpty",
 					"Position": [
 						208.0,
@@ -13374,7 +13706,7 @@
 					]
 				},
 				{
-					"ID": 656,
+					"ID": 670,
 					"Type": "Operator.Not",
 					"Position": [
 						400.0,
@@ -13382,7 +13714,7 @@
 					]
 				},
 				{
-					"ID": 657,
+					"ID": 671,
 					"Type": "Expression",
 					"Position": [
 						592.0,
@@ -13393,7 +13725,7 @@
 					}
 				},
 				{
-					"ID": 658,
+					"ID": 672,
 					"Type": "Flow.Branch",
 					"Position": [
 						816.0,
@@ -13402,7 +13734,7 @@
 					"Comment": "A screen shows and no binding listens"
 				},
 				{
-					"ID": 659,
+					"ID": 673,
 					"Type": "Function.Call",
 					"Position": [
 						1040.0,
@@ -13416,7 +13748,7 @@
 					}
 				},
 				{
-					"ID": 661,
+					"ID": 675,
 					"Type": "Event.ActionPressed",
 					"Position": [
 						0.0,
@@ -13427,7 +13759,7 @@
 					}
 				},
 				{
-					"ID": 662,
+					"ID": 676,
 					"Type": "Variable.Get",
 					"Position": [
 						400.0,
@@ -13438,7 +13770,7 @@
 					}
 				},
 				{
-					"ID": 663,
+					"ID": 677,
 					"Type": "Variable.Get",
 					"Position": [
 						0.0,
@@ -13449,7 +13781,7 @@
 					}
 				},
 				{
-					"ID": 664,
+					"ID": 678,
 					"Type": "String.IsEmpty",
 					"Position": [
 						208.0,
@@ -13457,7 +13789,7 @@
 					]
 				},
 				{
-					"ID": 665,
+					"ID": 679,
 					"Type": "Operator.Not",
 					"Position": [
 						400.0,
@@ -13465,7 +13797,7 @@
 					]
 				},
 				{
-					"ID": 666,
+					"ID": 680,
 					"Type": "Expression",
 					"Position": [
 						592.0,
@@ -13476,7 +13808,7 @@
 					}
 				},
 				{
-					"ID": 667,
+					"ID": 681,
 					"Type": "Flow.Branch",
 					"Position": [
 						816.0,
@@ -13485,7 +13817,7 @@
 					"Comment": "A screen shows and no binding listens"
 				},
 				{
-					"ID": 668,
+					"ID": 682,
 					"Type": "Function.Call",
 					"Position": [
 						1040.0,
@@ -13499,7 +13831,7 @@
 					}
 				},
 				{
-					"ID": 670,
+					"ID": 684,
 					"Type": "Event.ActionPressed",
 					"Position": [
 						0.0,
@@ -13510,7 +13842,7 @@
 					}
 				},
 				{
-					"ID": 671,
+					"ID": 685,
 					"Type": "Variable.Get",
 					"Position": [
 						400.0,
@@ -13521,7 +13853,7 @@
 					}
 				},
 				{
-					"ID": 672,
+					"ID": 686,
 					"Type": "Variable.Get",
 					"Position": [
 						0.0,
@@ -13532,7 +13864,7 @@
 					}
 				},
 				{
-					"ID": 673,
+					"ID": 687,
 					"Type": "String.IsEmpty",
 					"Position": [
 						208.0,
@@ -13540,7 +13872,7 @@
 					]
 				},
 				{
-					"ID": 674,
+					"ID": 688,
 					"Type": "Operator.Not",
 					"Position": [
 						400.0,
@@ -13548,7 +13880,7 @@
 					]
 				},
 				{
-					"ID": 675,
+					"ID": 689,
 					"Type": "Expression",
 					"Position": [
 						592.0,
@@ -13559,7 +13891,7 @@
 					}
 				},
 				{
-					"ID": 676,
+					"ID": 690,
 					"Type": "Flow.Branch",
 					"Position": [
 						816.0,
@@ -13568,7 +13900,7 @@
 					"Comment": "A screen shows and no binding listens"
 				},
 				{
-					"ID": 677,
+					"ID": 691,
 					"Type": "Function.Call",
 					"Position": [
 						1040.0,
@@ -13582,7 +13914,7 @@
 					}
 				},
 				{
-					"ID": 679,
+					"ID": 693,
 					"Type": "Event.ActionPressed",
 					"Position": [
 						0.0,
@@ -13593,7 +13925,7 @@
 					}
 				},
 				{
-					"ID": 680,
+					"ID": 694,
 					"Type": "Variable.Get",
 					"Position": [
 						400.0,
@@ -13604,7 +13936,7 @@
 					}
 				},
 				{
-					"ID": 681,
+					"ID": 695,
 					"Type": "Variable.Get",
 					"Position": [
 						0.0,
@@ -13615,7 +13947,7 @@
 					}
 				},
 				{
-					"ID": 682,
+					"ID": 696,
 					"Type": "String.IsEmpty",
 					"Position": [
 						208.0,
@@ -13623,7 +13955,7 @@
 					]
 				},
 				{
-					"ID": 683,
+					"ID": 697,
 					"Type": "Operator.Not",
 					"Position": [
 						400.0,
@@ -13631,7 +13963,7 @@
 					]
 				},
 				{
-					"ID": 684,
+					"ID": 698,
 					"Type": "Expression",
 					"Position": [
 						592.0,
@@ -13642,7 +13974,7 @@
 					}
 				},
 				{
-					"ID": 685,
+					"ID": 699,
 					"Type": "Flow.Branch",
 					"Position": [
 						816.0,
@@ -13651,7 +13983,7 @@
 					"Comment": "A screen shows and no binding listens"
 				},
 				{
-					"ID": 686,
+					"ID": 700,
 					"Type": "Function.Call",
 					"Position": [
 						1040.0,
@@ -13665,7 +13997,7 @@
 					}
 				},
 				{
-					"ID": 688,
+					"ID": 702,
 					"Type": "Event.ActionPressed",
 					"Position": [
 						0.0,
@@ -13676,7 +14008,7 @@
 					}
 				},
 				{
-					"ID": 689,
+					"ID": 703,
 					"Type": "Variable.Get",
 					"Position": [
 						400.0,
@@ -13687,7 +14019,7 @@
 					}
 				},
 				{
-					"ID": 690,
+					"ID": 704,
 					"Type": "Variable.Get",
 					"Position": [
 						0.0,
@@ -13698,7 +14030,7 @@
 					}
 				},
 				{
-					"ID": 691,
+					"ID": 705,
 					"Type": "String.IsEmpty",
 					"Position": [
 						208.0,
@@ -13706,7 +14038,7 @@
 					]
 				},
 				{
-					"ID": 692,
+					"ID": 706,
 					"Type": "Operator.Not",
 					"Position": [
 						400.0,
@@ -13714,7 +14046,7 @@
 					]
 				},
 				{
-					"ID": 693,
+					"ID": 707,
 					"Type": "Expression",
 					"Position": [
 						592.0,
@@ -13725,7 +14057,7 @@
 					}
 				},
 				{
-					"ID": 694,
+					"ID": 708,
 					"Type": "Flow.Branch",
 					"Position": [
 						816.0,
@@ -13734,7 +14066,7 @@
 					"Comment": "A screen shows and no binding listens"
 				},
 				{
-					"ID": 695,
+					"ID": 709,
 					"Type": "Function.Call",
 					"Position": [
 						1040.0,
@@ -13745,7 +14077,7 @@
 					}
 				},
 				{
-					"ID": 697,
+					"ID": 711,
 					"Type": "Event.ActionPressed",
 					"Position": [
 						0.0,
@@ -13756,7 +14088,7 @@
 					}
 				},
 				{
-					"ID": 698,
+					"ID": 712,
 					"Type": "Variable.Get",
 					"Position": [
 						400.0,
@@ -13767,7 +14099,7 @@
 					}
 				},
 				{
-					"ID": 699,
+					"ID": 713,
 					"Type": "Variable.Get",
 					"Position": [
 						0.0,
@@ -13778,7 +14110,7 @@
 					}
 				},
 				{
-					"ID": 700,
+					"ID": 714,
 					"Type": "String.IsEmpty",
 					"Position": [
 						208.0,
@@ -13786,7 +14118,7 @@
 					]
 				},
 				{
-					"ID": 701,
+					"ID": 715,
 					"Type": "Operator.Not",
 					"Position": [
 						400.0,
@@ -13794,7 +14126,7 @@
 					]
 				},
 				{
-					"ID": 702,
+					"ID": 716,
 					"Type": "Expression",
 					"Position": [
 						592.0,
@@ -13805,7 +14137,7 @@
 					}
 				},
 				{
-					"ID": 703,
+					"ID": 717,
 					"Type": "Flow.Branch",
 					"Position": [
 						816.0,
@@ -13814,7 +14146,7 @@
 					"Comment": "A screen shows and no binding listens"
 				},
 				{
-					"ID": 704,
+					"ID": 718,
 					"Type": "Function.Call",
 					"Position": [
 						1040.0,
@@ -13825,7 +14157,7 @@
 					}
 				},
 				{
-					"ID": 706,
+					"ID": 720,
 					"Type": "Event.Click",
 					"Position": [
 						0.0,
@@ -13833,7 +14165,7 @@
 					]
 				},
 				{
-					"ID": 707,
+					"ID": 721,
 					"Type": "Variable.Get",
 					"Position": [
 						0.0,
@@ -13844,7 +14176,7 @@
 					}
 				},
 				{
-					"ID": 708,
+					"ID": 722,
 					"Type": "Operator.Not",
 					"Position": [
 						192.0,
@@ -13852,7 +14184,7 @@
 					]
 				},
 				{
-					"ID": 709,
+					"ID": 723,
 					"Type": "Flow.Branch",
 					"Position": [
 						384.0,
@@ -13861,7 +14193,7 @@
 					"Comment": "While a binding listens, a click is no command"
 				},
 				{
-					"ID": 710,
+					"ID": 724,
 					"Type": "Function.Call",
 					"Position": [
 						608.0,
@@ -13872,7 +14204,7 @@
 					}
 				},
 				{
-					"ID": 712,
+					"ID": 726,
 					"Type": "Event.Custom",
 					"Position": [
 						0.0,
@@ -13884,7 +14216,7 @@
 					}
 				},
 				{
-					"ID": 713,
+					"ID": 727,
 					"Type": "Literal",
 					"Position": [
 						0.0,
@@ -13896,7 +14228,7 @@
 					}
 				},
 				{
-					"ID": 714,
+					"ID": 728,
 					"Type": "Variable.Set",
 					"Position": [
 						192.0,
@@ -13907,7 +14239,7 @@
 					}
 				},
 				{
-					"ID": 715,
+					"ID": 729,
 					"Type": "Variable.Set",
 					"Position": [
 						384.0,
@@ -13921,7 +14253,7 @@
 					}
 				},
 				{
-					"ID": 717,
+					"ID": 731,
 					"Type": "Event.Custom",
 					"Position": [
 						0.0,
@@ -13946,7 +14278,7 @@
 					}
 				},
 				{
-					"ID": 718,
+					"ID": 732,
 					"Type": "Function.Call",
 					"Position": [
 						192.0,
@@ -13957,7 +14289,7 @@
 					}
 				},
 				{
-					"ID": 719,
+					"ID": 733,
 					"Type": "FormatString",
 					"Position": [
 						400.0,
@@ -13968,7 +14300,7 @@
 					}
 				},
 				{
-					"ID": 720,
+					"ID": 734,
 					"Type": "Variable.Get",
 					"Position": [
 						400.0,
@@ -13979,7 +14311,7 @@
 					}
 				},
 				{
-					"ID": 721,
+					"ID": 735,
 					"Type": "Array.Add",
 					"Position": [
 						592.0,
@@ -13987,7 +14319,7 @@
 					]
 				},
 				{
-					"ID": 722,
+					"ID": 736,
 					"Type": "Variable.Set",
 					"Position": [
 						800.0,
@@ -13998,7 +14330,7 @@
 					}
 				},
 				{
-					"ID": 723,
+					"ID": 737,
 					"Type": "Variable.Get",
 					"Position": [
 						592.0,
@@ -14009,7 +14341,7 @@
 					}
 				},
 				{
-					"ID": 724,
+					"ID": 738,
 					"Type": "Operator.Or",
 					"Position": [
 						800.0,
@@ -14017,7 +14349,7 @@
 					]
 				},
 				{
-					"ID": 725,
+					"ID": 739,
 					"Type": "Variable.Set",
 					"Position": [
 						992.0,
@@ -14028,7 +14360,7 @@
 					}
 				},
 				{
-					"ID": 727,
+					"ID": 741,
 					"Type": "Event.Custom",
 					"Position": [
 						0.0,
@@ -14045,7 +14377,7 @@
 					}
 				},
 				{
-					"ID": 728,
+					"ID": 742,
 					"Type": "Function.Call",
 					"Position": [
 						192.0,
@@ -14059,132 +14391,42 @@
 			"Links": [
 				{
 					"From": [
-						618,
+						632,
 						"Then"
 					],
 					"To": [
-						617,
+						631,
 						"Execute"
-					]
-				},
-				{
-					"From": [
-						617,
-						"Completed"
-					],
-					"To": [
-						619,
-						"Execute"
-					]
-				},
-				{
-					"From": [
-						619,
-						"Then"
-					],
-					"To": [
-						620,
-						"Execute"
-					]
-				},
-				{
-					"From": [
-						620,
-						"Then"
-					],
-					"To": [
-						621,
-						"Execute"
-					]
-				},
-				{
-					"From": [
-						624,
-						"Value"
-					],
-					"To": [
-						625,
-						"Target"
-					]
-				},
-				{
-					"From": [
-						625,
-						"Value"
-					],
-					"To": [
-						626,
-						"Value"
-					]
-				},
-				{
-					"From": [
-						624,
-						"Value"
-					],
-					"To": [
-						627,
-						"Target"
-					]
-				},
-				{
-					"From": [
-						627,
-						"Value"
-					],
-					"To": [
-						628,
-						"Value"
-					]
-				},
-				{
-					"From": [
-						629,
-						"Value"
-					],
-					"To": [
-						630,
-						"Condition"
 					]
 				},
 				{
 					"From": [
 						631,
-						"Value"
+						"Completed"
 					],
 					"To": [
-						632,
-						"Condition"
+						633,
+						"Execute"
 					]
 				},
 				{
 					"From": [
 						633,
-						"Value"
+						"Then"
 					],
 					"To": [
-						635,
-						"A"
+						634,
+						"Execute"
 					]
 				},
 				{
 					"From": [
 						634,
-						"Value"
+						"Then"
 					],
 					"To": [
 						635,
-						"B"
-					]
-				},
-				{
-					"From": [
-						637,
-						"Value"
-					],
-					"To": [
-						639,
-						"A"
+						"Execute"
 					]
 				},
 				{
@@ -14194,57 +14436,37 @@
 					],
 					"To": [
 						639,
-						"B"
-					]
-				},
-				{
-					"From": [
-						635,
-						"Result"
-					],
-					"To": [
-						640,
-						"pause"
-					]
-				},
-				{
-					"From": [
-						636,
-						"Value"
-					],
-					"To": [
-						640,
-						"paused"
+						"Target"
 					]
 				},
 				{
 					"From": [
 						639,
-						"Result"
+						"Value"
 					],
 					"To": [
 						640,
-						"title"
+						"Value"
 					]
 				},
 				{
 					"From": [
-						640,
-						"Result"
+						638,
+						"Value"
 					],
 					"To": [
 						641,
-						"Condition"
+						"Target"
 					]
 				},
 				{
 					"From": [
-						642,
-						"Name"
+						641,
+						"Value"
 					],
 					"To": [
-						644,
-						"A"
+						642,
+						"Value"
 					]
 				},
 				{
@@ -14254,213 +14476,233 @@
 					],
 					"To": [
 						644,
+						"Condition"
+					]
+				},
+				{
+					"From": [
+						645,
+						"Value"
+					],
+					"To": [
+						646,
+						"Condition"
+					]
+				},
+				{
+					"From": [
+						647,
+						"Value"
+					],
+					"To": [
+						649,
+						"A"
+					]
+				},
+				{
+					"From": [
+						648,
+						"Value"
+					],
+					"To": [
+						649,
 						"B"
 					]
 				},
 				{
 					"From": [
-						644,
+						651,
+						"Value"
+					],
+					"To": [
+						653,
+						"A"
+					]
+				},
+				{
+					"From": [
+						652,
+						"Value"
+					],
+					"To": [
+						653,
+						"B"
+					]
+				},
+				{
+					"From": [
+						649,
 						"Result"
 					],
 					"To": [
-						645,
+						654,
+						"pause"
+					]
+				},
+				{
+					"From": [
+						650,
+						"Value"
+					],
+					"To": [
+						654,
+						"paused"
+					]
+				},
+				{
+					"From": [
+						653,
+						"Result"
+					],
+					"To": [
+						654,
+						"title"
+					]
+				},
+				{
+					"From": [
+						654,
+						"Result"
+					],
+					"To": [
+						655,
 						"Condition"
 					]
 				},
 				{
 					"From": [
-						624,
+						656,
+						"Name"
+					],
+					"To": [
+						658,
+						"A"
+					]
+				},
+				{
+					"From": [
+						657,
 						"Value"
 					],
 					"To": [
-						646,
+						658,
+						"B"
+					]
+				},
+				{
+					"From": [
+						658,
+						"Result"
+					],
+					"To": [
+						659,
+						"Condition"
+					]
+				},
+				{
+					"From": [
+						638,
+						"Value"
+					],
+					"To": [
+						660,
 						"Target"
 					]
 				},
 				{
 					"From": [
-						646,
+						660,
 						"Result"
 					],
 					"To": [
-						647,
+						661,
 						"Condition"
 					]
 				},
 				{
 					"From": [
-						623,
+						637,
 						"Then"
 					],
 					"To": [
-						647,
+						661,
 						"Execute"
 					]
 				},
 				{
 					"From": [
-						647,
+						661,
 						"True"
 					],
 					"To": [
-						626,
+						640,
 						"Execute"
 					]
 				},
 				{
 					"From": [
-						626,
+						640,
 						"Then"
 					],
 					"To": [
-						628,
-						"Execute"
-					]
-				},
-				{
-					"From": [
-						628,
-						"Then"
-					],
-					"To": [
-						630,
-						"Execute"
-					]
-				},
-				{
-					"From": [
-						630,
-						"True"
-					],
-					"To": [
-						648,
-						"Execute"
-					]
-				},
-				{
-					"From": [
-						630,
-						"False"
-					],
-					"To": [
-						632,
-						"Execute"
-					]
-				},
-				{
-					"From": [
-						632,
-						"True"
-					],
-					"To": [
-						641,
-						"Execute"
-					]
-				},
-				{
-					"From": [
-						641,
-						"False"
-					],
-					"To": [
-						649,
-						"Execute"
-					]
-				},
-				{
-					"From": [
-						632,
-						"False"
-					],
-					"To": [
-						645,
+						642,
 						"Execute"
 					]
 				},
 				{
 					"From": [
 						642,
-						"Name"
-					],
-					"To": [
-						650,
-						"Name"
-					]
-				},
-				{
-					"From": [
-						645,
-						"True"
-					],
-					"To": [
-						650,
-						"Execute"
-					]
-				},
-				{
-					"From": [
-						654,
-						"Value"
-					],
-					"To": [
-						655,
-						"Text"
-					]
-				},
-				{
-					"From": [
-						655,
-						"Result"
-					],
-					"To": [
-						656,
-						"A"
-					]
-				},
-				{
-					"From": [
-						653,
-						"Value"
-					],
-					"To": [
-						657,
-						"listening"
-					]
-				},
-				{
-					"From": [
-						656,
-						"Result"
-					],
-					"To": [
-						657,
-						"shown"
-					]
-				},
-				{
-					"From": [
-						657,
-						"Result"
-					],
-					"To": [
-						658,
-						"Condition"
-					]
-				},
-				{
-					"From": [
-						652,
 						"Then"
 					],
 					"To": [
-						658,
+						644,
 						"Execute"
 					]
 				},
 				{
 					"From": [
-						658,
+						644,
 						"True"
+					],
+					"To": [
+						662,
+						"Execute"
+					]
+				},
+				{
+					"From": [
+						644,
+						"False"
+					],
+					"To": [
+						646,
+						"Execute"
+					]
+				},
+				{
+					"From": [
+						646,
+						"True"
+					],
+					"To": [
+						655,
+						"Execute"
+					]
+				},
+				{
+					"From": [
+						655,
+						"False"
+					],
+					"To": [
+						663,
+						"Execute"
+					]
+				},
+				{
+					"From": [
+						646,
+						"False"
 					],
 					"To": [
 						659,
@@ -14469,401 +14711,371 @@
 				},
 				{
 					"From": [
-						663,
-						"Value"
+						656,
+						"Name"
 					],
 					"To": [
 						664,
-						"Text"
+						"Name"
 					]
 				},
 				{
 					"From": [
+						659,
+						"True"
+					],
+					"To": [
 						664,
-						"Result"
-					],
-					"To": [
-						665,
-						"A"
-					]
-				},
-				{
-					"From": [
-						662,
-						"Value"
-					],
-					"To": [
-						666,
-						"listening"
-					]
-				},
-				{
-					"From": [
-						665,
-						"Result"
-					],
-					"To": [
-						666,
-						"shown"
-					]
-				},
-				{
-					"From": [
-						666,
-						"Result"
-					],
-					"To": [
-						667,
-						"Condition"
-					]
-				},
-				{
-					"From": [
-						661,
-						"Then"
-					],
-					"To": [
-						667,
 						"Execute"
 					]
 				},
 				{
 					"From": [
-						667,
-						"True"
+						668,
+						"Value"
 					],
 					"To": [
-						668,
+						669,
+						"Text"
+					]
+				},
+				{
+					"From": [
+						669,
+						"Result"
+					],
+					"To": [
+						670,
+						"A"
+					]
+				},
+				{
+					"From": [
+						667,
+						"Value"
+					],
+					"To": [
+						671,
+						"listening"
+					]
+				},
+				{
+					"From": [
+						670,
+						"Result"
+					],
+					"To": [
+						671,
+						"shown"
+					]
+				},
+				{
+					"From": [
+						671,
+						"Result"
+					],
+					"To": [
+						672,
+						"Condition"
+					]
+				},
+				{
+					"From": [
+						666,
+						"Then"
+					],
+					"To": [
+						672,
 						"Execute"
 					]
 				},
 				{
 					"From": [
 						672,
-						"Value"
+						"True"
 					],
 					"To": [
 						673,
-						"Text"
-					]
-				},
-				{
-					"From": [
-						673,
-						"Result"
-					],
-					"To": [
-						674,
-						"A"
-					]
-				},
-				{
-					"From": [
-						671,
-						"Value"
-					],
-					"To": [
-						675,
-						"listening"
-					]
-				},
-				{
-					"From": [
-						674,
-						"Result"
-					],
-					"To": [
-						675,
-						"shown"
-					]
-				},
-				{
-					"From": [
-						675,
-						"Result"
-					],
-					"To": [
-						676,
-						"Condition"
-					]
-				},
-				{
-					"From": [
-						670,
-						"Then"
-					],
-					"To": [
-						676,
 						"Execute"
 					]
 				},
 				{
 					"From": [
-						676,
-						"True"
+						677,
+						"Value"
 					],
 					"To": [
-						677,
+						678,
+						"Text"
+					]
+				},
+				{
+					"From": [
+						678,
+						"Result"
+					],
+					"To": [
+						679,
+						"A"
+					]
+				},
+				{
+					"From": [
+						676,
+						"Value"
+					],
+					"To": [
+						680,
+						"listening"
+					]
+				},
+				{
+					"From": [
+						679,
+						"Result"
+					],
+					"To": [
+						680,
+						"shown"
+					]
+				},
+				{
+					"From": [
+						680,
+						"Result"
+					],
+					"To": [
+						681,
+						"Condition"
+					]
+				},
+				{
+					"From": [
+						675,
+						"Then"
+					],
+					"To": [
+						681,
 						"Execute"
 					]
 				},
 				{
 					"From": [
 						681,
-						"Value"
+						"True"
 					],
 					"To": [
 						682,
-						"Text"
-					]
-				},
-				{
-					"From": [
-						682,
-						"Result"
-					],
-					"To": [
-						683,
-						"A"
-					]
-				},
-				{
-					"From": [
-						680,
-						"Value"
-					],
-					"To": [
-						684,
-						"listening"
-					]
-				},
-				{
-					"From": [
-						683,
-						"Result"
-					],
-					"To": [
-						684,
-						"shown"
-					]
-				},
-				{
-					"From": [
-						684,
-						"Result"
-					],
-					"To": [
-						685,
-						"Condition"
-					]
-				},
-				{
-					"From": [
-						679,
-						"Then"
-					],
-					"To": [
-						685,
 						"Execute"
 					]
 				},
 				{
 					"From": [
-						685,
-						"True"
+						686,
+						"Value"
 					],
 					"To": [
-						686,
+						687,
+						"Text"
+					]
+				},
+				{
+					"From": [
+						687,
+						"Result"
+					],
+					"To": [
+						688,
+						"A"
+					]
+				},
+				{
+					"From": [
+						685,
+						"Value"
+					],
+					"To": [
+						689,
+						"listening"
+					]
+				},
+				{
+					"From": [
+						688,
+						"Result"
+					],
+					"To": [
+						689,
+						"shown"
+					]
+				},
+				{
+					"From": [
+						689,
+						"Result"
+					],
+					"To": [
+						690,
+						"Condition"
+					]
+				},
+				{
+					"From": [
+						684,
+						"Then"
+					],
+					"To": [
+						690,
 						"Execute"
 					]
 				},
 				{
 					"From": [
 						690,
-						"Value"
+						"True"
 					],
 					"To": [
 						691,
-						"Text"
-					]
-				},
-				{
-					"From": [
-						691,
-						"Result"
-					],
-					"To": [
-						692,
-						"A"
-					]
-				},
-				{
-					"From": [
-						689,
-						"Value"
-					],
-					"To": [
-						693,
-						"listening"
-					]
-				},
-				{
-					"From": [
-						692,
-						"Result"
-					],
-					"To": [
-						693,
-						"shown"
-					]
-				},
-				{
-					"From": [
-						693,
-						"Result"
-					],
-					"To": [
-						694,
-						"Condition"
-					]
-				},
-				{
-					"From": [
-						688,
-						"Then"
-					],
-					"To": [
-						694,
 						"Execute"
 					]
 				},
 				{
 					"From": [
-						694,
-						"True"
+						695,
+						"Value"
 					],
 					"To": [
-						695,
+						696,
+						"Text"
+					]
+				},
+				{
+					"From": [
+						696,
+						"Result"
+					],
+					"To": [
+						697,
+						"A"
+					]
+				},
+				{
+					"From": [
+						694,
+						"Value"
+					],
+					"To": [
+						698,
+						"listening"
+					]
+				},
+				{
+					"From": [
+						697,
+						"Result"
+					],
+					"To": [
+						698,
+						"shown"
+					]
+				},
+				{
+					"From": [
+						698,
+						"Result"
+					],
+					"To": [
+						699,
+						"Condition"
+					]
+				},
+				{
+					"From": [
+						693,
+						"Then"
+					],
+					"To": [
+						699,
 						"Execute"
 					]
 				},
 				{
 					"From": [
 						699,
-						"Value"
+						"True"
 					],
 					"To": [
 						700,
+						"Execute"
+					]
+				},
+				{
+					"From": [
+						704,
+						"Value"
+					],
+					"To": [
+						705,
 						"Text"
 					]
 				},
 				{
 					"From": [
-						700,
+						705,
 						"Result"
 					],
 					"To": [
-						701,
+						706,
 						"A"
 					]
 				},
 				{
 					"From": [
-						698,
+						703,
 						"Value"
 					],
 					"To": [
-						702,
+						707,
 						"listening"
 					]
 				},
 				{
 					"From": [
-						701,
+						706,
 						"Result"
 					],
 					"To": [
-						702,
+						707,
 						"shown"
 					]
 				},
 				{
 					"From": [
-						702,
-						"Result"
-					],
-					"To": [
-						703,
-						"Condition"
-					]
-				},
-				{
-					"From": [
-						697,
-						"Then"
-					],
-					"To": [
-						703,
-						"Execute"
-					]
-				},
-				{
-					"From": [
-						703,
-						"True"
-					],
-					"To": [
-						704,
-						"Execute"
-					]
-				},
-				{
-					"From": [
 						707,
-						"Value"
-					],
-					"To": [
-						708,
-						"A"
-					]
-				},
-				{
-					"From": [
-						708,
 						"Result"
 					],
 					"To": [
-						709,
+						708,
 						"Condition"
 					]
 				},
 				{
 					"From": [
-						706,
+						702,
 						"Then"
 					],
 					"To": [
-						709,
+						708,
 						"Execute"
 					]
 				},
 				{
 					"From": [
-						706,
-						"Button"
-					],
-					"To": [
-						710,
-						"Button"
-					]
-				},
-				{
-					"From": [
-						709,
+						708,
 						"True"
 					],
 					"To": [
-						710,
+						709,
 						"Execute"
 					]
 				},
@@ -14874,164 +15086,284 @@
 					],
 					"To": [
 						714,
-						"Value"
-					]
-				},
-				{
-					"From": [
-						712,
-						"Then"
-					],
-					"To": [
-						714,
-						"Execute"
+						"Text"
 					]
 				},
 				{
 					"From": [
 						714,
-						"Then"
+						"Result"
 					],
 					"To": [
 						715,
-						"Execute"
-					]
-				},
-				{
-					"From": [
-						717,
-						"Time"
-					],
-					"To": [
-						718,
-						"Seconds"
-					]
-				},
-				{
-					"From": [
-						717,
-						"Lap"
-					],
-					"To": [
-						719,
-						"Lap"
-					]
-				},
-				{
-					"From": [
-						718,
-						"Text"
-					],
-					"To": [
-						719,
-						"Time"
-					]
-				},
-				{
-					"From": [
-						720,
-						"Value"
-					],
-					"To": [
-						721,
-						"Array"
-					]
-				},
-				{
-					"From": [
-						719,
-						"Result"
-					],
-					"To": [
-						721,
-						"Value"
-					]
-				},
-				{
-					"From": [
-						721,
-						"Result"
-					],
-					"To": [
-						722,
-						"Value"
-					]
-				},
-				{
-					"From": [
-						723,
-						"Value"
-					],
-					"To": [
-						724,
 						"A"
 					]
 				},
 				{
 					"From": [
-						717,
-						"Best"
+						712,
+						"Value"
 					],
 					"To": [
-						724,
-						"B"
+						716,
+						"listening"
 					]
 				},
 				{
 					"From": [
-						724,
+						715,
 						"Result"
 					],
 					"To": [
-						725,
+						716,
+						"shown"
+					]
+				},
+				{
+					"From": [
+						716,
+						"Result"
+					],
+					"To": [
+						717,
+						"Condition"
+					]
+				},
+				{
+					"From": [
+						711,
+						"Then"
+					],
+					"To": [
+						717,
+						"Execute"
+					]
+				},
+				{
+					"From": [
+						717,
+						"True"
+					],
+					"To": [
+						718,
+						"Execute"
+					]
+				},
+				{
+					"From": [
+						721,
+						"Value"
+					],
+					"To": [
+						722,
+						"A"
+					]
+				},
+				{
+					"From": [
+						722,
+						"Result"
+					],
+					"To": [
+						723,
+						"Condition"
+					]
+				},
+				{
+					"From": [
+						720,
+						"Then"
+					],
+					"To": [
+						723,
+						"Execute"
+					]
+				},
+				{
+					"From": [
+						720,
+						"Button"
+					],
+					"To": [
+						724,
+						"Button"
+					]
+				},
+				{
+					"From": [
+						723,
+						"True"
+					],
+					"To": [
+						724,
+						"Execute"
+					]
+				},
+				{
+					"From": [
+						727,
+						"Value"
+					],
+					"To": [
+						728,
 						"Value"
 					]
 				},
 				{
 					"From": [
-						717,
+						726,
 						"Then"
 					],
 					"To": [
-						722,
+						728,
 						"Execute"
 					]
 				},
 				{
 					"From": [
-						722,
+						728,
 						"Then"
 					],
 					"To": [
-						725,
+						729,
 						"Execute"
 					]
 				},
 				{
 					"From": [
-						727,
+						731,
+						"Time"
+					],
+					"To": [
+						732,
+						"Seconds"
+					]
+				},
+				{
+					"From": [
+						731,
+						"Lap"
+					],
+					"To": [
+						733,
+						"Lap"
+					]
+				},
+				{
+					"From": [
+						732,
+						"Text"
+					],
+					"To": [
+						733,
+						"Time"
+					]
+				},
+				{
+					"From": [
+						734,
+						"Value"
+					],
+					"To": [
+						735,
+						"Array"
+					]
+				},
+				{
+					"From": [
+						733,
+						"Result"
+					],
+					"To": [
+						735,
+						"Value"
+					]
+				},
+				{
+					"From": [
+						735,
+						"Result"
+					],
+					"To": [
+						736,
+						"Value"
+					]
+				},
+				{
+					"From": [
+						737,
+						"Value"
+					],
+					"To": [
+						738,
+						"A"
+					]
+				},
+				{
+					"From": [
+						731,
+						"Best"
+					],
+					"To": [
+						738,
+						"B"
+					]
+				},
+				{
+					"From": [
+						738,
+						"Result"
+					],
+					"To": [
+						739,
+						"Value"
+					]
+				},
+				{
+					"From": [
+						731,
+						"Then"
+					],
+					"To": [
+						736,
+						"Execute"
+					]
+				},
+				{
+					"From": [
+						736,
+						"Then"
+					],
+					"To": [
+						739,
+						"Execute"
+					]
+				},
+				{
+					"From": [
+						741,
 						"Total"
 					],
 					"To": [
-						728,
+						742,
 						"Total"
 					]
 				},
 				{
 					"From": [
-						727,
+						741,
 						"Then"
 					],
 					"To": [
-						728,
+						742,
 						"Execute"
 					]
 				}
 			],
 			"Comments": [
 				{
-					"ID": 622,
-					"Text": "Start: the settings shown, and the linked brakes given to the rider",
+					"ID": 636,
+					"Text": "Start: the settings shown, and the assists given to the rider",
 					"Position": [
 						-32.0,
 						616.0
@@ -15048,7 +15380,7 @@
 					]
 				},
 				{
-					"ID": 651,
+					"ID": 665,
 					"Text": "Read the race: each frame, the screen it asks for",
 					"Position": [
 						-32.0,
@@ -15066,7 +15398,7 @@
 					]
 				},
 				{
-					"ID": 660,
+					"ID": 674,
 					"Text": "Up: the selection moves up",
 					"Position": [
 						-32.0,
@@ -15084,7 +15416,7 @@
 					]
 				},
 				{
-					"ID": 669,
+					"ID": 683,
 					"Text": "Down: the selection moves down",
 					"Position": [
 						-32.0,
@@ -15102,7 +15434,7 @@
 					]
 				},
 				{
-					"ID": 678,
+					"ID": 692,
 					"Text": "Left: a setting steps down, or the keyboard's binding",
 					"Position": [
 						-32.0,
@@ -15120,7 +15452,7 @@
 					]
 				},
 				{
-					"ID": 687,
+					"ID": 701,
 					"Text": "Right: a setting steps up, or the gamepad's binding",
 					"Position": [
 						-32.0,
@@ -15138,7 +15470,7 @@
 					]
 				},
 				{
-					"ID": 696,
+					"ID": 710,
 					"Text": "Confirm: the selected button is pressed",
 					"Position": [
 						-32.0,
@@ -15156,7 +15488,7 @@
 					]
 				},
 				{
-					"ID": 705,
+					"ID": 719,
 					"Text": "Back: the screen is left",
 					"Position": [
 						-32.0,
@@ -15174,7 +15506,7 @@
 					]
 				},
 				{
-					"ID": 711,
+					"ID": 725,
 					"Text": "Click: a button the mouse clicked, or the pad pressed",
 					"Position": [
 						-32.0,
@@ -15192,7 +15524,7 @@
 					]
 				},
 				{
-					"ID": 716,
+					"ID": 730,
 					"Text": "Race started: no laps yet",
 					"Position": [
 						-32.0,
@@ -15210,7 +15542,7 @@
 					]
 				},
 				{
-					"ID": 726,
+					"ID": 740,
 					"Text": "Lap finished: its time, a line of the results",
 					"Position": [
 						-32.0,
@@ -15228,7 +15560,7 @@
 					]
 				},
 				{
-					"ID": 729,
+					"ID": 743,
 					"Text": "Race finished: the results",
 					"Position": [
 						-32.0,

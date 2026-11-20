@@ -8,7 +8,7 @@
 		"Variables": [
 			{
 				"ID": 1,
-				"Name": "Positions",
+				"Name": "BestLapPositions",
 				"Type": "Strada.Vector3[]",
 				"Value": [],
 				"Public": true,
@@ -16,7 +16,7 @@
 			},
 			{
 				"ID": 2,
-				"Name": "Rotations",
+				"Name": "BestLapRotations",
 				"Type": "Strada.Quaternion[]",
 				"Value": [],
 				"Public": true,
@@ -24,7 +24,7 @@
 			},
 			{
 				"ID": 3,
-				"Name": "EngineSpeeds",
+				"Name": "BestLapEngineSpeeds",
 				"Type": "float[]",
 				"Value": [],
 				"Public": true,
@@ -32,7 +32,7 @@
 			},
 			{
 				"ID": 4,
-				"Name": "Loads",
+				"Name": "BestLapLoads",
 				"Type": "float[]",
 				"Value": [],
 				"Public": true,

@@ -1,7 +1,8 @@
 """Moto's race: the trigger gates at the start and finish line and at the two sector arches, and the race director, which
 runs the time trial (Docs/Architecture.md section 15, "The race"). Author.py's race part makes the Race entity, which runs
 the director (Scripts/RaceDirector.sgraph), and its children Line, Gate 1 and Gate 2, each a static body whose box collider
-is a trigger, running Scripts/Gate.sgraph; the circuit part's solid arches and its Sector Gate entities stay as they are.
+is a trigger, running Scripts/Gate.sgraph, whose Gate numbers it (0 the line, 1 and 2 the sector gates); the circuit part's
+solid arches and its Sector Gate entities stay as they are.
 
 The gates. Each stands on the center line where Circuit.SECTOR_GATES puts its timing line, turned with the road, its box
 reaching to the barriers on either side, from under the road to 3.5 m over it, and DEPTH deep along the lap, its timing
@@ -16,10 +17,14 @@ speed (a teleport jumps farther), it interpolates the crossing between the two p
 crossing is a fixed step and a fraction of one, the same at every frame rate; the race's times are steps since the start
 signal times the fixed step. The trigger events count the subject's entries into the gates (Entries).
 
+The director takes its gates from its children that run Gate.sgraph, in the order of their Gate numbers, whatever the
+order of the children: another child is no gate, and numbers that are not 0 to n - 1, each once, are logged as an error
+and leave the director timing nothing.
+
 The director. Its states: Idle (as the scene starts while TitleOnStart is off, as Moto started before it had a race),
 Title (the title over the attract mode: AttractStarted is broadcast), Countdown (Countdown seconds, counted in fixed steps;
 Holding reads true), Racing (RaceStarted at the signal; lap 1 begins at the first crossing of the line after it), Results
-(after the crossing that finishes lap Laps: RaceFinished, and the best lap is saved). A crossing counts only in Racing and
+(after the crossing that finishes lap Laps: RaceFinished). A crossing counts only in Racing and
 in the gates' order: the line, Gate 1, Gate 2, the line. StartRace starts it from any state but the countdown (a race in
 progress is started again), AbandonRace goes back to the title from a countdown, a race or its results: the screen's menus
 (Menu.py) send them, from their buttons, which the Confirm action presses. It broadcasts RaceStarted, LapStarted(Lap),
@@ -29,16 +34,19 @@ Sector <lap>.<n>, Lap end).
 
 The best lap is kept in the save slot SLOT: its time, its splits and the ghost's samples (GHOST_SAMPLES, at SAMPLE_RATE a
 second, as public arrays of the graph GHOST_GRAPH on the director's Ghost). The director opens the slot once the scene has
-started, takes the best lap from it and, when the ghost runs GHOST_GRAPH, writes the samples into the ghost's arrays and
-sends it GHOST_LOADED; it saves the slot at the results, only when the race made a new best lap. GHOST_GRAPH is the graph
-GhostStandIn.sgraph, which declares that interface (the arrays, BestLapTime, Delta and GHOST_LOADED) and is run by the
-ride test scene's stand-in ghost; the main scene's ghost (the racing line's) runs none of it, so the main scene keeps the
-best lap's time and splits alone.
+started, takes the best lap from it and, when the ghost runs GHOST_GRAPH, writes the samples and the lap's time
+(BestLapTime) into the ghost and sends it GHOST_LOADED. A lap that beats the best is the best at once (the title, the HUD
+and the ghost use it) and is kept in memory until a screen: the director saves the slot in its update of the frame after
+the results show (never in a fixed step: a save waits for the disk), or when a race that made one ends without results
+(AbandonRace: the pause screen's QUIT TO TITLE) or is started again (StartRace). GHOST_GRAPH is the graph
+GhostStandIn.sgraph, which declares that interface with the ghost's names (the arrays, BestLapTime, Delta and
+GHOST_LOADED) and is run by the ride test scene's stand-in ghost; the main scene's ghost (the racing line's) runs none
+of it, so the main scene keeps the best lap's time and splits alone.
 
 The pause. The director owns the Pause action, in every state: it stops the game (Time.TimeScale 0: from the next frame,
 whose time step is scaled as it begins, no fixed step runs and the clocks, the countdown and the bike stand still) or
 lets it go on (1), publishes Paused, which the menus' pause
-screen follows; SetPaused does the same for any other graph (the pause screen's Resume). The mix
+screen follows; SetPaused does the same for any other graph (the pause screen's RESUME). The mix
 follows the pause: in the frame's update after the director paused or resumed (every graph has seen the frame's presses
 by then), it sends the audio director (AudioDirector) TogglePause when that director's Paused read-out is not the game's.
 So a mix already muffled by another sender (a StartPaused director) is left as it is, and nothing toggles it twice.
@@ -127,8 +135,8 @@ MAX_SAMPLES = 4096
 # What the director reads and writes of the ghost: the graph, the public arrays of its best lap's samples (each saved under
 # its own name) and the event that tells it they were loaded.
 GHOST_GRAPH = GHOST_STAND_IN
-GHOST_SAMPLES = (("Positions", "Strada.Vector3[]"), ("Rotations", "Strada.Quaternion[]"), ("EngineSpeeds", "float[]"),
-                 ("Loads", "float[]"))
+GHOST_SAMPLES = (("BestLapPositions", "Strada.Vector3[]"), ("BestLapRotations", "Strada.Quaternion[]"),
+                 ("BestLapEngineSpeeds", "float[]"), ("BestLapLoads", "float[]"))
 GHOST_LOADED = "BestLapLoaded"
 # The events the director broadcasts, with their parameters.
 BROADCASTS = {
@@ -206,11 +214,13 @@ def declare(author):
         public("LastLapTime", "float", 0.0, "The last lap finished (seconds, a read-out)"),
         public("RaceTime", "float", 0.0, "The race's time since lap 1 began (seconds, a read-out)"),
         public("CountdownLeft", "float", 0.0, "What is left of the countdown (seconds, a read-out)"),
-        public("Holding", "bool", False, "Whether the bike should stand on the grid: through the countdown (a read-out)"),
+        public("Holding", "bool", False, "Whether the bike should stand on the grid: through the countdown, for the riding "
+               "graph to hold it (a read-out)"),
         public("Paused", "bool", False, "Whether the game is paused: time stands still and the pause screen shows (a read-out)"),
         public("Splits", FLOAT_ARRAY, [], "The lap's times at the sector gates crossed so far (seconds, a read-out)"),
         public("BestSplits", FLOAT_ARRAY, [], "The best lap's times at the sector gates (seconds, a read-out)"),
         public("LoadedLapTime", "float", 0.0, "The best lap the save slot gave as the scene started, 0 for none (a read-out)"),
+        public("Saves", "int", 0, "How many times the best lap was saved into the slot (a read-out)"),
         public("Steps", "int", 0, "The fixed steps the director has counted (a read-out)"),
         public("StartStep", "int", 0, "The step of the start signal (a read-out)"),
         public("SubjectAt", VECTOR, [0.0, 0.0, 0.0], "Where the subject was at the step Steps counts (a read-out)"),
@@ -221,6 +231,8 @@ def declare(author):
         public("LastFraction", "float", 0.0, "How far into the step after LastStep the last crossing came (a read-out)"),
         private("Slot", SAVE_SLOT),
         private("Gates", "Strada.Entity[]"),
+        private("GateCount", "int", 0),
+        private("Misnumbered", "bool", False),
         private("Origins", "Strada.Vector3[]"),
         private("Forwards", "Strada.Vector3[]"),
         private("Rights", "Strada.Vector3[]"),
@@ -288,16 +300,25 @@ def write_gate(author):
 
 def write_director(author):
     write_functions(author)
-    with author.region(DIRECTOR, "Start: the gates' planes, the best lap the slot keeps, then the title", EVENTS) as b:
+    with author.region(DIRECTOR, "Start: the gates by number, the best lap from the slot, then the title", EVENTS) as b:
         create = b.event("Event.Create")
-        gates = b.set("Gates", b.pure("Get:Strada.Entity.Children", "Value", Target=b.self_()))
-        each = b.add("Flow.ForEach", Array=b.var("Gates"))
+        settle = b.add("Flow.WaitFrames", Frames=1, comment="Every entity has run its Create first")
+        children = b.once("children", lambda: b.pure("Get:Strada.Entity.Children", "Value", Target=b.self_()))
+        counting = b.add("Flow.ForEach", Array=children)
+        counts = b.branch(b.runs(GATE, counting["Element"]), comment="A child that runs Gate.sgraph is a gate; another is not")
+        counted = b.set("GateCount", b.expr("count + 1", count=b.var("GateCount")))
+        numbers = b.add("Flow.ForLoop", First=0, Last=b.expr("count - 1", count=b.var("GateCount")))
+        number = numbers["Index"]
+        each = b.add("Flow.ForEach", Array=children)
         gate = each["Element"]
+        is_gate = b.branch(b.runs(GATE, gate))
+        numbered = b.branch(b.equal(b.get("Gate", GATE, gate), number), comment="The gate of this number, wherever it stands")
 
         def append(variable, value):
             return b.set(variable, b.pure("Array.Add", Array=b.var(variable), Value=value))
 
         adds = [
+            append("Gates", gate),
             append("Origins", b.pure("Get:Strada.TransformComponent.WorldTranslation", "Value", Target=gate)),
             append("Forwards", b.pure("Get:Strada.TransformComponent.Forward", "Value", Target=gate)),
             append("Rights", b.pure("Get:Strada.TransformComponent.Right", "Value", Target=gate)),
@@ -305,13 +326,32 @@ def write_director(author):
             append("Centers", b.expr("offset.Y", offset=b.pure("Get:Strada.BoxColliderComponent.Offset", "Value", Target=gate))),
             append("Distances", 0.0),
         ]
-        settle = b.add("Flow.WaitFrames", Frames=1, comment="Every entity has run its Create first")
+        once = b.branch(b.expr("length != number + 1", length=b.pure("Array.Length", "Length", Array=b.var("Gates")), number=number),
+                        comment="No gate or two of this number")
+        wrong = b.set("Misnumbered", True)
+        misnumbered = b.branch(b.var("Misnumbered"))
+        logged = b.call("Call:Strada.Log.Error(string)", Message="Race: the gates (the children that run Gate.sgraph) are not "
+                        "numbered 0 to n - 1, each once; the race times no gate",
+                        comment="An error of the scene: the race times nothing rather than the wrong gates")
+        cleared = [b.set(name, b.lit(type_id, [])) for name, type_id in (
+            ("Gates", "Strada.Entity[]"), ("Origins", "Strada.Vector3[]"), ("Forwards", "Strada.Vector3[]"),
+            ("Rights", "Strada.Vector3[]"), ("Extents", "Strada.Vector3[]"), ("Centers", FLOAT_ARRAY), ("Distances", FLOAT_ARRAY))]
         load = b.own("LoadBest")
         titled = b.branch(b.var("TitleOnStart"))
-        b.chain(create, gates, each)
-        b.chain(each["Body"], *adds)
-        b.flow(each["Completed"], settle)
-        b.flow(settle["Completed"], load)
+        b.chain(create, settle)
+        b.flow(settle["Completed"], counting)
+        b.chain(counting["Body"], counts)
+        b.flow(counts["True"], counted)
+        b.flow(counting["Completed"], numbers)
+        b.chain(numbers["Body"], each)
+        b.chain(each["Body"], is_gate)
+        b.flow(is_gate["True"], numbered)
+        b.chain(numbered["True"], *adds)
+        b.chain(each["Completed"], once)
+        b.flow(once["True"], wrong)
+        b.chain(numbers["Completed"], misnumbered)
+        b.chain(misnumbered["True"], logged, *cleared, load)
+        b.flow(misnumbered["False"], load)
         b.chain(load, titled)
         b.flow(titled["True"], b.own("Title"))
     with author.region(DIRECTOR, "Steps: each fixed step, the crossings, the countdown and the clocks", EVENTS) as b:
@@ -334,30 +374,31 @@ def write_director(author):
         subject = b.branch(b.equal(entered["Other"], b.var("Subject")))
         b.chain(entered, subject)
         b.flow(subject["True"], b.set("Entries", b.expr("entries + 1", entries=b.var("Entries"))))
-    with author.region(DIRECTOR, "Start race: the countdown begins (a race in progress ends)", RULES) as b:
+    with author.region(DIRECTOR, "Start race: an unsaved best lap saved, the countdown (a race ends)", RULES) as b:
         start = b.custom("StartRace")
         allowed = b.branch(b.pure("Operator.Not", A=is_state(b, "Countdown")))
         ended = b.branch(b.expr("racing && lap >= 1", racing=is_state(b, "Racing"), lap=b.var("Lap")), comment="A lap in progress ends")
         steps = b.set("CountdownSteps", b.expr("int(round(seconds / dt))", seconds=b.var("Countdown"), dt=dt(b)))
         resets = [b.set("State", "Countdown"), b.set("Holding", True), b.set("Lap", 0), b.set("LapTime", 0.0),
-                  b.set("RaceTime", 0.0), b.set("NewBest", False), b.set("Splits", b.lit(FLOAT_ARRAY, [])),
-                  b.set("CountdownLeft", b.var("Countdown"))]
+                  b.set("RaceTime", 0.0), b.set("Splits", b.lit(FLOAT_ARRAY, [])), b.set("CountdownLeft", b.var("Countdown"))]
         ending = mark(b, "Lap end")
+        saved = b.own("SaveBest")
         b.chain(start, allowed)
-        b.flow(allowed["True"], ended)
+        b.chain(allowed["True"], saved, ended)
         b.flow(ended["True"], ending)
         b.flow(ending, steps)
         b.flow(ended["False"], steps)
         b.chain(steps, *resets)
-    with author.region(DIRECTOR, "Abandon: a race in progress or its results end, back to the title", RULES) as b:
+    with author.region(DIRECTOR, "Abandon: a race or its results end, its best lap saved, to the title", RULES) as b:
         abandon = b.custom("AbandonRace")
         running = b.branch(b.expr("counting || racing || results", counting=is_state(b, "Countdown"), racing=is_state(b, "Racing"),
                                   results=is_state(b, "Results")))
         lap = b.branch(b.expr("racing && lap >= 1", racing=is_state(b, "Racing"), lap=b.var("Lap")))
         ending = mark(b, "Lap end")
         title = b.own("Title")
+        saved = b.own("SaveBest")
         b.chain(abandon, running)
-        b.flow(running["True"], lap)
+        b.chain(running["True"], saved, lap)
         b.flow(lap["True"], ending)
         b.flow(ending, title)
         b.flow(lap["False"], title)
@@ -371,8 +412,14 @@ def write_director(author):
                        comment="0: no fixed step runs, so the clocks, the countdown and the bike stand still")
         b.chain(asked, changes)
         b.chain(changes["True"], scale, b.set("Paused", asked["Paused"]), b.set("MixPending", True))
-    with author.region(DIRECTOR, "Mix: after a pause or a resume, the audio director's mix follows it", RULES) as b:
+    with author.region(DIRECTOR, "Update: the mix follows the pause; a new best lap saved at the results", RULES) as b:
         update = b.event("Event.Update")
+        tasks = b.sequence(2)
+        shown = b.branch(b.both(b.var("NewBest"), is_state(b, "Results")),
+                         comment="The frame after the results showed (a frame updates before its steps): never in a step")
+        b.chain(update, tasks)
+        b.flow(tasks["Then1"], shown)
+        b.flow(shown["True"], b.own("SaveBest"))
         pending = b.branch(b.var("MixPending"), comment="Every graph has seen the frame's presses by its update")
         done = b.set("MixPending", False)
         audio = b.var("AudioDirector")
@@ -380,7 +427,7 @@ def write_director(author):
         differs = b.branch(b.pure("Operator.NotEqual", A=b.get(MIX_PAUSED, Sound.AUDIO_DIRECTOR, audio), B=b.var("Paused")),
                            comment="A mix already where the pause puts it is left as it is")
         told = b.send(TOGGLE_PAUSE, audio, graph=Sound.AUDIO_DIRECTOR)
-        b.chain(update, pending)
+        b.flow(tasks["Then0"], pending)
         b.chain(pending["True"], done, known)
         b.flow(known["True"], differs)
         b.flow(differs["True"], told)
@@ -417,10 +464,12 @@ def write_functions(author):
         splits = b.set("BestSplits", slot_get(b, "Splits", FLOAT_ARRAY, []))
         ghost = b.branch(b.both(runs_ghost(b), slot_has(b, GHOST_SAMPLES[0][0])), comment="The ghost takes its samples")
         samples = [b.set(name, slot_get(b, name, type_id, []), graph=GHOST_GRAPH, target=b.var("Ghost")) for name, type_id in GHOST_SAMPLES]
+        lap = b.set("BestLapTime", b.var("BestLapTime"), graph=GHOST_GRAPH, target=b.var("Ghost"),
+                    comment="The lap's time, which the ghost holds its samples against")
         told = b.send(GHOST_LOADED, b.var("Ghost"), graph=GHOST_GRAPH)
         b.chain(b.entry, opened, kept, held)
         b.chain(held["True"], best, loaded, splits, ghost)
-        b.chain(ghost["True"], *samples, told, b.ret)
+        b.chain(ghost["True"], *samples, lap, told, b.ret)
         b.flow(ghost["False"], b.ret)
         b.flow(held["False"], b.ret)
     with author.region(DIRECTOR, "Save best: a new best lap, its splits and the ghost's samples", EFFECTS, "SaveBest") as b:
@@ -434,7 +483,8 @@ def write_functions(author):
                         comment="A lap the ghost kept, within a list's 4,096 samples")
         stored = [slot_call(b, "Set<T>(string,T)", Name=name, Value=b.get(name, GHOST_GRAPH, b.var("Ghost"))) for name, _ in GHOST_SAMPLES]
         removed = [slot_call(b, "Remove(string)", "Result", Name=name) for name, _ in GHOST_SAMPLES]
-        saved = slot_call(b, "Save()", "Result", comment="Waits for the disk: only at the results")
+        saved = slot_call(b, "Save()", "Result", comment="Waits for the disk: at the results or a menu, never in a step")
+        counted = b.set("Saves", b.expr("saves + (saved ? 1 : 0)", saves=b.var("Saves"), saved=saved.out))
         done = b.set("NewBest", False)
         b.chain(b.entry, new)
         b.chain(new["True"], time, splits, rate, ghost)
@@ -442,7 +492,7 @@ def write_functions(author):
         b.flow(ghost["False"], removed[0])
         b.chain(fits["True"], *stored, saved)
         b.chain(fits["False"], *removed, saved)
-        b.chain(saved, done, b.ret)
+        b.chain(saved, counted, done, b.ret)
         b.flow(new["False"], b.ret)
     with author.region(DIRECTOR, "Track: each gate's plane, crossed forward from within a step", RULES, "Track") as b:
         subject = b.var("Subject")
@@ -521,11 +571,11 @@ def write_functions(author):
         b.chain(beats["True"], *kept, finished)
         b.flow(beats["False"], finished)
         b.chain(finished, b.ret)
-    with author.region(DIRECTOR, "Finish race: the results, and the best lap saved", EFFECTS, "FinishRace") as b:
+    with author.region(DIRECTOR, "Finish race: the results (a new best lap is saved once they show)", EFFECTS, "FinishRace") as b:
         total = b.expr("time - start", time=b.entry["Time"], start=b.var("FirstLapStart"))
         b.chain(b.entry, mark(b, "Lap end", comment="On the row of the last lap's end"), b.set("State", "Results"),
                 b.set("RaceTime", total), b.set("Expected", -1), b.set("Holding", False),
-                broadcast(b, "RaceFinished", Total=b.var("RaceTime")), b.own("SaveBest"), b.ret)
+                broadcast(b, "RaceFinished", Total=b.var("RaceTime")), b.ret)
     with author.region(DIRECTOR, "Line: a lap begins, or ends and the next begins, or the race ends", RULES, "Line") as b:
         lap = b.var("Lap")
         marked = mark(b, b.fmt("Lap {Next}", Next=b.expr("lap + 1", lap=lap)), comment="Lap n begins; the race's end is laps + 1")

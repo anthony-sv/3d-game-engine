@@ -874,7 +874,13 @@ def build_scene(session, handles, project, scene):
     previous = {}
     if os.path.exists(os.path.join(project, "Assets", *scene.path.split("/"))):
         session.call("scene_open", {"path": scene.path})
-        previous = {entity["name"]: entity["id"] for entity in session.call("scene_hierarchy")["entities"] if entity["name"] in own}
+        # At any depth: a suite's prepare may put one of its entities under another.
+        pending = list(session.call("scene_hierarchy")["entities"])
+        while pending:
+            entity = pending.pop()
+            if entity["name"] in own:
+                previous[entity["name"]] = entity["id"]
+            pending.extend(entity.get("children", []))
 
     def create(name, components):
         arguments = {"name": name, "components": components}

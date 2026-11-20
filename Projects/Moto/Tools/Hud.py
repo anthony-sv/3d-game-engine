@@ -6,7 +6,8 @@ the pause and the settings screens) stand under it, after the HUD.
 What the HUD shows, all of it read by its graph while the game plays:
 
 - riding, while the bike is the player's (the race director Idle, counting down or racing): the speed (km/h), the gear
-  (N for neutral), the engine speed with a shift light that lights from the bike's definition's ShiftUpRPM, the lean
+  (N for neutral), the engine speed with a shift light that lights from the bike's definition's ShiftUpRPM (read every
+  frame, so an edit of the definition while the game plays moves it at once), the lean
   (degrees, to the left or the right), the inputs the vehicle applied (the throttle, the front and the rear brake as
   bars, the lean as a mark either side of the middle) and the track map with the bike's mark on it;
 - timing, while a race runs and at its results: the lap of the laps, the lap's time, the best lap, the lap's sectors,
@@ -15,8 +16,8 @@ What the HUD shows, all of it read by its graph while the game plays:
   at the line). The delta and the sectors are cleared when a countdown begins and when a race starts, so the last race's
   never show through the next.
 
-Every element is saved hidden: the graph shows each group as the director's state and pause ask, so the scene as saved
-draws no UI (the editor's view at the start line and MotoSceneTests keep their draws). A text, a bar or the map's mark
+Every element is saved hidden: the graph shows each group as the director's state asks (none while its ShowHud is off, as
+Captures.py's pictures of the circuit set it), so the scene as saved draws no UI (the editor's view at the start line and MotoSceneTests keep their draws). A text, a bar or the map's mark
 changes only when the value it shows does (the speed by a km/h, the engine speed by 100 rpm, the lean by a degree, a bar
 by a hundredth, the mark by a canvas unit, a time by a millisecond). The screen draws in the order of its hierarchy and a
 batch of the UI ends wherever the texture changes, so the elements stand in groups after the map: every rectangle (the
@@ -352,11 +353,12 @@ ROUNDING = {"speed": "int(round(abs(v) * 3.6))", "rpm": "int(round(rpm / 100)) *
 
 def declare(author):
     elements_variables = tuple(public(variable, ENTITY, None, TOOLTIPS[variable]) for *_, variable in elements() if variable is not None)
-    author.declare(HUD, "The HUD over the race and the pause screen: it reads the bike's vehicle and the race director every "
-                   "frame and changes a text, a bar or the map's mark only when the value it shows does; each group shows "
-                   "as the director's state and pause ask.", variables=(
-        public("Race", ENTITY, None, "The race director, whose state, laps, times and pause the HUD shows"),
+    author.declare(HUD, "The HUD over the race: it reads the bike's vehicle and the race director every frame and changes a "
+                   "text, a bar or the map's mark only when the value it shows does; each group shows as the director's state "
+                   "asks.", variables=(
+        public("Race", ENTITY, None, "The race director, whose state, laps and times the HUD shows"),
         public("Bike", ENTITY, None, "The ridden bike, whose vehicle the HUD reads"),
+        public("ShowHud", "bool", True, "On: the groups show as the race's state asks. Off: none shows (pictures of the circuit)"),
     ) + elements_variables + (
         private("ShownState", "string", "-"),
         private("Riding", "bool", False),
@@ -490,11 +492,12 @@ def write_panels(author):
                 result = b.pure("Operator.Or", A=result, B=b.equal(b.var("State"), string(b, name)))
             return result
 
-        kept = [b.set("ShownState", b.var("State")), b.set("Riding", any_of(RIDING_STATES)), b.set("Timing", any_of(TIMING_STATES))]
+        kept = [b.set("ShownState", b.var("State")), b.set("Riding", b.both(b.var("ShowHud"), any_of(RIDING_STATES))),
+                b.set("Timing", b.both(b.var("ShowHud"), any_of(TIMING_STATES)))]
         groups = [show(b, variable, b.var("Riding")) for variable in RIDING_GROUP] + \
             [show(b, variable, b.var("Timing")) for variable in TIMING_GROUP]
         is_counting = b.equal(b.var("State"), string(b, "Countdown"))
-        counting = show(b, "CountdownText", is_counting)
+        counting = show(b, "CountdownText", b.both(b.var("ShowHud"), is_counting))
         begins = b.branch(is_counting, comment="A countdown begins: the last race's delta and sectors go")
         b.chain(b.entry, state, moved)
         b.chain(moved["True"], *kept, *groups, counting, begins)
@@ -507,7 +510,12 @@ def write_panels(author):
 
 
 def write_riding(author):
-    with author.region(HUD, "Show readings: the speed, the gear, the engine and the lean", RULES, "ShowReadings") as b:
+    with author.region(HUD, "Show readings: speed, gear, engine, lean, and the shift light's point", RULES,
+                       "ShowReadings") as b:
+        definition = b.pure("Get:Strada.VehicleComponent.Definition", "Value", Target=b.var("Bike"))
+        defined = b.branch(b.pure("IsValid", Value=definition))
+        point = b.set("ShiftAt", b.pure("Get:Strada.Vehicle.ShiftUpRPM", "Value", Target=definition),
+                      comment="Read each frame: an edit of the definition while the game plays moves the light at once")
         speed = b.expr(ROUNDING["speed"], v=member(b, "ForwardSpeed"))
         gear = member(b, "Gear")
         rpm = b.expr(ROUNDING["rpm"], rpm=member(b, "EngineSpeed"))
@@ -529,7 +537,10 @@ def write_riding(author):
             step(b, changed(b, lean, "ShownLean"), b.set("ShownLean", lean),
                  text(b, "LeanText", select(b, upright, string(b, "0°"), degrees))),
         ]
-        in_turn(b, steps, b.entry, b.ret)
+        b.chain(b.entry, defined)
+        b.flow(defined["True"], point)
+        b.flow(defined["False"], steps[0][0])
+        in_turn(b, steps, point, b.ret)
     with author.region(HUD, "Show inputs: the throttle, the brakes and the lean the vehicle applied", RULES, "ShowInputs") as b:
         steps = []
         for name, shown, variable in (("Throttle", "ShownThrottle", "ThrottleBar"), ("FrontBrake", "ShownFront", "FrontBar"),
@@ -599,14 +610,6 @@ def write_timing(author):
 
 
 def write_events(author):
-    with author.region(HUD, "Start: the shift light's point, from the bike's definition", EVENTS) as b:
-        known = b.branch(b.pure("IsValid", Value=b.var("Bike")))
-        definition = b.pure("Get:Strada.VehicleComponent.Definition", "Value", Target=b.var("Bike"))
-        defined = b.branch(b.pure("IsValid", Value=definition))
-        point = b.set("ShiftAt", b.pure("Get:Strada.Vehicle.ShiftUpRPM", "Value", Target=definition))
-        b.chain(b.event("Event.Create"), known)
-        b.flow(known["True"], defined)
-        b.flow(defined["True"], point)
     with author.region(HUD, "Read the race: each frame, the groups, then what they show", EVENTS) as b:
         known = b.branch(b.runs(Race.DIRECTOR, b.var("Race")))
         panels = b.own("ShowPanels")

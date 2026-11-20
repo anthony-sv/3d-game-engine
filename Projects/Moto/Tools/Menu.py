@@ -11,7 +11,8 @@ saved hidden and shown by the graph as the race director's state and pause ask:
 - the settings screen, from the title or the pause screen: rows of stepped buttons. Each setting has a "<" and a ">" that
   step it down or up and the value it has between them, read back from Settings (the quality, the window's mode and size,
   the master volume, the volumes of the Engine, Tyres and Ambience buses as shares of the mix the game makes, and the
-  linked brakes with their share, the game's own named values Settings keeps); each riding action has a button for its
+  rider's assists, the linked brakes with their share and the automatic shifts, the game's own named values Settings
+  keeps); each riding action has a button for its
   keyboard binding and one for its gamepad binding, which listen for the next control (Input.StartRebind; the lean's keys
   one direction after the other), refuse a pad's control for the keyboard and a key for the pad, and name the actions the
   new control also presses; then RESET CONTROLS and BACK, which saves the settings (Settings.Save: the bindings are kept
@@ -23,9 +24,9 @@ choose a control row's keyboard or pad button, Confirm presses the selected butt
 screen); the selected buttons show in SELECTED. While a binding listens the menus take no action and no click: the answer
 is the player's. Each screen draws in two batches when shown: its rectangles and buttons, then its texts.
 
-The assists apply to the riding graph of the menu's Rider (the bike): its LinkedBrakes and LinkedBrakeShare, set when the
-scene starts and after each step from the values the player set (one never set leaves the rider's own), through
-ASSIST_GRAPH, which declares those two names: on this tree it is
+The assists apply to the riding graph of the menu's Rider (the bike): its LinkedBrakes, LinkedBrakeShare and AutoShift,
+set when the scene starts and after each step from the values the player set (one never set leaves the rider's own),
+through ASSIST_GRAPH, which declares those three names: on this tree it is
 Scripts/AssistsStandIn.sgraph (the ride test scene's stand-in rider runs it), since the bike's riding graph gets the
 rider assists from the ride's track; ShowMenus off shows no screen (the captures of the circuit).
 
@@ -43,14 +44,17 @@ from Graphs import EFFECTS, ENTITY, EVENTS, RULES, private, public  # noqa: E402
 ROOT = "Menus"
 MENU = Graphs.script("Menu")
 ASSISTS_STAND_IN = Graphs.script("AssistsStandIn")
-# The graph whose public LinkedBrakes and LinkedBrakeShare the assists' settings write: the bike's riding graph takes them
-# when the ride's rider assists meet the race (Vehicle.BIKE).
+# The graph whose public LinkedBrakes, LinkedBrakeShare and AutoShift the assists' settings write: the bike's riding
+# graph takes them when the ride's rider assists meet the race (Vehicle.BIKE).
 ASSIST_GRAPH = ASSISTS_STAND_IN
 LINKED = "LinkedBrakes"
 SHARE = "LinkedBrakeShare"
-# The linked brakes' defaults, the riding graph's own: on, the rear given 0.3 of the front.
+AUTO = "AutoShift"
+# The assists' defaults, the riding graph's own: the linked brakes on, the rear given 0.3 of the front; the bike shifts by
+# itself.
 LINKED_ON = True
 LINKED_SHARE = 0.3
+AUTO_ON = True
 NAME = "STRADA MOTO"
 
 # --- The screens and their buttons --------------------------------------------------------------------------------------
@@ -62,11 +66,11 @@ KINDS = ("Race", "Settings", "Quit", "Title", "Resume", "Step", "Bind", "Reset",
 KIND = {name: index for index, name in enumerate(KINDS)}
 # The settings screen's rows: steppers, then a row for each riding action, then the two buttons.
 STEPPER, CONTROL, ACTION = 0, 1, 2
-STEPPERS = ("QUALITY", "WINDOW", "SIZE", "MASTER", "ENGINE", "TYRES", "AMBIENCE", "LINKED BRAKES", "REAR SHARE")
+STEPPERS = ("QUALITY", "WINDOW", "SIZE", "MASTER", "ENGINE", "TYRES", "AMBIENCE", "LINKED BRAKES", "REAR SHARE", "AUTO SHIFT")
 QUALITY_ROW, WINDOW_ROW, SIZE_ROW, MASTER_ROW = 0, 1, 2, 3
 BUS_ROWS = (4, 5, 6)
 BUSES = ("Engine", "Tyres", "Ambience")
-LINKED_ROW, SHARE_ROW = 7, 8
+LINKED_ROW, SHARE_ROW, AUTO_ROW = 7, 8, 9
 CONTROLS = (("THROTTLE", "Throttle"), ("FRONT BRAKE", "FrontBrake"), ("REAR BRAKE", "RearBrake"), ("LEAN", "Lean"),
             ("SHIFT UP", "ShiftUp"), ("SHIFT DOWN", "ShiftDown"))
 FIRST_CONTROL = len(STEPPERS)
@@ -125,8 +129,8 @@ def title_case(text):
 # The settings rows' places (canvas units): each row ROW_STEP below the one before, its label on the left, then its
 # buttons: a stepper's "<" and ">" with its value between, a control row's keyboard and gamepad buttons, or one button.
 ROW_TOP = 170.0
-ROW_STEP = 44.0
-ROW_HEIGHT = 38.0
+ROW_STEP = 42.0
+ROW_HEIGHT = 36.0
 LABEL_X, LABEL_WIDTH = 380.0, 420.0
 BUTTONS_X, BUTTONS_WIDTH = 820.0, 680.0
 STEP_WIDTH = 60.0
@@ -337,10 +341,11 @@ def check():
 # --- The graphs ---------------------------------------------------------------------------------------------------------------
 
 def declare(author):
-    author.declare(ASSISTS_STAND_IN, "What the settings screen's assists write of a riding graph: the linked brakes and their "
-                   "share. The ride test scene's stand-in rider runs it.", variables=(
+    author.declare(ASSISTS_STAND_IN, "What the settings screen's assists write of a riding graph: the linked brakes, their "
+                   "share and the automatic shifts. The ride test scene's stand-in rider runs it.", variables=(
         public(LINKED, "bool", LINKED_ON, "The linked brakes: the front brake also applies the rear by LinkedBrakeShare"),
         public(SHARE, "float", LINKED_SHARE, "How much of the front brake the linked brakes give the rear, 0 to 1", (0.0, 1.0)),
+        public(AUTO, "bool", AUTO_ON, "The automatic shifts: the gearbox shifts by itself at the definition's speeds"),
     ))
     entity_variables = tuple(public(variable, ENTITY, None, TOOLTIPS[variable]) for *_, variable in elements() if variable is not None)
     list_variables = tuple(public(variable, TABLE_TYPES[kind], [], TABLE_TOOLTIPS[variable]) for variable, (kind, _) in tables().items())
@@ -348,7 +353,7 @@ def declare(author):
                    "state and pause ask; the pad moves a selection through their buttons and presses it, the mouse clicks "
                    "them, and the settings are kept through Settings and the bindings' profile.", variables=(
         public("Race", ENTITY, None, "The race director, whose state and pause choose the screen and whose events the buttons send"),
-        public("Rider", ENTITY, None, "The bike whose riding graph takes the linked brakes' settings"),
+        public("Rider", ENTITY, None, "The bike whose riding graph takes the assists' settings"),
         public("ShowMenus", "bool", True, "On: the screens show as the race asks. Off: none shows (pictures of the circuit)"),
     ) + entity_variables + list_variables + (
         public("Screen", "string", "", "The screen shown: Title, Results, Pause, Settings, or empty for none (a read-out)"),
@@ -358,7 +363,7 @@ def declare(author):
         public("Saves", "int", 0, "How many times leaving the settings saved them (a read-out)"),
         public("Rebinds", "int", 0, "How many rebinds through the screen ended with a new control (a read-out)"),
         public("Conflicts", "string", "", "The actions the last rebind's control also presses (a read-out)"),
-        public("Applied", "int", 0, "How many times the linked brakes' settings were given to the rider (a read-out)"),
+        public("Applied", "int", 0, "How many times the assists' settings were given to the rider (a read-out)"),
         private("State", "string", ""),
         private("Paused", "bool", False),
         private("SettingsOpen", "bool", False),
@@ -543,6 +548,7 @@ def write_shows(author):
         linked = select(b, settings_get(b, LINKED, "bool", LINKED_ON), string(b, "ON"), string(b, "OFF"))
         writes.append(text(b, value(LINKED_ROW), linked))
         writes.append(text(b, value(SHARE_ROW), percent(b, settings_get(b, SHARE, "float", LINKED_SHARE))))
+        writes.append(text(b, value(AUTO_ROW), select(b, settings_get(b, AUTO, "bool", AUTO_ON), string(b, "ON"), string(b, "OFF"))))
         b.chain(b.entry, *writes, b.ret)
     with author.region(MENU, "Show controls: each riding action's keyboard and gamepad binding", RULES, "ShowControls") as b:
         each = b.add("Flow.ForEach", Array=b.var("RowActions"))
@@ -593,7 +599,7 @@ def write_shows(author):
 
 
 def write_settings(author):
-    with author.region(MENU, "Apply assists: the linked brakes' settings to the rider", EFFECTS, "ApplyAssists") as b:
+    with author.region(MENU, "Apply assists: the linked brakes' and the shifts' settings to the rider", EFFECTS, "ApplyAssists") as b:
         rider = b.var("Rider")
         rides = b.branch(b.runs(ASSIST_GRAPH, rider), comment="A rider whose riding graph takes them")
         # A value the player never set leaves the rider's own (the scene's), which stands in as Get's fallback.
@@ -601,9 +607,11 @@ def write_settings(author):
                        graph=ASSIST_GRAPH, target=rider)
         share = b.set(SHARE, b.pure("Call:Strada.Settings.Get<T>(string,T)", Name=SHARE, Fallback=b.get(SHARE, ASSIST_GRAPH, rider)),
                       graph=ASSIST_GRAPH, target=rider)
+        shifts = b.set(AUTO, b.pure("Call:Strada.Settings.Get<T>(string,T)", Name=AUTO, Fallback=b.get(AUTO, ASSIST_GRAPH, rider)),
+                       graph=ASSIST_GRAPH, target=rider)
         counted = b.set("Applied", b.expr("applied + 1", applied=b.var("Applied")))
         b.chain(b.entry, rides)
-        b.chain(rides["True"], linked, share, counted, b.ret)
+        b.chain(rides["True"], linked, share, shifts, counted, b.ret)
         b.flow(rides["False"], b.ret)
     with author.region(MENU, "Close settings: saved, then the screen the race asks for", EFFECTS, "CloseSettings") as b:
         saved = b.call("Call:Strada.Settings.Save()", "Result", comment="Waits for the disk: a menu, never while riding")
@@ -636,6 +644,7 @@ def write_settings(author):
         linked = settings_set(b, LINKED, b.pure("Operator.Not", A=settings_get(b, LINKED, "bool", LINKED_ON)))
         rear = settings_set(b, SHARE, b.expr("float(clamp(int(round(s * 10)) + d, 0, 10)) / 10.0",
                                              s=settings_get(b, SHARE, "float", LINKED_SHARE), d=direction))
+        auto = settings_set(b, AUTO, b.pure("Operator.Not", A=settings_get(b, AUTO, "bool", AUTO_ON)))
         apply = b.own("ApplyAssists")
         values = b.own("ShowValues")
         b.chain(b.entry, rows)
@@ -648,6 +657,7 @@ def write_settings(author):
         b.chain(share, volume, values)
         b.chain(rows[f"Case:{LINKED_ROW}"], linked, apply)
         b.chain(rows[f"Case:{SHARE_ROW}"], rear, apply)
+        b.chain(rows[f"Case:{AUTO_ROW}"], auto, apply)
         b.chain(apply, values)
         b.chain(values, b.ret)
         b.flow(rows["Default"], b.ret)
@@ -804,7 +814,7 @@ def write_navigation(author):
 
 
 def write_events(author):
-    with author.region(MENU, "Start: the settings shown, and the linked brakes given to the rider", EVENTS) as b:
+    with author.region(MENU, "Start: the settings shown, and the assists given to the rider", EVENTS) as b:
         settle = b.add("Flow.WaitFrames", Frames=1, comment="Every entity has run its Create first")
         b.chain(b.event("Event.Create"), settle)
         b.chain(settle["Completed"], b.own("ApplyAssists"), b.own("ShowValues"), b.own("ShowControls"))

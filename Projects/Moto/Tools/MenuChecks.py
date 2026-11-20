@@ -9,16 +9,19 @@ Confirm and a mouse click come to. One after another:
    send them (FLOW, slower than the best lap, so nothing is saved), and the results screen shows each lap, the total and
    the best lap; Confirm presses CONTINUE, back to the title;
 3. the settings: SETTINGS clicked, the screen's buttons clicked to step the quality down twice, the window's size up, the
-   master volume and the Engine bus a tenth down, the linked brakes off and their share a tenth up; Settings reads each
-   back, the stand-in rider (Rider Stand-In, which runs Menu.ASSIST_GRAPH) has the linked brakes' two, the screen shows
-   them, and BACK saves the settings and shows the title again (the window's mode is not clicked: a test takes no
-   display);
+   master volume and the Engine bus a tenth down, the linked brakes off and their share a tenth up, the automatic shifts
+   off; Settings reads each back, the stand-in rider (Rider Stand-In, which runs Menu.ASSIST_GRAPH) has the three
+   assists, the screen shows them, and BACK saves the settings and shows the title again (the window's mode is not
+   clicked: a test run takes no display; the editor's case MotoPlayTests clicks it, which play mode keeps unapplied);
 4. a rebinding: the throttle's keyboard button clicked listens for a control and says so, Input.CancelRebind() ends it
    with the throttle's key kept and named, and BACK leaves (the capture of a real key is an editor case's, which presses
    one through input.set);
 5. the pad: MenuDown selects SETTINGS, Confirm presses it, MenuRight steps the selected quality up, MenuUp goes round to
    BACK, and Back saves and leaves;
-6. the pause screen: Pause shows it, time stands still, and Confirm presses RESUME while it does.
+6. the pause screen: Pause shows it, time stands still, and Confirm presses RESUME while it does;
+7. a best lap kept from the pause screen: RACE pressed, a lap faster than the best sent the director (QUICK_LAP), then
+   Pause and the pause screen's QUIT TO TITLE clicked before the race's end: the director saves the lap it made its best
+   as it goes back to the title, and the save slot opened again holds it.
 """
 import os
 import struct
@@ -42,6 +45,9 @@ SETTLE = 3
 # about 95, 96 and 97 s, each slower than the best lap, so the race makes none and saves nothing.
 LAP_STEPS = (5700, 5760, 5820)
 LINE_STEP = 30
+# The last race's lap 1, faster than every lap before it (steps), and its two sector gates' steps into it.
+QUICK_LAP = 4980
+QUICK_SECTORS = (1660, 3320)
 
 
 def _float(value):
@@ -75,16 +81,26 @@ def expected_results():
     return lines, f"TOTAL {clock(_float(times[-1] - times[0]))}", f"BEST LAP {clock(best)}", f"BEST LAP {clock(best)}"
 
 
+def quick_lap():
+    """The last race's lap 1 as the director times it in floats; it beats the scripted races' best."""
+    dt = _float(Race.STEP)
+    lap = _float(_float(_float(float(LINE_STEP + QUICK_LAP)) * dt) - _float(_float(float(LINE_STEP)) * dt))
+    assert lap < RaceChecks.expected_races()["races"][-1]["best"], "the last race's lap beats no best lap"
+    return lap
+
+
 RESULTS_LAPS, RESULTS_TOTAL, RESULTS_BEST, TITLE_BEST = expected_results()
+QUICK = quick_lap()
 # The settings the clicks leave: the quality two steps down from High, the window's size the next listed past the game's
-# 1600 by 900, the master volume and the Engine bus a tenth down, the linked brakes off and their share a tenth up.
+# 1600 by 900, the master volume and the Engine bus a tenth down, the linked brakes off and their share a tenth up, the
+# automatic shifts off.
 CLICKS = (("Lower", Menu.QUALITY_ROW), ("Lower", Menu.QUALITY_ROW), ("Upper", Menu.SIZE_ROW), ("Lower", Menu.MASTER_ROW),
-          ("Lower", Menu.BUS_ROWS[0]), ("Upper", Menu.LINKED_ROW), ("Upper", Menu.SHARE_ROW))
+          ("Lower", Menu.BUS_ROWS[0]), ("Upper", Menu.LINKED_ROW), ("Upper", Menu.SHARE_ROW), ("Upper", Menu.AUTO_ROW))
 SIZE = Menu.SIZES[2]
 VOLUME_TOLERANCE = 0.001
 DECIBEL_TOLERANCE = 0.01
 VALUES = ((Menu.QUALITY_ROW, Menu.QUALITIES[0]), (Menu.SIZE_ROW, f"{SIZE[0]} x {SIZE[1]}"), (Menu.MASTER_ROW, "90%"),
-          (Menu.BUS_ROWS[0], "90%"), (Menu.LINKED_ROW, "OFF"), (Menu.SHARE_ROW, "40%"))
+          (Menu.BUS_ROWS[0], "90%"), (Menu.LINKED_ROW, "OFF"), (Menu.SHARE_ROW, "40%"), (Menu.AUTO_ROW, "OFF"))
 THROTTLE_ROW = Menu.FIRST_CONTROL
 BACK_ROW = Menu.BACK_ROW
 
@@ -103,6 +119,8 @@ def checks():
          "the menu actions move the selection, step the selected setting, press the selected button and leave"),
         ("CheckPauseMenu", "Pause menu: RESUME pressed while time stands still",
          "the pause screen shows its menu while time stands still, and Confirm presses RESUME"),
+        ("CheckQuitKeepsBest", "Quit to title: a best lap the race made is saved",
+         "a race left by the pause screen's QUIT TO TITLE before its end saves the best lap it made"),
     )
 
 
@@ -236,16 +254,19 @@ def write_settings_clicks(b, name):
     quality = b.add("Convert", {"To": "int"}, "Result", Value=b.pure("Get:Strada.Settings.Quality", "Value")).out
     linked = b.pure("Call:Strada.Settings.Get<T>(string,T)", Name=Menu.LINKED, Fallback=b.lit("bool", True))
     share = b.pure("Call:Strada.Settings.Get<T>(string,T)", Name=Menu.SHARE, Fallback=b.lit("float", -1.0))
+    auto = b.pure("Call:Strada.Settings.Get<T>(string,T)", Name=Menu.AUTO, Fallback=b.lit("bool", True))
     engine = b.pure("Call:Strada.Settings.GetBusVolume(string)", Bus=Menu.BUSES[0])
     rider = b.var("RiderStandIn")
     read = b.set("SettingsRead", b.expr(
         f"q == 0 && w == {SIZE[0]} && h == {SIZE[1]} && abs(master - 0.9) <= {VOLUME_TOLERANCE} && "
-        f"abs(engine - 20 * log(0.9) / log(10)) <= {DECIBEL_TOLERANCE} && !linked && abs(share - 0.4) <= {VOLUME_TOLERANCE}",
-        q=quality, w=b.pure("Get:Strada.Settings.WindowWidth", "Value"), h=b.pure("Get:Strada.Settings.WindowHeight", "Value"),
-        master=b.pure("Get:Strada.Settings.MasterVolume", "Value"), engine=engine, linked=linked, share=share))
-    given = b.set("RiderGiven", b.expr(f"!linked && abs(share - 0.4) <= {VOLUME_TOLERANCE} && applied > before",
+        f"abs(engine - 20 * log(0.9) / log(10)) <= {DECIBEL_TOLERANCE} && !linked && abs(share - 0.4) <= {VOLUME_TOLERANCE} && "
+        "!auto", q=quality, w=b.pure("Get:Strada.Settings.WindowWidth", "Value"),
+        h=b.pure("Get:Strada.Settings.WindowHeight", "Value"), master=b.pure("Get:Strada.Settings.MasterVolume", "Value"),
+        engine=engine, linked=linked, share=share, auto=auto))
+    given = b.set("RiderGiven", b.expr(f"!linked && abs(share - 0.4) <= {VOLUME_TOLERANCE} && !auto && applied > before",
                                        linked=b.get(Menu.LINKED, Menu.ASSIST_GRAPH, rider), share=b.get(Menu.SHARE, Menu.ASSIST_GRAPH, rider),
-                                       applied=menu(b, "Applied"), before=b.var("AppliedBefore")))
+                                       auto=b.get(Menu.AUTO, Menu.ASSIST_GRAPH, rider), applied=menu(b, "Applied"),
+                                       before=b.var("AppliedBefore")))
     texts = [text_of(b, listed(b, "Values", row)) for row, _ in VALUES]
     shown_values = b.set("ValuesShown", b.pure("String.Join", Parts=b.add("Array.Make", {"Type": "string", "Count": len(texts)}, "Array",
                                                                            **{f"Element{index}": value for index, value in enumerate(texts)}).out,
@@ -258,10 +279,11 @@ def write_settings_clicks(b, name):
     passed = b.both(b.both(b.var("SettingsRead"), b.var("RiderGiven")),
                     b.both(b.equal(b.var("ValuesShown"), string(b, expected)), b.var("SavedOnce")))
     detail = b.fmt(f"Settings read back {{Read}} (quality {{Quality}}, {{Width}} x {{Height}}, master {{Master}}, engine {{Engine}} dB, "
-                   f"linked {{Linked}}, share {{Share}}); the rider given them {{Given}}; the screen '{{Values}}' ('{expected}'); "
+                   f"linked {{Linked}}, share {{Share}}, auto shift {{Auto}}); the rider given them {{Given}}; the screen '{{Values}}' "
+                   f"('{expected}'); "
                    f"saved once {{Saved}}", Read=b.var("SettingsRead"), Quality=quality,
                    Width=b.pure("Get:Strada.Settings.WindowWidth", "Value"), Height=b.pure("Get:Strada.Settings.WindowHeight", "Value"),
-                   Master=b.pure("Get:Strada.Settings.MasterVolume", "Value"), Engine=engine, Linked=linked, Share=share,
+                   Master=b.pure("Get:Strada.Settings.MasterVolume", "Value"), Engine=engine, Linked=linked, Share=share, Auto=auto,
                    Given=b.var("RiderGiven"), Values=b.var("ValuesShown"), Saved=b.var("SavedOnce"))
     run(b, opened, shown, applied, *presses, read, given, shown_values, saved_before, back, titled, saved, report(b, name, passed, detail))
 
@@ -328,6 +350,39 @@ def write_pause_menu(b, name):
     run(b, paused, shown, *noted, resumed, back, *after, report(b, name, passed, detail))
 
 
+def write_quit_keeps_best(b, name):
+    director = race(b)
+    before = b.set("BestSavesBefore", b.get("Saves", Race.DIRECTOR, director))
+    raced = clicked(b, listed(b, "TitleItems", 0))
+    racing = Checks.wait_until(b, b.equal(state(b), string(b, "Racing")), WAIT)
+    start = b.get("StartStep", Race.DIRECTOR, director)
+    crossings = [(0, LINE_STEP)] + [(gate, LINE_STEP + steps) for gate, steps in zip((1, 2), QUICK_SECTORS)] + \
+        [(0, LINE_STEP + QUICK_LAP)]
+    sent = [b.send("GateCrossed", director, graph=Race.DIRECTOR, Gate=gate, Step=b.expr(f"start + {at}", start=start), Fraction=0.0)
+            for gate, at in crossings]
+    best = b.set("BestKept", b.get("BestLapTime", Race.DIRECTOR, director))
+    unsaved = b.set("SavesRacing", b.get("Saves", Race.DIRECTOR, director))
+    paused = press(b, Race.PAUSE)
+    shown = waiting(b, on_screen(b, Menu.PAUSE))
+    quit_ = clicked(b, listed(b, "PauseItems", 2))
+    titled = waiting(b, b.equal(state(b), string(b, "Title")))
+    opened = b.call("Call:Strada.SaveSlot.Open(string)", "Result", Name=Race.SLOT)
+    slot = b.set("QuitSlot", opened.out)
+    read = b.set("QuitSaved", b.pure("Call:Strada.SaveSlot.Get<T>(string,T)", Target=b.var("QuitSlot"), Name="LapTime",
+                                     Fallback=b.lit("float", -1.0)))
+    after = [b.set("SavesAfter", b.get("Saves", Race.DIRECTOR, director)),
+             b.set("ScaleAfter", b.pure("Get:Strada.Time.TimeScale", "Value"))]
+    passed = b.expr(f"abs(best - {round(QUICK, 5)}) <= {RaceChecks.TIME_TOLERANCE} && abs(saved - best) <= {RaceChecks.TIME_TOLERANCE} "
+                    "&& racing == before && after == before + 1 && scale == 1", best=b.var("BestKept"), saved=b.var("QuitSaved"),
+                    racing=b.var("SavesRacing"), before=b.var("BestSavesBefore"), after=b.var("SavesAfter"), scale=b.var("ScaleAfter"))
+    detail = b.fmt(f"lap 1 made the best {{Best}} s (the lap's {QUICK:.3f}), saved {{Racing}} times while racing (from "
+                   "{Before}); quit to the title, saved {After} times, the slot keeps {Saved} s, time scale {Scale}",
+                   Best=b.var("BestKept"), Racing=b.var("SavesRacing"), Before=b.var("BestSavesBefore"), After=b.var("SavesAfter"),
+                   Saved=b.var("QuitSaved"), Scale=b.var("ScaleAfter"))
+    run(b, before, raced, racing, *sent, best, unsaved, paused, shown, quit_, titled, settle(b), opened, slot, read, *after,
+        report(b, name, passed, detail))
+
+
 WRITERS = {
     "CheckTitleMenu": write_title_menu,
     "CheckResultsScreen": write_results,
@@ -335,6 +390,7 @@ WRITERS = {
     "CheckRebindListens": write_rebind_listens,
     "CheckMenuPad": write_menu_pad,
     "CheckPauseMenu": write_pause_menu,
+    "CheckQuitKeepsBest": write_quit_keeps_best,
 }
 
 
@@ -345,7 +401,7 @@ def write_check(b, function, name):
 # --- The scene ---------------------------------------------------------------------------------------------------------------
 
 ENTITIES = (("Menus", Menu.ROOT, "The screen's menus, which the checks press as a player does"),
-            ("RiderStandIn", STAND_IN, "The stand-in rider, whose riding graph takes the linked brakes' settings"))
+            ("RiderStandIn", STAND_IN, "The stand-in rider, whose riding graph takes the assists' settings"))
 VARIABLES = (
     private("TitleShown", "bool", False), private("FirstSelected", "int", -1), private("HudShown", "bool", True),
     private("BestShown", "string", ""), private("CountingState", "string", ""), private("TitleAfter", "bool", True),
@@ -357,7 +413,10 @@ VARIABLES = (
     private("Kept", "string", ""), private("PadSelected", "int", -1), private("QualityBefore", "int", -1),
     private("QualityAfter", "int", -1), private("RoundSelected", "int", -1), private("PauseShown", "bool", False),
     private("Scale", "float", -1.0), private("PauseSelected", "int", -1), private("ResumedScale", "float", -1.0),
-    private("DirectorPaused", "bool", True),
+    private("DirectorPaused", "bool", True), private("BestKept", "float", -1.0), private("BestSavesBefore", "int", -1),
+    private("SavesRacing", "int", -1),
+    private("QuitSlot", Race.SAVE_SLOT), private("QuitSaved", "float", -1.0), private("SavesAfter", "int", -1),
+    private("ScaleAfter", "float", -1.0),
 )
 
 
@@ -367,7 +426,7 @@ def make(create, handles):
 
 
 def prepare(session, found):
-    """The menus give the linked brakes' settings to the stand-in rider."""
+    """The menus give the assists' settings to the stand-in rider."""
     Checks.set_variables(session, found[Menu.ROOT], {"Rider": Checks.entity_value(found[STAND_IN])})
 
 
