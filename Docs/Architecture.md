@@ -7075,12 +7075,14 @@ graphs alone keeps its best lap and its settings screen, and none exposes a path
   "Moto's laps: ..." logs the readings. `MotoRideTests.cpp` plays it behind `STRADA_LONG_RIDES=1` with a process timeout of
   10 minutes (about 10,000 frames). **The feel pass** tuned the autopilot, not the definition: probing whole laps showed what
   the speeds ask of the bike as built. At 0.7 g of `LineSpeed`'s grip its laps read 87.8 s and 84.6 s; at 0.8 they read
-  84.4 and 80.9 s (1.19 and 1.14 times the line's) on the line and the road, leaned 11° at most; at 0.85 and 0.9 the exits
-  ran onto the grass, at 1.0 every exit did (a line drawn 1.2 m nearer the center line kept 0.85 on the road but leaned the
-  bike 22° under braking for Turn 1, and 0.75 on it fell), braking at 4.5 m/s² overshot Turn 1, and a shift point of 14,800
-  rpm in the definition threw the bike over. So `LineSpeed` takes the corners at 0.8 g, and the stated band for a lap is
-  1 to 1.25 times the line's. What the bike leans is not the rider's: in a turn the bike rides on its steering's geometry,
-  its tyres slipping 0.3 to 0.5° at 0.8 g (a probe of a whole lap), and the target lean Jolt's controller holds (the
+  84.4 and 80.9 s (1.19 and 1.14 times the line's) on the line and the road, leaned 11° at most; at 0.85 and 0.9 exits ran
+  onto the grass (in 40 and 68 of two laps' samples every 0.1 s a wheel was off the road), at 1.0 more (88). On a line
+  drawn nearer the center line (its lateral offset at most 3.4 m), 0.85 kept to the road but leaned the bike 22° under
+  braking for Turn 1, and 0.75 fell; on it, at 0.85, one probe of braking at 4.5 m/s² left the road (7.4 m off the line)
+  and one of a shift point of 14,800 rpm in the definition threw the bike over. So `LineSpeed` takes the corners at 0.8 g on
+  the racing line itself, and the stated band for a lap is 1 to 1.25 times the line's. What the bike leans is not the
+  rider's: in a turn the bike rides on its steering's geometry, its tyres slipping 0.3 to 0.5° in Turn 1 at about 0.8 g
+  sideways (a probe of whole laps at 0.7 g of `LineSpeed`), and the target lean Jolt's controller holds (the
   direction of the ground's impulse) reads 5 to 8° where 35 to 39° balances the turn. Jolt's lean controller adds, with
   each roll impulse, a linear impulse at the center of mass that cancels the contact points' sideways motion
   (`MotorcycleController.cpp:228-247`), and with the chassis's roll inertia of 9.82 kg m² small beside its mass times its
@@ -7088,8 +7090,8 @@ graphs alone keeps its best lap and its settings screen, and none exposes a path
   0.2 m higher) leaned towards the balance, but lifted the front wheel at the launch and fell. A roll inertia raised at the
   same height of the center of mass is the lever left, and it moves VH2's bands and the hash; so the lean spring decides
   only how fast the chassis follows a target that reads small, and an edit of the spring shows no faster lean (below).
-  The brakes, the weave under a hard front brake at speed (a lean of up to 21° under braking for Turn 1 at 0.85 g) and the
-  engine's speed in neutral were not tuned. **M1's sixth step** (`MotoAgentTests.cpp`, StradaEditorTests): in the lap
+  The brakes, the weave under a hard front brake at speed (on the line drawn nearer the center, a lean of up to 22° under
+  braking for Turn 1 at 0.85 g) and the engine's speed in neutral were not tuned. **M1's sixth step** (`MotoAgentTests.cpp`, StradaEditorTests): in the lap
   test scene, the autopilot riding from the grid, an agent's `vehicle.set` a second into the ride raises the shift point
   and the red line by 1,000 rpm and the lean spring to 10,000 with its damping to 560 (within the roll inertia's bound);
   the riding vehicle takes the spring in place before its next step and rides on, `telemetry.read` of the vehicle's

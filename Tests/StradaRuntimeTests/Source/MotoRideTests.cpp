@@ -43,9 +43,8 @@ namespace
 	constexpr std::string_view RideChecks = "Tests passed: 28 checks";
 	// The lap test scene's checks (Tools/LapChecks.py): the laps' times, the line, the ghost.
 	constexpr std::string_view LapChecks = "Tests passed: 3 checks";
-	// The ride test scene's test timeout (seconds of the game, Tools/Checks.py's SCENES): the rides take about 151 s. A run
-	// of its 9,100 frames at 1/60 s takes 35 s in Debug here, more than RunTimeout's two minutes on a runner four times as
-	// slow, so it has a process timeout of its own.
+	// The ride test scene's test timeout (seconds of the game, Tools/Checks.py's SCENES): the rides take about 151 s. A Debug
+	// run of its 9,100 frames on a slow runner can pass RunTimeout's two minutes, so it has a process timeout of its own.
 	constexpr std::string_view RideTimeout = "200";
 	constexpr std::chrono::seconds RideRunTimeout = std::chrono::minutes(5);
 	// A fixed step of the ride after it was teleported into the gravel trap and back (by about step 1,650) and before it ends

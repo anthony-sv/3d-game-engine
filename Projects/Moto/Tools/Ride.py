@@ -60,8 +60,8 @@ SPACING = 2.0
 # besides the air's and the road's drag), within what the bike's tyres give (Vehicle.py): a hard front brake at speed sets
 # the bike weaving, so it rides the line at a rider's careful pace rather than the point mass's, and its brake goes on
 # gently (BRAKE_GAIN, BRAKE_MAX) for the same reason. The feel pass (Docs/Architecture.md section 15) raised the grip from
-# 0.7 by probing whole laps: at 0.8 the laps stay on the line and the road, leaned 11 degrees at most; at 0.85 and 0.9 the
-# exits run onto the grass, at 1.0 every exit does, and braking at 4.5 overshoots Turn 1.
+# 0.7 by probing whole laps: at 0.8 the laps stay on the line and the road, leaned 11 degrees at most; at 0.85, 0.9 and 1.0
+# exits run onto the grass, more of them the higher the grip.
 AUTO_GRIP = 0.8
 AUTO_BRAKING = 4.0
 # How it steers (above): the line's curvature it takes from CURVE_LEAD seconds ahead, and how fast it turns its heading back

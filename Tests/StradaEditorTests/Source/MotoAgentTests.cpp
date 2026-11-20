@@ -174,12 +174,13 @@ TEST_CASE("MotoAgent: vehicle.set while the autopilot rides makes the bike shift
 	// On to 8 s from the grid: the first upshift comes at about 6.8 s after the edit (6.3 s without it).
 	fixture.Advance(419);
 
-	// The telemetry the ride recorded: the vehicle's channels at every step (Vehicle.<entity>.<quantity>).
+	// The telemetry the ride recorded: the vehicle's channels at every step (Vehicle.<entity>.<quantity>), and the ride's own
+	// (Scripts/Ride.sgraph records them while the editor records: M1's fifth step plots laps against Ride.Distance).
 	std::string const prefix = "Vehicle." + std::to_string(bike.GetUUID().GetValue()) + ".";
-	Json const read = fixture.Ok(
-		"telemetry.read",
-		Json::object({{"channels", Json::array({prefix + "Gear", prefix + "ForwardSpeed", prefix + "EngineSpeed", prefix + "LeanAngle"})},
-	                  {"maxSamples", 4096}}));
+	Json const read = fixture.Ok("telemetry.read",
+	                             Json::object({{"channels", Json::array({prefix + "Gear", prefix + "ForwardSpeed", prefix + "EngineSpeed",
+	                                                                     prefix + "LeanAngle", "Ride.Distance", "Ride.Speed"})},
+	                                           {"maxSamples", 4096}}));
 	CHECK(read["stride"] == 1);
 	Json const& gears = read["channels"][0]["samples"];
 	Json const& speeds = read["channels"][1]["samples"];
@@ -205,6 +206,14 @@ TEST_CASE("MotoAgent: vehicle.set while the autopilot rides makes the bike shift
 	// Upright through the ride: within the line's lean limit.
 	CHECK(std::abs(read["channels"][3]["summary"]["minimum"].get<float>()) < 50.0f);
 	CHECK(std::abs(read["channels"][3]["summary"]["maximum"].get<float>()) < 50.0f);
+	// The ride's channels, of the same steps: 8 s from the grid, 9 m behind the start and finish line, the bike is a couple of
+	// hundred meters down the main straight (the autopilot's line read 214 m), at its speed in km/h (a step apart at most:
+	// the Ride graph and the vehicle's channels sample in their own order).
+	float const along = read["channels"][4]["summary"]["last"].get<float>();
+	CHECK(along > 100.0f);
+	CHECK(along < 400.0f);
+	CHECK(std::abs(read["channels"][5]["summary"]["last"].get<float>() - read["channels"][1]["summary"]["last"].get<float>() * 3.6f) <
+	      2.0f);
 
 	// The capture of the frames the profiler held: its medians' subsystems hold the physics' (Physics.Step and
 	// Physics.Vehicles).
