@@ -359,7 +359,8 @@ TEST_CASE("MotoPlay: the race's telemetry marks sit on the same rows at 30, 60 a
 }
 
 TEST_CASE("MotoPlay: Moto's title opens the settings by the gamepad, a click steps the quality, the throttle takes the key "
-          "pressed next with its conflict named, the pad's binding refuses a key, and the next play reads both back")
+          "pressed next with its conflict named, the pad's binding refuses a key, and the next play reads both back, rebinds "
+          "the lean's two keys, resets the controls and resumes from the pause screen by a click")
 {
 	MotoPlay moto;
 	moto.Start();
@@ -431,5 +432,45 @@ TEST_CASE("MotoPlay: Moto's title opens the settings by the gamepad, a click ste
 	CHECK(moto.GetText("Quality Value") == "MEDIUM");
 	CHECK(moto.GetText("Throttle Key Text") == "E");
 	CHECK(moto.GetText("Throttle Pad Text") == "PAD RIGHTTRIGGER");
+
+	// The mouse opens the settings. The lean's keyboard binding is two keys: it listens for the left, then the right; a pad
+	// button given for the right is refused, the binding given back with its new left key, and the right asked again.
+	moto.Click("Settings Button");
+	REQUIRE(moto.ReadOut("Menus", "Screen").GetString() == "Settings");
+	moto.Click("Lean Key");
+	CHECK(moto.GetText("Settings Status") == "PRESS A KEY FOR LEAN LEFT   ESC CANCELS");
+	moto.Press("J");
+	moto.Advance(1);
+	CHECK(moto.GetText("Settings Status") == "PRESS A KEY FOR LEAN RIGHT   ESC CANCELS");
+	moto.PressPad("Y");
+	moto.Advance(1);
+	CHECK(moto.GetText("Settings Status") == "THE KEYBOARD TAKES KEYS   PRESS A KEY FOR LEAN RIGHT   ESC CANCELS");
+	CHECK(moto.ReadOut("Menus", "Rebinding").GetBool());
+	moto.Press("L");
+	moto.Advance(1);
+	CHECK_FALSE(moto.ReadOut("Menus", "Rebinding").GetBool());
+	CHECK(moto.GetText("Settings Status") == "LEAN: J L");
+	CHECK(moto.GetText("Lean Key Text") == "J L");
+
+	// RESET CONTROLS gives every binding back as the project's actions have it.
+	moto.Click("Reset Controls Button");
+	CHECK(moto.GetText("Settings Status") == "CONTROLS RESET");
+	CHECK(moto.GetText("Throttle Key Text") == "W");
+	CHECK(moto.GetText("Lean Key Text") == "A D");
+	moto.PressPad("B");
+	moto.Advance(1);
+	REQUIRE(moto.ReadOut("Menus", "Screen").GetString() == "Title");
+
+	// Escape pauses: the pause screen shows while time stands still, and the mouse clicks its RESUME.
+	moto.Press("Escape");
+	moto.Advance(1);
+	REQUIRE(moto.ReadOut("Menus", "Screen").GetString() == "Pause");
+	CHECK(moto.IsShown("Pause Screen"));
+	CHECK(moto.ReadOut("Race", "Paused").GetBool());
+	moto.Click("Resume Button");
+	moto.Advance(1);
+	CHECK_FALSE(moto.ReadOut("Race", "Paused").GetBool());
+	CHECK(moto.ReadOut("Menus", "Screen").GetString() == "Title");
+	CHECK_FALSE(moto.IsShown("Pause Screen"));
 	moto.Stop();
 }

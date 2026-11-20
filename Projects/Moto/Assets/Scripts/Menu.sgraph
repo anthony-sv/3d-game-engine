@@ -5921,14 +5921,14 @@
 						},
 						{
 							"ID": 352,
-							"Type": "Literal",
+							"Type": "Variable.Get",
 							"Position": [
 								192.0,
 								112.0
 							],
 							"Settings": {
-								"Type": "bool",
-								"Value": true
+								"Variable": 1,
+								"Graph": "4174439098207623822"
 							}
 						},
 						{
@@ -5956,14 +5956,14 @@
 						},
 						{
 							"ID": 355,
-							"Type": "Literal",
+							"Type": "Variable.Get",
 							"Position": [
 								416.0,
 								272.0
 							],
 							"Settings": {
-								"Type": "float",
-								"Value": 0.3
+								"Variable": 2,
+								"Graph": "4174439098207623822"
 							}
 						},
 						{
@@ -6046,6 +6046,16 @@
 						},
 						{
 							"From": [
+								349,
+								"Value"
+							],
+							"To": [
+								352,
+								"Target"
+							]
+						},
+						{
+							"From": [
 								352,
 								"Value"
 							],
@@ -6071,6 +6081,16 @@
 							],
 							"To": [
 								354,
+								"Target"
+							]
+						},
+						{
+							"From": [
+								349,
+								"Value"
+							],
+							"To": [
+								355,
 								"Target"
 							]
 						},

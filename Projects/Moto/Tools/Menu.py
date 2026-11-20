@@ -24,7 +24,8 @@ screen); the selected buttons show in SELECTED. While a binding listens the menu
 is the player's. Each screen draws in two batches when shown: its rectangles and buttons, then its texts.
 
 The assists apply to the riding graph of the menu's Rider (the bike): its LinkedBrakes and LinkedBrakeShare, set when the
-scene starts and after each step, through ASSIST_GRAPH, which declares those two names: on this tree it is
+scene starts and after each step from the values the player set (one never set leaves the rider's own), through
+ASSIST_GRAPH, which declares those two names: on this tree it is
 Scripts/AssistsStandIn.sgraph (the ride test scene's stand-in rider runs it), since the bike's riding graph gets the
 rider assists from the ride's track; ShowMenus off shows no screen (the captures of the circuit).
 
@@ -595,8 +596,11 @@ def write_settings(author):
     with author.region(MENU, "Apply assists: the linked brakes' settings to the rider", EFFECTS, "ApplyAssists") as b:
         rider = b.var("Rider")
         rides = b.branch(b.runs(ASSIST_GRAPH, rider), comment="A rider whose riding graph takes them")
-        linked = b.set(LINKED, settings_get(b, LINKED, "bool", LINKED_ON), graph=ASSIST_GRAPH, target=rider)
-        share = b.set(SHARE, settings_get(b, SHARE, "float", LINKED_SHARE), graph=ASSIST_GRAPH, target=rider)
+        # A value the player never set leaves the rider's own (the scene's), which stands in as Get's fallback.
+        linked = b.set(LINKED, b.pure("Call:Strada.Settings.Get<T>(string,T)", Name=LINKED, Fallback=b.get(LINKED, ASSIST_GRAPH, rider)),
+                       graph=ASSIST_GRAPH, target=rider)
+        share = b.set(SHARE, b.pure("Call:Strada.Settings.Get<T>(string,T)", Name=SHARE, Fallback=b.get(SHARE, ASSIST_GRAPH, rider)),
+                      graph=ASSIST_GRAPH, target=rider)
         counted = b.set("Applied", b.expr("applied + 1", applied=b.var("Applied")))
         b.chain(b.entry, rides)
         b.chain(rides["True"], linked, share, counted, b.ret)

@@ -6979,7 +6979,8 @@ graphs alone keeps its best lap and its settings screen, and none exposes a path
   is the player's), and the control that ends a capture presses nothing (§7.4). Leaving the settings saves them
   (`Settings.Save`, which waits for the disk: a menu's, never while the bike is ridden); the bindings are the input
   system's profile, written as each rebind ends. The linked brakes' two values are given to the riding graph of the
-  menus' `Rider` (the bike) as the scene starts and after each step, through `Menu.ASSIST_GRAPH`, which declares them:
+  menus' `Rider` (the bike) as the scene starts and after each step (a value the player never set leaves the
+  rider's own), through `Menu.ASSIST_GRAPH`, which declares them:
   `Scripts/AssistsStandIn.sgraph` until the bike's riding graph gets the rider assists, and the ride test scene's stand-in
   rider runs it. `ShowMenus` off shows no screen: `Captures.py`'s copies set it, so the pictures of the circuit stay as
   they were. Each screen draws in two batches when shown (its rectangles and buttons, then its texts). **The
