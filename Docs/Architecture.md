@@ -6555,8 +6555,8 @@ that each platform's names are tested on every platform:
   1 s on the asphalt with nothing applied; then a teleport (`RigidBodyComponent.Teleport` with its velocity and spin set)
   into the gravel trap outside Turn 6 at the speed it had, facing along the lap with its wheels turning on, for 1 s more;
   then back onto the main straight, 3 m right of its center line, first gear up to 15 m/s, the coast, and a lean of -0.5 for
-  1 s. At the end it is teleported back onto the grid at rest, braked until it stops, and left in neutral with no input,
-  for the checks that join the scene later. It takes about 1,875 steps (31 s). Seven checks, each a band drawn from the figures
+  1 s. At the end it is teleported back onto the grid at rest, braked until it stops, and left in neutral with no input:
+  the ride writes nothing more, for the checks that join the scene later. It takes about 1,875 steps (31 s). Seven checks, each a band drawn from the figures
   `Vehicle.py`'s `ride_figures()` gives (closed forms from the definition), with the room each form leaves:
   (1) the speed 3 s after the launch, 18.92 m/s by the form, in 0.9 to 1.3 times it (the form takes the spinning rear tyre at its
   sliding friction throughout, where it grips up to its peak whenever it spins less), read 20.58; (2) the front brake

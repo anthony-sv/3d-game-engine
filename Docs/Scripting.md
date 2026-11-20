@@ -570,9 +570,9 @@ public class Rider : Script
 }
 ```
 
-Give a bike one writer of its inputs: two scripts that both call `SetDriverInput` ride it on whichever ran last. The Moto
-sample's riding graph is its bike's one writer. A public `Driver` picks whether that graph reads the player's actions or
-values that an autopilot or a test writes into it. Each brake brakes its own wheel, and the bike's weight moves to the
+Give a bike one writer of its inputs: two scripts that both call `SetDriverInput` ride it on whichever ran last. A
+riding script can still serve several drivers: a public field picks whether it reads the player's actions or values
+that an autopilot or a test writes into it. Each brake brakes its own wheel, and the bike's weight moves to the
 front under braking as the rigid body allows. The tyres limit forward and sideways grip apart, so a locked rear wheel does
 not by itself give up sideways grip: trail braking and rear-wheel slides are not simulated. Each tyre grips by the
 `TyreGrip` of the surface under it and is held back by its `RollingResistance` ([Physics materials](#physics-materials)).

@@ -48,9 +48,10 @@ namespace
 	// The test summary's physics state ("physics state <hash> at step <step>"); empty without one.
 	std::string_view PhysicsState(std::string_view output)
 	{
+		// "no physics state at step <step>" when the run ended before the step.
 		std::string_view const summary = TestSummary(output);
-		size_t const start = summary.find("physics state ");
-		return start == std::string_view::npos ? std::string_view() : summary.substr(start);
+		size_t const start = summary.find("; physics state ");
+		return start == std::string_view::npos ? std::string_view() : summary.substr(start + 2);
 	}
 
 	// A test run of the ride test scene of a copy of Moto: at 1/60 s a frame, a test run's, or at a frame's time step.

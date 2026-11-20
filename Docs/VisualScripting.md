@@ -433,10 +433,10 @@ Ride a bike from `Event.FixedUpdate`, where actions read the frame's values and 
 exactly one step: Get Action of `Throttle`, `FrontBrake`, `RearBrake` and `Lean` into Set Driver Input, and a Branch on
 Is Action Pressed `ShiftUp` into Shift Up. A ride that must be the same at every frame rate is driven from there too, as
 a function of the simulation (its speed, its gear, a count of its own fixed steps); one driven from `Event.Update` or by
-action overrides depends on the frame rate. Let one graph be the bike's only writer: Moto's riding graph
-(`Scripts/Bike.sgraph`) reads the actions while its public `Driver` is 0. With `Driver` 1 (an autopilot) or 2 (a test) it
-reads the public `Throttle`, `FrontBrake`, `RearBrake` and `Lean` that other graphs set on it, and shifts on the
-`ShiftUp` and `ShiftDown` events they send it. Moto's ride test scene drives it that way.
+action overrides depends on the frame rate. Let one graph be the bike's only writer. It can still serve several drivers:
+with a public `Driver` variable it reads the actions for the player, and for an autopilot or a test it reads public
+`Throttle`, `FrontBrake`, `RearBrake` and `Lean` variables that other graphs set on it, and shifts on custom events
+`ShiftUp` and `ShiftDown` they send it.
 
 **Try it:** on the bike of a project with a vehicle, in `FixedUpdate`, read the `Throttle` action into Set Driver
 Input's `Throttle` and Shift Up on the first step; play and press W: the bike rides off.

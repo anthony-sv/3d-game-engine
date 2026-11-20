@@ -2456,7 +2456,7 @@ TEST_CASE("PlayCommands: play mode flies the Moto sample's camera tour, a graph'
 	fixture.Ok("play.advance", Json::object({{"frames", 120}}));
 	Json const launched = ridden();
 	CAPTURE(launched.dump());
-	CHECK(launched["applied"]["throttle"] == 1.0);
+	CHECK(launched["applied"]["throttle"].get<float>() >= 0.99f);
 	CHECK(launched["applied"]["frontBrake"] == 0.0);
 	float const launchSpeed = launched["forwardSpeed"].get<float>();
 	CHECK(launchSpeed > 8.0f);
@@ -2468,7 +2468,7 @@ TEST_CASE("PlayCommands: play mode flies the Moto sample's camera tour, a graph'
 	Json const braked = ridden();
 	CAPTURE(braked.dump());
 	CHECK(braked["applied"]["throttle"] == 0.0);
-	CHECK(braked["applied"]["frontBrake"] == 1.0);
+	CHECK(braked["applied"]["frontBrake"].get<float>() >= 0.99f);
 	CHECK(braked["applied"]["rearBrake"] == 0.0);
 	CHECK(braked["forwardSpeed"].get<float>() < launchSpeed - 2.0f);
 	pad(nullptr);

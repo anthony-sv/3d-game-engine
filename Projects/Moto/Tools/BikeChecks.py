@@ -23,9 +23,10 @@ The ride, one phase after another (PHASES; the step a phase begins at is its ste
 6. Resume: teleported back onto the main straight (RESUME_AT, RESUME_LATERAL right of its center line) at the speed it had,
    up to COAST_FROM in first, Settle in neutral down to COAST_FROM; Lean: LEAN_INPUT (to the left) for LEAN_STEPS
    (1 s): its lean then, and how far its heading turned (positive to the left).
-7. Done: teleported back onto the grid at rest, both brakes until its wheels and it stop, then nothing: the bike stands on
-   the grid in neutral with no input, its riding graph still on the test driver, for the checks that join this scene
-   after these (Checks.MODULES).
+7. Done: teleported back onto the grid at rest, both brakes until its wheels and it stop; then the ride gives the riding
+   graph no input and enters Rest, which no case of its switch runs, so it writes nothing more: the bike stands on the
+   grid in neutral, its riding graph still on the test driver, for the checks that join this scene after these
+   (Checks.MODULES), which may write its values from then on.
 
 Each ShiftUp is counted SHIFT_SETTLE steps after it was sent: one gear up from where it was sent, exactly. The bands
 (BANDS) come from Vehicle.ride_figures(), the closed forms the definition's figures give (Docs/Architecture.md section 15,
@@ -68,8 +69,10 @@ SHIFT_SETTLE = 10
 SHIFT_HOLD = SHIFT_SETTLE + 2
 SHIFT_DOWN_EVERY = 10
 # Below this speed (m/s) a brake has stopped the bike; a brake that has not stopped it after BRAKE_LIMIT steps gives up.
+# Back on the grid at the end, the bike is braked for STAND_STEPS at least, while its wheels, which turned on, stop.
 STOPPED = 0.1
 BRAKE_LIMIT = 900
+STAND_STEPS = 30
 # Where the gravel coast and the lean are ridden: the middle of the gravel trap 30 m before Turn 6's apex (Checks.
 # gravel_slide), and the main straight before Turn 1, 3 m right of its center line so that the lean to the left (which
 # turns the bike about 45 degrees) ends on the road. The bike's origin is on the surface it stands on.
@@ -348,8 +351,15 @@ def write_lean(b):
 
 
 def write_stand(b):
-    braking = b.expr(f"speed >= {STOPPED} ? 1.0 : 0.0", speed=speed(b))
-    b.chain(b.entry, drive(b, front=braking, rear=braking), b.ret)
+    held = drive(b, front=1.0, rear=1.0)
+    done = b.branch(b.expr(f"elapsed >= {STAND_STEPS} && speed < {STOPPED}", elapsed=elapsed(b), speed=speed(b)),
+                    comment="Its wheels have stopped turning too")
+    released = drive(b)
+    enter = b.own("Enter", Next="Rest", comment="No phase of that name: the ride writes nothing more")
+    b.chain(b.entry, held, done)
+    b.flow(done["True"], released)
+    b.chain(released, enter, b.ret)
+    b.flow(done["False"], b.ret)
 
 
 FLOAT = "float"
@@ -372,7 +382,7 @@ HELPERS = (
     (("Coast", False, (), (), ()), "Coast: 1 s upright on the asphalt, then into the gravel", write_coast),
     (("Gravel", False, (), (), ()), "Gravel: 1 s in the trap, then back onto the straight", write_gravel),
     (("Lean", False, (), (), ()), "Lean: to the left for 1 s, its lean and its turn read, then the grid", write_lean),
-    (("Stand", False, (), (), ()), "Stand: both brakes until the bike stops, then nothing", write_stand),
+    (("Stand", False, (), (), ()), "Stand: both brakes until the bike stops, then the ride lets go", write_stand),
 )
 
 

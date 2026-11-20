@@ -31,8 +31,8 @@ visual scripts alone (no C#). In order:
    with a voice for each layer, Scripts/EngineSound.sgraph and the curve assets it crossfades the layers through);
 10. the trackside part: the four trackside cameras and the camera director (Trackside.py: the Trackside entity, whose
     children the cameras are, and Scripts/CameraDirector.sgraph), which cuts between them and the tour on actions;
-11. the tests part: the test scene (Scenes/Tests.sscene, the main scene with the checks and without the props) and its
-    graphs (Checks.py);
+11. the tests part: the test scenes (Checks.py's SCENES, each the main scene with its checks and without the props:
+    Scenes/Tests.sscene, and Scenes/Ride.sscene, whose graph rides the bike, BikeChecks.py) and their graphs (Checks.py);
 12. checks: spheres dropped on the road, a kerb, a gravel trap, a verge, the ground, a barrier and the footbridge come to
     rest on their surfaces; the test scene's checks pass in a test run; the tour plays in play mode, the camera where its
     path puts it, and so does the ghost, where its line puts it; and nothing logs a warning.

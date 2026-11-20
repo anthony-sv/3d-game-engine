@@ -310,7 +310,7 @@ The [`strada-make-game`](../.claude/skills/strada-make-game/SKILL.md) skill is t
    inputs given and applied, the engine's speed, the gear, the speed, the lean and each wheel's contact, surface,
    suspension and slips). Overrides and pads are read once a frame, so a ride that must be the same at every frame rate
    is written into the game's fixed step instead: a graph's `Event.FixedUpdate` that sets the bike's inputs from a count
-   of its own steps and the bike's state (Moto's ride test scene does).
+   of its own steps and the bike's state.
 10. **Measure.** `profiler_start` records from the next editor frame; let frames run (a playing game, or editor frames
     between calls: `play_advance` runs all its game frames inside one editor frame, so it gives one profiler frame), then
     `profiler_status` with `medians: true` tells where the time goes: the frame's median and 99th percentile, each
