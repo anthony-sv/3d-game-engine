@@ -42,7 +42,8 @@ The audio director (the Audio Director entity, Scripts/AudioDirector.sgraph) pla
     CROWD_LEVEL from the scene's start.
   With its public RideSounds off they all stay silent (their volumes are 0 in the scene), as Moto sounded before the
   ridden bike: the test scene sets it so. Every voice mixes, silent ones included (below the engine's 64): the ghost's
-  sixteen, the bike's sixteen and its four others, and the crowd's, VOICES in all (one or two more while blips ring).
+  sixteen, the bike's sixteen and its three other loops, and the crowd's, voice_count() in all (one or two more while
+  blips ring).
 """
 import math
 import os
@@ -170,10 +171,9 @@ EASE_OUT = 0.15
 WIND_SPEED = 60.0
 # A grandstand's crowd: the voice stands this high over the ground at the middle of the stand, within CROWD_NEAR meters at
 # full volume, quieter by the inverse of the distance out to CROWD_FAR (beyond it no quieter); stands closer than
-# CROWD_GAP meters to each other are one grandstand. A murmur carries less than an engine: heard from the road beside a
-# stand it is about as loud as the ghost's engine 25 m off, and from a camera across the circuit (the footbridge's is
-# 490 m from the nearest stand) it lies 18 dB or more under the ghost riding by, where a probe of the sound test's capture
-# read it no quieter than the ghost with a CROWD_NEAR of 30 m.
+# CROWD_GAP meters to each other are one grandstand. A murmur carries less than an engine: from the footbridge's camera,
+# 490 m from the nearest stand, a probe of the sound test's captures read the crowd at -62.7 dBFS, 17 dB under the ghost
+# riding by at its quietest (-45.5 dBFS), where with a CROWD_NEAR of 30 m it read -45.8 dBFS, as loud as the ghost.
 CROWD = "Crowd"
 CROWD_HEIGHT = 4.0
 CROWD_NEAR = 5.0

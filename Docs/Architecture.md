@@ -7017,8 +7017,8 @@ graphs alone keeps its best lap and its settings screen, and none exposes a path
   wheel slides locked above 8 m/s (read 0.8, its level) and at 0.02 of it at most while the bike rolls on the asphalt
   (read 9e-7); (20) the director plays a blip on every change of gear, at least the bike's ride's nine (read 18 changes,
   18 blips); (21) the crunch sounds at 0.6 of its level or more after 15 steps rolling in the gravel trap (read 0.73) and
-  not on the asphalt (0); (22) `Audio.ActiveVoiceCount` is 39 or more in every frame and never more than 64 (read 39 to
-  41); (23) the wind at 23.7 m/s against 15 m/s is the speeds' ratio squared within 10 %, and the four crowd voices play
+  not on the asphalt (0); (22) `Audio.ActiveVoiceCount` is 39 or more in every frame and never more than 64 (read 40 to
+  41 at 1/60 and 1/30 s a frame and 39 to 41 at 1/144); (23) the wind at 23.7 m/s against 15 m/s is the speeds' ratio squared within 10 %, and the four crowd voices play
   at their level. The scene's frames grow from 4,657 to 4,688 (the directors' checks wait for `Done`, the stand after the
   autopilot), within its timeout of 120 s; a line "Moto's directors: ..." logs the readings. `PlayModeTests` reads the recorded `Ride.Distance` and `Ride.Speed`
   against the bike's own distance and speed. Every authoring run plays the raw vehicle's launch and stops with the
