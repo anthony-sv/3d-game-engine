@@ -450,6 +450,11 @@
 			"Path": "Scenes/Main.sscene"
 		},
 		{
+			"Handle": "16284700388366357047",
+			"Type": "Scene",
+			"Path": "Scenes/Ride.sscene"
+		},
+		{
 			"Handle": "758468017170119869",
 			"Type": "Scene",
 			"Path": "Scenes/Tests.sscene"
@@ -483,6 +488,11 @@
 			"Handle": "10119309049923292088",
 			"Type": "VisualScript",
 			"Path": "Scripts/Ghost.sgraph"
+		},
+		{
+			"Handle": "4025246513693565950",
+			"Type": "VisualScript",
+			"Path": "Scripts/RideTests.sgraph"
 		},
 		{
 			"Handle": "7930426497277894226",

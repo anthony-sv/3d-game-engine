@@ -412,6 +412,35 @@ what it needs.
 **Try it:** on a ball with a graph, in `FixedUpdate`, sphere-cast down from just below the ball, and add an upward force
 that grows as the hit's `Distance` falls below 1: the ball hovers.
 
+### Vehicles
+
+A motorcycle's `VehicleComponent` ([Scripting.md](Scripting.md#vehicles)) is ridden by nodes:
+
+- **Set Driver Input** (`Call:Strada.VehicleComponent.SetDriverInput(float,float,float,float)`) takes `Throttle`,
+  `FrontBrake` and `RearBrake` (0 to 1) and `Lean` (-1 left to 1 right). Each physics step applies the latest given
+  before it.
+- **Shift Up** and **Shift Down** (`Call:Strada.VehicleComponent.ShiftUp()`, `ShiftDown()`) move a `Manual` gearbox one
+  gear at the next step. A Manual gearbox waits in neutral until the first Shift Up.
+- Pure getters read what the last step left: `EngineSpeed`, `Gear` (0 neutral), `ForwardSpeed`, `LeanAngle` (degrees,
+  positive to the right), and the inputs the step applied, `Throttle`, `FrontBrake`, `RearBrake` and `Lean`.
+- **Get Wheel State** (`Index` 0 the front, 1 the rear; pure) gives a `Strada.VehicleWheelState`. Break it (or split
+  its pin) for `HasContact`, `Ground`, `Material`, `ContactPoint`, `ContactNormal`, `SuspensionLength`, `Spin`,
+  `LongitudinalSlip` and `LateralSlip`. Its `Surface` getter names the ground's surface, such as `Gravel`.
+- The `Strada.Vehicle` asset its `Definition` names reads its gears (`GearCount`, **Get Gear Ratio**, `FinalDrive`), the
+  engine's speeds (`MinRPM`, `MaxRPM`, `ShiftUpRPM`, `ShiftDownRPM`), `MaxTorque` and `MaxLeanAngle`.
+
+Ride a bike from `Event.FixedUpdate`, where actions read the frame's values and each press of a button action is seen by
+exactly one step: Get Action of `Throttle`, `FrontBrake`, `RearBrake` and `Lean` into Set Driver Input, and a Branch on
+Is Action Pressed `ShiftUp` into Shift Up. A ride that must be the same at every frame rate is driven from there too, as
+a function of the simulation (its speed, its gear, a count of its own fixed steps); one driven from `Event.Update` or by
+action overrides depends on the frame rate. Let one graph be the bike's only writer: Moto's riding graph
+(`Scripts/Bike.sgraph`) reads the actions while its public `Driver` is 0. With `Driver` 1 (an autopilot) or 2 (a test) it
+reads the public `Throttle`, `FrontBrake`, `RearBrake` and `Lean` that other graphs set on it, and shifts on the
+`ShiftUp` and `ShiftDown` events they send it. Moto's ride test scene drives it that way.
+
+**Try it:** on the bike of a project with a vehicle, in `FixedUpdate`, read the `Throttle` action into Set Driver
+Input's `Throttle` and Shift Up on the first step; play and press W: the bike rides off.
+
 ### Telemetry
 
 A graph records what its game does, step by step, for the editor's [Telemetry panel](Editor.md#telemetry) and for

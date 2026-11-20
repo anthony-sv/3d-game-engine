@@ -2328,7 +2328,8 @@ TEST_CASE("PlayCommands: Prism Break's title rebinds Launch to the key the playe
 }
 
 TEST_CASE("PlayCommands: play mode flies the Moto sample's camera tour, a graph's timeline, from the home view, its actions cut "
-          "to a trackside camera and back and muffle the mix, and stopping brings the camera back; with PlayOnStart off the "
+          "to a trackside camera and back and muffle the mix, and stopping brings the camera back; an injected gamepad rides "
+          "the grid bike off and brakes it, and stopping brings it back; with PlayOnStart off the "
           "camera stays home; a start on a camera that does not exist is warned of, and one on a trackside camera follows the "
           "ghost")
 {
@@ -2421,6 +2422,58 @@ TEST_CASE("PlayCommands: play mode flies the Moto sample's camera tour, a graph'
 	CHECK(findCamera().GetComponent<TransformComponent>().Translation == home);
 	CHECK(shows("Main Camera"));
 	CHECK_FALSE(shows("Start Line Camera"));
+
+	// The grid bike ridden on an injected gamepad, as a player rides it through the project's actions: it waits in neutral,
+	// so the right bumper (ShiftUp) shifts it into first; the right trigger (Throttle) takes it off the grid, then the left
+	// trigger (FrontBrake) alone slows it; stopping brings it back to the grid.
+	auto const bikeAt = [&fixture]
+	{
+		Entity const found = fixture.Context.GetScene().FindEntityByName("Bike");
+		REQUIRE(found);
+		return found.GetComponent<TransformComponent>().Translation;
+	};
+	glm::vec3 const grid = bikeAt();
+	auto const pad = [&fixture](Json state)
+	{
+		fixture.Ok("input.set", Json::object({{"gamepads", Json::object({{"0", std::move(state)}})}}));
+	};
+	auto const ridden = [&fixture]
+	{
+		Json const vehicles = fixture.Ok("vehicle.state")["vehicles"];
+		REQUIRE(vehicles.size() == 1);
+		return vehicles[0];
+	};
+	CHECK(fixture.Ok("play.start")["state"] == "play");
+	fixture.Ok("play.pause");
+	CHECK(ridden()["gear"] == 0);
+	pad(Json::object({{"buttons", Json::object({{"RightBumper", true}})}}));
+	fixture.Ok("play.advance", Json::object({{"frames", 1}}));
+	pad(Json::object({{"buttons", Json::object({{"RightBumper", false}})}}));
+	fixture.Ok("play.advance", Json::object({{"frames", 1}}));
+	CHECK(ridden()["gear"] == 1);
+	// Two seconds of full throttle in first gear: Tools/Vehicle.py's launch gives about 13 m/s.
+	pad(Json::object({{"axes", Json::object({{"RightTrigger", 1.0}})}}));
+	fixture.Ok("play.advance", Json::object({{"frames", 120}}));
+	Json const launched = ridden();
+	CAPTURE(launched.dump());
+	CHECK(launched["applied"]["throttle"] == 1.0);
+	CHECK(launched["applied"]["frontBrake"] == 0.0);
+	float const launchSpeed = launched["forwardSpeed"].get<float>();
+	CHECK(launchSpeed > 8.0f);
+	CHECK(glm::distance(bikeAt(), grid) > 8.0f);
+	// A second on the front brake alone, the throttle let go, still in first gear: the bike loses about 4 m/s (in gear the
+	// engine's inertia rides on with it, so it slows about half as fast as in neutral, Tools/Vehicle.py).
+	pad(Json::object({{"axes", Json::object({{"RightTrigger", -1.0}, {"LeftTrigger", 1.0}})}}));
+	fixture.Ok("play.advance", Json::object({{"frames", 60}}));
+	Json const braked = ridden();
+	CAPTURE(braked.dump());
+	CHECK(braked["applied"]["throttle"] == 0.0);
+	CHECK(braked["applied"]["frontBrake"] == 1.0);
+	CHECK(braked["applied"]["rearBrake"] == 0.0);
+	CHECK(braked["forwardSpeed"].get<float>() < launchSpeed - 2.0f);
+	pad(nullptr);
+	CHECK(fixture.Ok("play.stop")["state"] == "edit");
+	CHECK(bikeAt() == grid);
 
 	// The camera's PlayOnStart off, as a graph that starts the tour itself would set it: the camera waits at the home view.
 	Entity const camera = findCamera();

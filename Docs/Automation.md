@@ -1037,7 +1037,11 @@ plays reaches the vehicle at its next physics step without making it again (the 
 edit of `Up` or `Forward`, which makes it again and says so in the log. While a `telemetry.start` recording runs, each
 vehicle records 16 channels a step, `Vehicle.<entity ID>.<quantity>` (`Throttle`, `FrontBrake`, `RearBrake`, `Lean`,
 `EngineSpeed`, `Gear`, `ForwardSpeed`, `LeanAngle` in degrees, and `Front.` and `Rear.` with `LongitudinalSlip`,
-`LateralSlip` in degrees, `Suspension` and `Grip`), which `telemetry.read` reads.
+`LateralSlip` in degrees, `Suspension` and `Grip`), which `telemetry.read` reads. A playing bike is ridden through
+`input.set` as its player rides it, by the actions its game reads or an injected gamepad's triggers, stick and bumpers
+(a `Manual` gearbox waits in neutral until the first shift up), and `vehicle.state` after a `play.advance` reads what the
+steps made of it. Those inputs are read once a game frame, so a ride that must be the same at every frame rate sets the
+bike's inputs from the game's own fixed step instead (Docs/Scripting.md, "Vehicles").
 
 | Command | Parameters | Result |
 |---------|-----------|--------|

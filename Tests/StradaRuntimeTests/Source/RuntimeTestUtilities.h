@@ -27,16 +27,20 @@
 // repository's projects and templates.
 namespace Strada::RuntimeTesting
 {
+	// How long a run may take before it is stopped and its test fails; a longer run (behind STRADA_LONG_RIDES=1) states its
+	// own.
+	inline constexpr std::chrono::seconds RunTimeout = std::chrono::minutes(2);
+
 	// Runs a program to completion with the per-user root given, where it writes its log, its crash reports and its game's
 	// data: never into this user's folders.
 	inline ProcessResult RunProgram(std::filesystem::path const& program, std::vector<std::string> arguments,
-	                                Testing::IsolatedUserRoot const& userRoot)
+	                                Testing::IsolatedUserRoot const& userRoot, std::chrono::seconds timeout = RunTimeout)
 	{
 		ProcessSpecification specification;
 		specification.Executable = program;
 		specification.Arguments = std::move(arguments);
 		specification.Environment = userRoot.GetEnvironment();
-		specification.Timeout = std::chrono::minutes(2);
+		specification.Timeout = timeout;
 		Result<ProcessResult> result = Process::Run(specification);
 		REQUIRE_MESSAGE(result.IsOk(), (result ? std::string() : result.GetError()));
 		REQUIRE_FALSE(result.GetValue().TimedOut);
@@ -51,9 +55,10 @@ namespace Strada::RuntimeTesting
 	}
 
 	// Runs the player of this build to completion, as RunProgram does.
-	inline ProcessResult RunPlayer(std::vector<std::string> arguments, Testing::IsolatedUserRoot const& userRoot)
+	inline ProcessResult RunPlayer(std::vector<std::string> arguments, Testing::IsolatedUserRoot const& userRoot,
+	                               std::chrono::seconds timeout = RunTimeout)
 	{
-		return RunProgram(FileSystem::PathFromUtf8(STRADA_RUNTIME_PATH), std::move(arguments), userRoot);
+		return RunProgram(FileSystem::PathFromUtf8(STRADA_RUNTIME_PATH), std::move(arguments), userRoot, timeout);
 	}
 
 	inline ProcessResult RunPlayer(std::vector<std::string> arguments)

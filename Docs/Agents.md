@@ -304,7 +304,13 @@ The [`strada-make-game`](../.claude/skills/strada-make-game/SKILL.md) skill is t
    `physics_query` asks its physics world what scripts' queries would see: `kind` `raycast` or `raycastAll` from an
    `origin` along a `direction`, `shapeCast` (a `sphere`, `box` or `capsule` swept along it) or `overlap` (the
    entities a shape overlaps), with a layer `mask`; it answers the entities hit, with point, normal, distance and
-   physics material, which tells why a wheel, a ground check or a trigger saw what it saw.
+   physics material, which tells why a wheel, a ground check or a trigger saw what it saw. A playing motorcycle is
+   ridden as its player rides it, through its actions or an injected gamepad: a `Manual` gearbox waits in neutral, so tap
+   the shift up first, then hold the throttle. `vehicle_state` reads each bike as its last physics step left it (the
+   inputs given and applied, the engine's speed, the gear, the speed, the lean and each wheel's contact, surface,
+   suspension and slips). Overrides and pads are read once a frame, so a ride that must be the same at every frame rate
+   is written into the game's fixed step instead: a graph's `Event.FixedUpdate` that sets the bike's inputs from a count
+   of its own steps and the bike's state (Moto's ride test scene does).
 10. **Measure.** `profiler_start` records from the next editor frame; let frames run (a playing game, or editor frames
     between calls: `play_advance` runs all its game frames inside one editor frame, so it gives one profiler frame), then
     `profiler_status` with `medians: true` tells where the time goes: the frame's median and 99th percentile, each

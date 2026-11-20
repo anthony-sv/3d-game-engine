@@ -51,6 +51,7 @@ from Graphs import CHECK, ENTITY, private, public  # noqa: E402
 
 CHECKS = Graphs.script("Checks")
 TESTS = Graphs.script("Tests")
+RIDE_TESTS = Graphs.script("RideTests")
 LIBRARIES = (CHECKS,)
 VECTOR = "Strada.Vector3"
 
@@ -84,9 +85,11 @@ class Suite:
       locals), title of its box, write(b));
     - own: the names of the entities it makes in the scene, which keep their IDs when the scene is made again;
     - make(create): makes them, create(name, components) returning the new entity's ID;
-    - prepare(session, found): adjusts the scene's entities (found: their IDs by name) before the runner is made."""
+    - prepare(session, found): adjusts the scene's entities (found: their IDs by name) before the runner is made;
+    - events: regions of the runner graph's event graph it adds beside the start, which runs the checks: (title of its
+      box, its colour, write(b)), such as a ride driven from Event.FixedUpdate whose readings its checks report."""
 
-    def __init__(self, checks, write, entities=(), variables=(), helpers=(), own=(), make=None, prepare=None):
+    def __init__(self, checks, write, entities=(), variables=(), helpers=(), own=(), make=None, prepare=None, events=()):
         self.checks = checks
         self.write = write
         self.entities = entities
@@ -95,6 +98,7 @@ class Suite:
         self.own = own
         self.make = make
         self.prepare = prepare
+        self.events = events
 
 
 # The test scenes, one line each.
@@ -102,12 +106,15 @@ SCENES = (
     TestScene("Tests", "Tests", TESTS, "The test scene's checks: {count} checks of Moto's circuit, its camera tour and its ghost "
               "bike, one after another, each a latent function that acts or waits for its moment, then reports it.",
               math.ceil(Tour.LENGTH) + 30),
+    TestScene("Ride", "Ride Tests", RIDE_TESTS, "The ride test scene's checks: {count} checks of the ridden bike, each a latent "
+              "function that waits for a reading the ride takes in its fixed steps, then reports it.", 60),
 )
 # The modules whose checks the test scenes run, one line each, in the order their checks run: (the scene they join, the
 # module that holds them, by its name). A module's Suite is its SUITE; it is imported when the checks are written, so a
 # module may import this one for its helpers.
 MODULES = (
     ("Tests", "Checks"),
+    ("Ride", "BikeChecks"),
 )
 # The runner graphs and the library they report through, and the tests part's files.
 GRAPHS = (CHECKS,) + tuple(scene.graph for scene in SCENES)
@@ -462,6 +469,10 @@ def write_tests(author, scene):
             b.flow(steps[f"Then{index}"], b.own(name))
         b.flow(steps[f"Then{len(order)}"], b.call("Call:Strada.Testing.TestReporter.Finish()"))
 
+    for suite in suites(scene):
+        for title, color, write_events in suite.events:
+            with author.region(scene.graph, title, color) as b:
+                write_events(b)
     for suite in suites(scene):
         for (function, *_), title, write_helper in suite.helpers:
             with author.region(scene.graph, title, CHECK, function) as b:

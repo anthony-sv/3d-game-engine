@@ -492,6 +492,12 @@ graph_get {"graph":"asset://Scripts/Spinner.sgraph"}
   one bike). Over time, record with `telemetry_start` and read the bike's channels with `telemetry_read`:
   `Vehicle.<entity ID>.EngineSpeed`, `.Gear`, `.ForwardSpeed`, `.LeanAngle`, `.Throttle`, `.FrontBrake`, `.RearBrake`,
   `.Lean`, and `.Front.` or `.Rear.` with `LongitudinalSlip`, `LateralSlip`, `Suspension` and `Grip`, one value a step.
+- Ride a playing bike as its player does, through its actions or an injected gamepad: a `Manual` gearbox waits in
+  neutral, so tap the shift up first (`input_set` `{"actions": {"ShiftUp": true}}`, `play_advance` one frame, then
+  `null`), then hold `Throttle`, advance, and read `vehicle_state`'s `gear`, `forwardSpeed` and `applied` inputs.
+  Overrides and pads are read once a frame, so a ride that must give the same numbers at every frame rate is written
+  into the game instead: a graph's `Event.FixedUpdate` that sets the bike's inputs from a count of its own steps and the
+  bike's state, and records each reading in the step it belongs to.
 - `audio_meters` reads the mix while the game plays: each bus of the project's mixer with its `peak` and `rms` (linear)
   and `peakDb` and `rmsDb` over the last block mixed, the `snapshot` the mix is at, and the voice counts. A bus that
   reads -80 dB is silent: check the source's `Bus`, the mixer's mutes and what ducks it.

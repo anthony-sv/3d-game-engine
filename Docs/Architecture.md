@@ -6524,35 +6524,59 @@ that each platform's names are tested on every platform:
   checking every graph (no diagnostic, every node in one box, every box arranged), by a test run that must pass every
   check, by playing the main scene for 10 s in play mode, where the camera must be on the tour's path and the ghost on
   its line, and by refusing any warning in the log.
-  **The ridden bike** (slice 4's VH2: its design; its next steps build it). The grid bike becomes a vehicle ridden with
-  the actions: the `bike` part gives the `Bike` root a dynamic body of `RacingLine.py`'s 262 kg (rider included), a chassis
-  collider low between the wheels (not the wheels: a wheel entity has no collider, §8 "Vehicles") whose roll inertia
-  clears the lean spring's bound, and `Vehicle` on `Assets/Vehicles/Moto.svehicle`; `Front Wheel` and `Rear Wheel` get
-  `VehicleWheel`. `Tools/Vehicle.py` writes the definition from `Bike.py`'s geometry (wheelbase 1.485 m, rake 24°, trail
-  98 mm, tyres of 0.2999 and 0.3259 m radius, 120 and 200 mm wide) and `RacingLine.py`'s figures (150 kW, the gears 2.714
-  to 1.304 behind a primary of 1.80 and a final drive of 2.5625, so overall ratios of 12.52 in first to 6.01 in sixth;
-  idle 1,700 rpm, red line 16,000), in `Manual` mode (the rider shifts with `ShiftUp` and `ShiftDown`), with its curves in
-  `Assets/Vehicles/` and a `check()` that recomputes the figures below from what it wrote. The four surfaces get their
-  tyre grip through the `circuit` part (asphalt 1, kerb 0.9, grass and gravel low). One riding graph on the bike is its
-  only writer of `SetDriverInput` and the shifts: in `Event.FixedUpdate` it reads `Throttle`, `FrontBrake`, `RearBrake`
-  and `Lean` (or the public input values a test or the autopilot writes, as its public `Driver` says) and shifts on the
-  actions' presses. `Moto.sinput` replaces `Brake` by `FrontBrake` (the left trigger and `Key/S`) and `RearBrake`
-  (`Gamepad/X` and `Key/Space`). **The short ride** (`Scenes/Ride.sscene`: the main scene without the props, made by the
-  tests part; the shard `StradaRuntimeTests.Ride`, at 1/60 and 1/30) drives the riding graph's test inputs from
-  `Event.FixedUpdate` by its count of steps, and checks bands drawn from these figures (`Vehicle.py`'s `check()` prints
-  each from the definition it writes, and the bands are the figure with the room stated): (1) from rest in first gear at
-  full throttle, the speed after 3 s: the definition holds the rear wheel's force at full throttle in first gear to
-  `RacingLine.py`'s `WHEELIE` of 9 m/s² (2,358 N at 262 kg), so a = 9 - 0.015 g - ρ C_dA v² / 2m gives about 26 m/s
-  (9,500 rpm in first, below the shift); the band is 18 to 30 m/s; (2) each `ShiftUp` one gear up, exactly; (3) from
-  20 m/s, the front brake alone stops the bike in about v² / 2a = 17 m at `BRAKING`'s 11.5 m/s² (band 12 to 26 m), and the
-  rear brake alone, whose torque asks about 0.45 g of the lightened rear tyre, in about 45 m: the front's distance is
-  shorter; (4) upright on the straight with no lean input: |lean| below 3°; (5) a left lean input of -0.5 for 1 s at
-  15 m/s leans the bike left by more than 5° and turns its heading left by more than 5°; (6) coasting 1 s at 15 m/s onto
-  the gravel trap outside Turn 6 (rolling resistance 0.25, so 2.45 m/s² against asphalt's 0.15) loses at least 1 m/s more
-  than on asphalt. The ride lasts about 20 s of game time (1,200 frames at 1/60, 600 at 1/30) and starts the player once
-  per rate on a scene without props, so the shard stays well under 200 s on CI's macOS runners, where one start on Moto
-  with its props costs about 25 s; anything longer runs behind `STRADA_LONG_RIDES=1`. `Tests.sscene` keeps its 24 checks
-  and gains no ride.
+  **The ridden bike** (slice 4's VH2). The grid bike is a vehicle ridden with the actions: the `bike` part gives the
+  `Bike` root a dynamic body of `RacingLine.py`'s 262 kg (rider included), a chassis box low between the wheels (not the
+  wheels: a wheel entity has no collider, §8 "Vehicles") whose roll inertia of 9.82 kg m² clears the lean spring's bound
+  of 6.67, and `Vehicle` on `Assets/Vehicles/Moto.svehicle`; `Front Wheel` and `Rear Wheel` get `VehicleWheel`.
+  `Tools/Vehicle.py` writes the definition from `Bike.py`'s geometry (wheelbase 1.485 m, rake 24°, trail 98 mm, tyres of
+  0.2999 and 0.3259 m radius, 120 and 200 mm wide) and `RacingLine.py`'s figures (150 kW at the wheel at 14,000 rpm, the
+  gears 2.714 to 1.304 behind a primary of 1.80 and a final drive of 2.5625, so overall ratios of 12.52 in first to 6.01
+  in sixth; idle 1,700 rpm, red line 16,000), in `Manual` mode: the bike waits in neutral, and the rider shifts with
+  `ShiftUp` and `ShiftDown`. Its curve (`EngineTorque.scurve`) lives in `Assets/Vehicles/`, and its `check()` asserts the
+  figures and recomputes the ride's from what it wrote. The four surfaces get their tyre grip through the `circuit` part
+  (asphalt 1, kerb 0.9, grass 0.45, gravel 0.4). The riding graph (`Scripts/Bike.sgraph`) is the bike's only writer of
+  `SetDriverInput` and the shifts: in `Event.FixedUpdate`, while its public `Driver` is 0, it reads `Throttle`,
+  `FrontBrake`, `RearBrake` and `Lean` and shifts on the presses of `ShiftUp` and `ShiftDown`. With `Driver` 1 (an
+  autopilot) or 2 (a test) it applies its public `Throttle`, `FrontBrake`, `RearBrake` and `Lean`, which other graphs set,
+  and shifts on the custom events `ShiftUp` and `ShiftDown` they send it. `Moto.sinput` has `FrontBrake` (the left trigger
+  and `Key/S`) and `RearBrake` (`Gamepad/X` and `Key/Space`) in place of `Brake`. Every authoring run rides the bike in
+  play mode on the actions and compares its launch and stops with `Vehicle.py`'s figures within 20 %. **The tests part**
+  is made of modules (`Tools/Checks.py`): `SCENES` holds the test scenes and `MODULES` the modules whose checks join
+  them, one line each. A module's `Suite` gives its checks, their writer, the entities and variables they use, helper
+  functions, its own entities, how it prepares the scene, and regions it adds to the runner graph's event graph (`events`).
+  The core module holds `Tests.sscene`'s 24 checks; `Tools/BikeChecks.py` holds the ride's. **The ride test scene**
+  (`Scenes/Ride.sscene`, the main scene without its props, with the `Ride Tests` entity running `Scripts/RideTests.sgraph`)
+  sets the riding graph's `Driver` to 2. The runner graph's `Event.FixedUpdate` rides the bike as a function of its own
+  count of fixed steps and of what the bike reads (its gear, its speed), never of a frame. It writes the riding graph's
+  public values and sends it its shifts, and takes every reading in the step it belongs to: the ride and its readings are
+  the same at every frame rate, step for step. The phases, one after another: from the grid, `ShiftUp` into first and full
+  throttle for 3 s; second gear up to 20 m/s, a coast in neutral down to it, then the front brake alone until the bike
+  stops; first gear up to 20 m/s again, the coast, the rear brake alone; first gear up to 15 m/s, a coast down to it, then
+  1 s on the asphalt with nothing applied; then a teleport (`RigidBodyComponent.Teleport` with its velocity and spin set)
+  into the gravel trap outside Turn 6 at the speed it had, facing along the lap with its wheels turning on, for 1 s more;
+  then back onto the main straight, 3 m right of its center line, first gear up to 15 m/s, the coast, and a lean of -0.5 for
+  1 s. At the end it is teleported back onto the grid at rest, braked until it stops, and left in neutral with no input,
+  for the checks that join the scene later. It takes about 1,875 steps (31 s). Seven checks, each a band drawn from the figures
+  `Vehicle.py`'s `ride_figures()` gives (closed forms from the definition), with the room each form leaves:
+  (1) the speed 3 s after the launch, 18.92 m/s by the form, in 0.9 to 1.3 times it (the form takes the spinning rear tyre at its
+  sliding friction throughout, where it grips up to its peak whenever it spins less), read 20.58; (2) the front brake
+  alone from 20 m/s, 24.17 m, in 0.85 to 1.25 times it (the form moves the weight to the front at once, where the
+  springs' pitch moves it over the first tenths of a second), read 25.47 (25.52 in Release); (3) the rear brake alone from 20 m/s, 50.04 m,
+  in the same room and longer than the front's, read 52.75; (4) upright with no lean asked over the launch and the
+  asphalt's coast, within 3°, read 1.65° at most; (5) the coast in the gravel losing more than the one on the asphalt by
+  the forms' 2.28 m/s (rolling resistance 0.25 against 0.015), in 0.75 to 1.25 times it, read 2.69 against 0.51 m/s;
+  (6) each of the five `ShiftUp`s (from neutral four times, from first once) one gear up, exactly, counted 10 steps after
+  each; (7) the lean to the left leaning the bike more than 5° to the left and turning its heading more than 5° to the
+  left, read -10.95° and 46.4° (-10.81° and 46.3° in Release; the steering turns the bike before the lean builds). Release
+  reads within 1.3 % of Debug, and each the same at every frame rate. The graph logs every reading in one line ("Moto's ride: ..."). `MotoRideTests.cpp` (the shard
+  `StradaRuntimeTests.Ride`) plays the scene at 1/60 and at 1/30 s a frame and requires the same line and the same physics
+  state at step 1,750, after both teleports; behind `STRADA_LONG_RIDES=1`, with a timeout of 10 minutes, it also plays it at
+  1/144 s a frame. The scene has no props, so the shard's two starts of the player stay well within its 200 s on CI's
+  macOS runners, where one start on Moto with its props costs about 25 s. `Tests.sscene` keeps its 24 checks and gains no
+  ride. `PlayModeTests` rides the main scene's bike on an injected gamepad (`input.set`'s `gamepads`): the right bumper
+  shifts it into first, the right trigger takes it more than 8 m off the grid at over 8 m/s in 2 s (it reads 13.5), the
+  left trigger alone slows it by more than 2 m/s in 1 s still in gear (it reads 4.0), and stopping brings it back to the
+  grid.
 - The Showcase's **Graph Garden**: chimes played by six visual scripts (`Scripts/GraphGarden`; `Tools/GraphGarden.py`
   authors them and `Tools/Author.py --exhibit GraphGarden` rebuilds the exhibit in place, with a hash guard that names
   any file outside the exhibit that changed), whose score is a Timeline; seven of the Showcase's 68 checks look at it.
