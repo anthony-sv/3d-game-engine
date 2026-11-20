@@ -6941,7 +6941,9 @@ graphs alone keeps its best lap and its settings screen, and none exposes a path
   (the `Canvases` overlay is on by default), and a batch ends wherever the texture changes. So every group is saved
   hidden in `Main.sscene` (a hidden rectangle and what is under it draw nothing) and the graph shows the groups of the
   director's state while the game plays; the scene as saved, which the editor's start-line view and `MotoSceneTests`
-  render, draws no UI, and the start line keeps its reading. The screen draws in hierarchy order, so its elements stand
+  render, draws no UI, and `MotoSceneTests`' start line keeps its reading. The editor's scene view outlines every canvas
+  while its `Canvases` overlay is on (the default): the outline's lines are two draws there (the lines and their
+  composite), which no other overlay at the start line draws. The screen draws in hierarchy order, so its elements stand
   in groups: the map, then every rectangle (the plates, the bars, the shift light, the map's mark), then every text,
   then the pause screen; shown in a race the HUD adds three batches (the game's view of the start line with the HUD
   shown, which `MotoSceneTests` renders too, requires at most three draws more than without it and 400 in all), and the

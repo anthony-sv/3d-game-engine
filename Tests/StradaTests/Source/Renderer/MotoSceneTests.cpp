@@ -76,7 +76,8 @@ TEST_CASE("SceneRenderer: Moto's dressed main scene draws its 10,000 props as in
 			GraphicsDevice::WaitForIdle();
 		}
 	}
-	SUBCASE("at the start line, the bike on the grid and the ghost bike beside the gantry")
+	SUBCASE("at the start line, the bike on the grid and the ghost bike beside the gantry, then as the game draws it in a race, "
+	        "the HUD shown")
 	{
 		// The editor's scene view where slice 2's gate read 392 draws (viewport.camera: the focal point on the line, 14 m
 		// away, yaw 200, pitch -12), with the entity-ID pass the scene view draws. The ghost bike's meshes and materials are
@@ -94,14 +95,10 @@ TEST_CASE("SceneRenderer: Moto's dressed main scene draws its 10,000 props as in
 		CAPTURE(statistics.Instances);
 		CHECK(statistics.DrawCalls <= 400);
 		GraphicsDevice::WaitForIdle();
-	}
-	SUBCASE("at the start line as the game draws it in a race, the HUD shown")
-	{
-		// The HUD (Projects/Moto/Tools/Hud.py) is saved hidden, so the views above draw none of it; its graph shows its groups
-		// while a race runs. Shown here as the graph shows them, it draws in the game's view of the start line (no entity-ID
-		// pass) in at most three batches over the scene's: the track map's texture, every rectangle, then every text.
-		glm::vec3 const focalPoint(73.366f, 0.0f, -218.005f);
-		SceneRendererCamera const camera = Testing::MakeTestCamera(glm::vec3(68.682f, 2.911f, -230.873f), focalPoint, Width, Height);
+
+		// The HUD (Projects/Moto/Tools/Hud.py) is saved hidden, so the views draw none of it; its graph shows its groups while a
+		// race runs. Shown as the graph shows them, it draws in the game's view of the start line (no entity-ID pass) in at
+		// most three batches over the scene's: the track map's texture, every rectangle, then every text.
 		SceneRenderer hidden("Moto");
 		hidden.SetViewportSize(Width, Height);
 		RenderScene(scene, hidden, camera);
@@ -114,15 +111,14 @@ TEST_CASE("SceneRenderer: Moto's dressed main scene draws its 10,000 props as in
 			REQUIRE(group);
 			group.GetComponent<UIRectComponent>().Visible = true;
 		}
-		SceneRenderer renderer("Moto");
-		renderer.SetViewportSize(Width, Height);
-		RenderScene(scene, renderer, camera);
-		SceneRendererStatistics const& statistics = renderer.GetStatistics();
+		SceneRenderer game("Moto");
+		game.SetViewportSize(Width, Height);
+		RenderScene(scene, game, camera);
+		SceneRendererStatistics const& shown = game.GetStatistics();
 		CAPTURE(withoutHud);
-		CAPTURE(statistics.DrawCalls);
-		CAPTURE(statistics.Batches);
-		CHECK(statistics.DrawCalls <= withoutHud + 3);
-		CHECK(statistics.DrawCalls <= 400);
+		CAPTURE(shown.DrawCalls);
+		CHECK(shown.DrawCalls <= withoutHud + 3);
+		CHECK(shown.DrawCalls <= 400);
 		GraphicsDevice::WaitForIdle();
 	}
 	SUBCASE("from high above, every prop in view")
