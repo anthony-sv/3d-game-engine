@@ -3175,7 +3175,8 @@ wheel all of its torque).
   vehicle moves the world's structure version, so a snapshot of another structure is refused; changing its values in place
   (`SetVehicleSettings`) does not. The chassis's centre of mass and inertia are its colliders' alone, as any dynamic body's
   are: a bike that must carry its mass low places its chassis collider low, and the vehicle adds no offset of its own.
-  The colliders also give the chassis its roll inertia, which the lean spring needs: Jolt applies the spring's impulse at
+  How far a bike leans into its turns depends on its wheels' widths as much as on its chassis: a wheel's `Width` is the
+  width of its cast against the ground, round only up to 0.1 m (below, "The wheels' cast"). The colliders also give the chassis its roll inertia, which the lean spring needs: Jolt applies the spring's impulse at
   every velocity iteration of the solver against what it applied before (`MotorcycleController.cpp:218-226`), so its
   damping term changes the roll rate by `LeanSpringDamping` times the collision step over the roll inertia about the
   front at each iteration, and the iterations settle only while that ratio is below 1 (for the default damping of 1,000
@@ -3225,8 +3226,8 @@ wheel all of its torque).
   `:487-488`) through Jolt's allocator, which is thread-safe; that time is inside the vehicle's budget below.
   ThreadSanitizer runs the vehicles' cases with workers under the `PhysicsScene:` prefix (`tsan.yml`'s selection).
 - **The wheel tests.** Each wheel casts its cylinder down its suspension, as Jolt's `VehicleCollisionTesterCastCylinder`
-  does (`VehicleCollisionTester.cpp:241-329`, with half the wheel's width as its convex radius, as Jolt's motorcycle
-  sample, `MotorcycleTest.cpp:129`), on the chassis's object layer with the project's layer pairs and past the chassis's own
+  does (`VehicleCollisionTester.cpp:241-329`, asking for half the wheel's width as its convex radius, as Jolt's motorcycle
+  sample, `MotorcycleTest.cpp:129`; below, "The wheels' cast", for the radius the cast gets), on the chassis's object layer with the project's layer pairs and past the chassis's own
   body. Jolt's testers skip sensor bodies only (`VehicleCollisionTester.cpp:290`), and a Strada trigger is a collider of a
   body, not a body, so the engine's tester (a subclass of Jolt's cylinder tester whose `Collide` makes the same cast with
   the shape filter that refuses trigger colliders, the one the queries and characters use) passes through triggers: a trigger volume never carries a wheel, and a
@@ -3235,6 +3236,20 @@ wheel all of its torque).
   tests, active and inactive, stay at their default of 1, `VehicleConstraint.h:174`, `:182`): a predicted contact keeps the
   sub-shape of an earlier test, which Jolt's snapshot does not save (`VehicleConstraint.cpp:646-671` saves the contact
   body, not its sub-shape), and the wheel's surface is found from that sub-shape.
+- **The wheels' cast.** A wheel's `Width` is the width of the cylinder it casts against the ground along its suspension,
+  not a tyre's drawn width: the cast asks for its edges rounded by half the width (by the radius when that is smaller),
+  but it takes the cylinder's support function without its convex radius (`ConvexShape.cpp:269-273`), which caps that
+  radius at Jolt's `cDefaultConvexRadius` of 0.05 m (`CylinderShape.cpp:164-174`, `ScaleHelpers.h:30`). So only a wheel
+  up to 0.1 m wide (`MaxRoundVehicleWheelWidth`, asserted against Jolt's constant in `VehicleWorld.cpp`) is round across
+  its width; a wider one rides on a flat bottom whose contact lies half its width less 0.05 m off the wheel's plane even
+  upright. The ground's force then misses the center of mass at the lean the controller aims for, the lean spring holds a
+  standing torque, and the linear impulse Jolt pairs with every roll impulse (`MotorcycleController.cpp:228-247`) carries
+  the turn in the tyres' place: **a motorcycle leans less into its turns the wider its wheels are**, and on round wheels
+  it leans less as their width grows too. A case of the engine's tests bands it on a steady circle: the test bike (26 kg
+  m²) at 15 m/s with its lean input set to the steering that balances a lean of 25° leans 0.78 of the angle that
+  balances the circle it rides on wheels 0.05 m wide, and 0.006 on wheels 0.2 m wide, nearly upright (read alike in Debug
+  and Release; it asserts at least 0.66, 85 % of that, and at most 0.3). A bike drawn with wide tyres casts narrower wheels than it draws (Moto's, §15), and the
+  scene warns of a vehicle that leans on a wider one (below, "The wide wheel's warning").
 - **Grip and rolling drag from the surface under each wheel.** A physics material gains `TyreGrip` (at least 0, default
   1), read by vehicles alone; `ColliderSurface` carries it with the material's `RollingResistance`, given by
   `SetMaterialValues` like the other values. An edit that changes these two alone wakes no body but the chassis of each
@@ -3509,6 +3524,14 @@ wheel all of its torque).
   entity, the inertia, the damping, the collision step and the damping below which the spring settles it. It warns once
   each time the vehicle comes to that: not again while it stays there, and again after an edit or a body that settled it
   is undone. It changes no value of the author's. FeatureTest's chassis clears it (26 kg m² against 800 times 1/60 s).
+- **The wide wheel's warning** (`Scene::CheckVehicleWheelWidths`). When a vehicle that leans (its `MaxLeanAngle` above 0;
+  at 0 the lean controller holds it upright) is made, or its values change, with a wheel wider than 0.1 m (above, "The
+  wheels' cast"), the scene warns that it leans less than its turns balance, naming the entity, the wheel and its width
+  and the width up to which a wheel's cast is round. It warns once for each wheel and width: not again for an edit that
+  leaves the wheel as it was or for a body made again, and again when that wheel takes another width above the bound,
+  comes back above it, or the vehicle is made again after it was none. It changes no value and runs only when the
+  vehicle changes, never in a step. FeatureTest's bike (wheels 0.12 and 0.18 m wide) is warned of; Moto's casts 24 and
+  40 mm.
 - **Profiler zones** (§4.4): `Physics.Vehicles` around the world's step listener, once per collision step on the thread
   that runs it; the inputs and shifts reach the controllers inside `Physics.Step`; `Scene.SyncVehicles` only in the frames
   after a data asset changed or a vehicle's component or body changed; the wheels are recorded inside `Scene.SyncFromPhysics`, drawn inside `Scene.Interpolate` and
@@ -7090,8 +7113,9 @@ graphs alone keeps its best lap and its settings screen, and none exposes a path
   Jolt's own sample body, made in this engine, 0.82 to 0.89 on its 50 mm wheels and 0.43 to 0.47 on wheels three times as
   wide. A lower center of mass or a larger roll inertia on the wide contacts fell or left the road in every probe, and the
   engine has no field for either (a chassis's mass and inertia are its colliders', section 8). So `Vehicle.py` gives the
-  wheels contact widths of their own, 24 and 40 mm (at most 0.1 m, which its `check()` asserts), while `Bike.py` draws the
-  tyres 120 and 200 mm wide; the lean spring goes from 5,000 to 10,000 with its damping held at 400 (a stiffer spring with
+  wheels contact widths of their own, 24 and 40 mm (at most 0.1 m, which its `check()` asserts, and above which the
+  engine warns of a vehicle that leans, section 8, "The wide wheel's warning"), while `Bike.py` draws the tyres 120 and
+  200 mm wide; the lean spring goes from 5,000 to 10,000 with its damping held at 400 (a stiffer spring with
   the damping held leans the bike deeper and faster: on these contacts Turn 1's peak roll rate read 31, 38, 43 and 61°/s
   at 5,000, 7,500, 10,000 and 15,000; a damping raised with the spring, towards the roll inertia's bound of 589, slows the
   lean instead); and the autopilot takes `LineSpeed`'s corners at 0.75 g with an understeer of 1.15 (on the narrow contacts

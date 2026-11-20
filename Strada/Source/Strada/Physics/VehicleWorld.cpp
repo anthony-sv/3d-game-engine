@@ -16,6 +16,7 @@
 #include <Jolt/Physics/Collision/NarrowPhaseQuery.h>
 #include <Jolt/Physics/Collision/Shape/CylinderShape.h>
 #include <Jolt/Physics/Collision/ShapeCast.h>
+#include <Jolt/Physics/PhysicsSettings.h>
 #include <Jolt/Physics/PhysicsSystem.h>
 #include <Jolt/Physics/StateRecorder.h>
 #include <Jolt/Physics/Vehicle/MotorcycleController.h>
@@ -73,9 +74,14 @@ namespace Strada
 		             JPH::RVec3& outContactPosition, JPH::Vec3& outContactNormal, float& outSuspensionLength) const override;
 
 	private:
-		// Half the wheel's width (or its radius when smaller) rounds the cylinder, as Jolt's motorcycle sample sets it
-		// (MotorcycleTest.cpp:129): the tyre rolls over edges.
+		// The cylinder's convex radius asked for is half the wheel's width (or its radius when smaller), as Jolt's motorcycle
+		// sample sets it (MotorcycleTest.cpp:129), so that the tyre rolls over edges. The cast takes the shape's support
+		// function without its convex radius (ConvexShape.cpp:269-273), which caps that radius at cDefaultConvexRadius
+		// (CylinderShape.cpp:164-174, ScaleHelpers.h:30): only a wheel up to MaxRoundVehicleWheelWidth wide is round across
+		// its width, and a wider one rides on a flat bottom whose contact lies off the wheel's plane even upright.
 		static constexpr float ConvexRadiusFraction = 1.0f;
+		static_assert(MaxRoundVehicleWheelWidth == 2.0f * JPH::cDefaultConvexRadius,
+		              "A wheel's cast is round up to twice Jolt's largest convex radius");
 
 		std::vector<ColliderMaterial> const& m_Materials;
 	};

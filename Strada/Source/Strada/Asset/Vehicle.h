@@ -59,7 +59,11 @@ namespace Strada
 		glm::vec3 SteeringAxis = glm::vec3(0.0f, 0.866025f, 0.5f);
 		// The largest steering angle, degrees (0 to 90): above 0 for the front wheel, 0 for the rear.
 		float MaxSteerAngle = 30.0f;
-		// The tyre's radius (above 0) and width (at least 0).
+		// The tyre's radius (above 0). Width (at least 0) is the width of the cylinder the wheel casts against the ground
+		// along its suspension, whose edges are rounded by half that width (by the radius when that is smaller) and by
+		// 0.05 m at most: Jolt caps every cast's convex radius there (ScaleHelpers.h:30 of the pinned Jolt). A wheel wider
+		// than MaxRoundVehicleWheelWidth therefore rides on a flat bottom whose contact lies off the wheel's plane, and a
+		// motorcycle leans less into its turns the wider its wheels are (Docs/Architecture.md §8, "The wheels' cast").
 		float Radius = 0.31f;
 		float Width = 0.05f;
 		// The wheel's moment of inertia around its axle (kg m², above 0) and how fast its spin decays by itself (per second,
