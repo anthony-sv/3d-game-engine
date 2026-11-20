@@ -92,7 +92,7 @@ TURN_ROOM = (0.6, 1.25)
 # The autopilot's segments: the lap distance covered against Ride.predict's point mass, the farthest from the line (meters),
 # no step with a wheel on gravel or grass, and no lean past the line's limit. The point mass takes each speed the line gives
 # at once and slows exactly as the profile does, where the autopilot's throttle and brake follow the speed by their gains,
-# behind it: the ride covers less than the point mass, or a little more (read 0.94 and 1.03 of it), never much more.
+# behind it: the ride covers less than the point mass, or a little more (read 0.94 and 1.01 of it at 0.8 g), never much more.
 COVERED_ROOM = (0.75, 1.15)
 MOST_OFFSET = 3.0
 MOST_LEAN = RacingLine.MAX_LEAN

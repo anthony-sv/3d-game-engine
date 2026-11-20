@@ -31,16 +31,18 @@ visual scripts alone (no C#). In order:
    snapshot and back, and it plays the ridden bike's sounds, its children, and the crowd's at the grandstands);
 9. the ghost part: the ghost bike, a second motorcycle and rider of the bike part's meshes and materials, at the start and
    finish line, its graph (Scripts/Ghost.sgraph), whose timeline rides it round the racing line (RacingLine.py makes
-   the line and its keys, Ghost.py the graph), and its engine's sound (the Engine Sound entity under it with a voice for
-   each layer, running the sound part's Scripts/EngineSound.sgraph);
+   the line and its keys, Ghost.py the graph) until it rides the ridden bike's best lap, which it records at the race
+   director's lap events and keeps (its samples public arrays, with its Delta), and its engine's sound (the Engine Sound
+   entity under it with a voice for each layer, running the sound part's Scripts/EngineSound.sgraph);
 10. the trackside part: the trackside cameras, the chase camera and the camera director (Trackside.py: the Trackside
     entity, whose children the cameras are, and Scripts/CameraDirector.sgraph), which cuts between them and the tour on
     actions, by its own rule in the attract mode and to the chase view in the race;
 11. the ride part: the Ride entity and its graph (Ride.py: Scripts/Ride.sgraph), which keeps the bike's place on the lap
     (Ride.Distance in telemetry) and rides it round the racing line when its autopilot is on (off, as Moto starts);
 12. the tests part: the test scenes (Checks.py's SCENES, each the main scene with its checks and without the props:
-    Scenes/Tests.sscene, and Scenes/Ride.sscene, whose graph rides the bike, BikeChecks.py, and its assists and its
-    autopilot, RideChecks.py) and their graphs (Checks.py);
+    Scenes/Tests.sscene; Scenes/Ride.sscene, whose graph rides the bike, BikeChecks.py, and its assists and its
+    autopilot, RideChecks.py, reads the directors, DirectorChecks.py, and the best lap's ghost, GhostChecks.py; and
+    Scenes/Lap.sscene, whole laps on the autopilot, LapChecks.py) and their graphs (Checks.py);
 13. checks: spheres dropped on the road, a kerb, a gravel trap, a verge, the ground, a barrier and the footbridge come to
     rest on their surfaces; the test scene's checks pass in a test run; the tour plays in play mode, the camera where its
     path puts it, and so does the ghost, where its line puts it; and nothing logs a warning.
@@ -633,8 +635,11 @@ class Moto:
         graph."""
         print("line:", RacingLine.check())
         self.write_part_graphs("ghost")
-        made = {"Bike": self.entity(Ghost.ENTITY, {"Transform": Ghost.transform(),
-                                                   "VisualScript": {"Graph": self.handles[Ghost.GHOST]}})}
+        roots = self.root_ids()
+        if "Bike" not in roots:
+            raise SystemExit("the ghost part follows the bike part: the scene has no Bike, whose laps the ghost records")
+        made = {"Bike": self.entity(Ghost.ENTITY, {"Transform": Ghost.transform(), "VisualScript": {
+            "Graph": self.handles[Ghost.GHOST], "Variables": {"Bike": {"Type": "Entity", "Value": roots["Bike"]}}}})}
         for name, mesh_name, parent, offset, angle in Bike.ENTITIES:
             materials = [material_reference(f"Bike/{material}") for material in Bike.mesh_materials(mesh_name)]
             made[name] = self.entity(name, {"Transform": {"Translation": list(offset), "RotationEuler": [angle, 0.0, 0.0]},

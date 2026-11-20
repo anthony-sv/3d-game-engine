@@ -450,6 +450,11 @@
 			"Path": "Meshes/TrackCollision.gltf"
 		},
 		{
+			"Handle": "5636800973075558202",
+			"Type": "Scene",
+			"Path": "Scenes/Lap.sscene"
+		},
+		{
 			"Handle": "1594086459268679014",
 			"Type": "Scene",
 			"Path": "Scenes/Main.sscene"
@@ -493,6 +498,11 @@
 			"Handle": "10119309049923292088",
 			"Type": "VisualScript",
 			"Path": "Scripts/Ghost.sgraph"
+		},
+		{
+			"Handle": "10225443518624490051",
+			"Type": "VisualScript",
+			"Path": "Scripts/LapTests.sgraph"
 		},
 		{
 			"Handle": "9787406575040700368",

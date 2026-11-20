@@ -55,6 +55,7 @@ from Graphs import CHECK, ENTITY, EVENTS, private, public  # noqa: E402
 CHECKS = Graphs.script("Checks")
 TESTS = Graphs.script("Tests")
 RIDE_TESTS = Graphs.script("RideTests")
+LAP_TESTS = Graphs.script("LapTests")
 LIBRARIES = (CHECKS,)
 VECTOR = "Strada.Vector3"
 
@@ -119,8 +120,11 @@ SCENES = (
               "bike, one after another, each a latent function that acts or waits for its moment, then reports it.",
               math.ceil(Tour.LENGTH) + 30),
     TestScene("Ride", "Ride Tests", RIDE_TESTS, "The ride test scene's checks: {count} checks of the ridden bike, its rider "
-              "assists and its autopilot, each a latent function that waits for a reading the ride takes in its fixed steps, then "
-              "reports it.", 120),
+              "assists, its autopilot, the directors and the best lap's ghost, each a latent function that waits for a reading "
+              "the ride takes, then reports it.", 200),
+    TestScene("Lap", "Lap Tests", LAP_TESTS, "The lap test scene's checks: {count} checks of whole laps the autopilot rides from "
+              "the grid and the ghost that keeps the best of them, each a latent function that waits for a reading the laps take "
+              "in their fixed steps, then reports it.", 240),
 )
 # The modules whose checks the test scenes run, one line each, in the order their checks run: (the scene they join, the
 # module that holds them, by its name). A module's Suite is its SUITE; it is imported when the checks are written, so a
@@ -130,6 +134,8 @@ MODULES = (
     ("Ride", "BikeChecks"),
     ("Ride", "RideChecks"),
     ("Ride", "DirectorChecks"),
+    ("Ride", "GhostChecks"),
+    ("Lap", "LapChecks"),
 )
 # The runner graphs and the library they report through, and the tests part's files.
 GRAPHS = (CHECKS,) + tuple(scene.graph for scene in SCENES)
@@ -490,20 +496,24 @@ def write_tests(author, scene):
         for title, color, write_events in suite.events:
             with author.region(scene.graph, title, color) as b:
                 write_events(b)
+    def call_each(b, event, names):
+        """The event calls each function in turn: through a Sequence, or straight when there is one."""
+        if len(names) == 1:
+            b.chain(b.event(event), b.own(names[0]))
+            return
+        calls = b.sequence(len(names))
+        b.chain(b.event(event), calls)
+        for index, name in enumerate(names):
+            b.flow(calls[f"Then{index}"], b.own(name))
+
     steps = [name for suite in suites(scene) for name, _, _ in suite.steps]
     if steps:
         with author.region(scene.graph, "Fixed steps: each module's ride, in turn, every fixed step", EVENTS) as b:
-            calls = b.sequence(len(steps))
-            b.chain(b.event("Event.FixedUpdate"), calls)
-            for index, name in enumerate(steps):
-                b.flow(calls[f"Then{index}"], b.own(name))
+            call_each(b, "Event.FixedUpdate", steps)
     frames = [name for suite in suites(scene) for name, _, _ in suite.frames]
     if frames:
         with author.region(scene.graph, "Frames: each module's readings, in turn, every frame", EVENTS) as b:
-            calls = b.sequence(len(frames))
-            b.chain(b.event("Event.Update"), calls)
-            for index, name in enumerate(frames):
-                b.flow(calls[f"Then{index}"], b.own(name))
+            call_each(b, "Event.Update", frames)
     for suite in suites(scene):
         for (function, *_), title, write_helper in suite.helpers:
             with author.region(scene.graph, title, CHECK, function) as b:

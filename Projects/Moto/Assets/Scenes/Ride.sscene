@@ -1207,7 +1207,12 @@
 				},
 				"VisualScript": {
 					"Graph": "10119309049923292088",
-					"Variables": {}
+					"Variables": {
+						"Bike": {
+							"Type": "Entity",
+							"Value": "1233048084916068541"
+						}
+					}
 				}
 			}
 		},

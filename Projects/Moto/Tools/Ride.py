@@ -57,10 +57,12 @@ BIKE = Vehicle.BIKE
 # The line's arrays: a point every SPACING meters of the line's own length.
 SPACING = 2.0
 # The autopilot's speeds: the most sideways grip it rides a corner at (in g) and the braking it slows for one at (m/s^2,
-# besides the air's and the road's drag), well within what the bike's tyres give (Vehicle.py): the bike turns less than its
-# steering's geometry, and a hard front brake at speed sets it weaving, so it rides the line at a rider's careful pace
-# rather than the point mass's. Its brake goes on gently (BRAKE_GAIN, BRAKE_MAX) for the same reason.
-AUTO_GRIP = 0.7
+# besides the air's and the road's drag), within what the bike's tyres give (Vehicle.py): a hard front brake at speed sets
+# the bike weaving, so it rides the line at a rider's careful pace rather than the point mass's, and its brake goes on
+# gently (BRAKE_GAIN, BRAKE_MAX) for the same reason. The feel pass (Docs/Architecture.md section 15) raised the grip from
+# 0.7 by probing whole laps: at 0.8 the laps stay on the line and the road, leaned 11 degrees at most; at 0.85 and 0.9 the
+# exits run onto the grass, at 1.0 every exit does, and braking at 4.5 overshoots Turn 1.
+AUTO_GRIP = 0.8
 AUTO_BRAKING = 4.0
 # How it steers (above): the line's curvature it takes from CURVE_LEAD seconds ahead, and how fast it turns its heading back
 # onto the line's (HEADING_TIME) and the heading it takes back onto the line from an offset (OFFSET_TIME, at most
