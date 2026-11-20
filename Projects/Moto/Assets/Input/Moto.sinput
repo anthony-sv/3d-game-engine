@@ -264,6 +264,136 @@
 						"Scale": 1.0
 					}
 				]
+			},
+			{
+				"Name": "Back",
+				"Type": "Button",
+				"PressThreshold": 0.5,
+				"ReleaseThreshold": 0.4000000059604645,
+				"Bindings": [
+					{
+						"Controls": "Key/Backspace",
+						"Gamepad": -1,
+						"DeadZone": 0.0,
+						"ResponseCurve": "0",
+						"Invert": false,
+						"InvertY": false,
+						"Scale": 1.0
+					},
+					{
+						"Controls": "Gamepad/B",
+						"Gamepad": -1,
+						"DeadZone": 0.0,
+						"ResponseCurve": "0",
+						"Invert": false,
+						"InvertY": false,
+						"Scale": 1.0
+					}
+				]
+			},
+			{
+				"Name": "MenuUp",
+				"Type": "Button",
+				"PressThreshold": 0.5,
+				"ReleaseThreshold": 0.4000000059604645,
+				"Bindings": [
+					{
+						"Controls": "Key/Up",
+						"Gamepad": -1,
+						"DeadZone": 0.0,
+						"ResponseCurve": "0",
+						"Invert": false,
+						"InvertY": false,
+						"Scale": 1.0
+					},
+					{
+						"Controls": "Gamepad/DPadUp",
+						"Gamepad": -1,
+						"DeadZone": 0.0,
+						"ResponseCurve": "0",
+						"Invert": false,
+						"InvertY": false,
+						"Scale": 1.0
+					}
+				]
+			},
+			{
+				"Name": "MenuDown",
+				"Type": "Button",
+				"PressThreshold": 0.5,
+				"ReleaseThreshold": 0.4000000059604645,
+				"Bindings": [
+					{
+						"Controls": "Key/Down",
+						"Gamepad": -1,
+						"DeadZone": 0.0,
+						"ResponseCurve": "0",
+						"Invert": false,
+						"InvertY": false,
+						"Scale": 1.0
+					},
+					{
+						"Controls": "Gamepad/DPadDown",
+						"Gamepad": -1,
+						"DeadZone": 0.0,
+						"ResponseCurve": "0",
+						"Invert": false,
+						"InvertY": false,
+						"Scale": 1.0
+					}
+				]
+			},
+			{
+				"Name": "MenuLeft",
+				"Type": "Button",
+				"PressThreshold": 0.5,
+				"ReleaseThreshold": 0.4000000059604645,
+				"Bindings": [
+					{
+						"Controls": "Key/Left",
+						"Gamepad": -1,
+						"DeadZone": 0.0,
+						"ResponseCurve": "0",
+						"Invert": false,
+						"InvertY": false,
+						"Scale": 1.0
+					},
+					{
+						"Controls": "Gamepad/DPadLeft",
+						"Gamepad": -1,
+						"DeadZone": 0.0,
+						"ResponseCurve": "0",
+						"Invert": false,
+						"InvertY": false,
+						"Scale": 1.0
+					}
+				]
+			},
+			{
+				"Name": "MenuRight",
+				"Type": "Button",
+				"PressThreshold": 0.5,
+				"ReleaseThreshold": 0.4000000059604645,
+				"Bindings": [
+					{
+						"Controls": "Key/Right",
+						"Gamepad": -1,
+						"DeadZone": 0.0,
+						"ResponseCurve": "0",
+						"Invert": false,
+						"InvertY": false,
+						"Scale": 1.0
+					},
+					{
+						"Controls": "Gamepad/DPadRight",
+						"Gamepad": -1,
+						"DeadZone": 0.0,
+						"ResponseCurve": "0",
+						"Invert": false,
+						"InvertY": false,
+						"Scale": 1.0
+					}
+				]
 			}
 		]
 	}

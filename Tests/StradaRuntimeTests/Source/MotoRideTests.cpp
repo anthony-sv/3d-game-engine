@@ -32,13 +32,16 @@ using namespace Strada::RuntimeTesting;
 // 480), compared between the frame rates, and two short runs that keep their data (development runs, not test runs) show
 // the slot the first saved loaded by the second. Last come the HUD's and the pause's checks (Tools/HudChecks.py): a graph
 // presses the Pause action in the middle of the ride's lean and reads the stopped game and the HUD against the bike, and
-// a fourth race shows the ghost's live delta and the split delta at a sector gate. The pause inserts frames without fixed
-// steps, so the ride's and the race's readings and the state at the hash's step stay what they are.
+// a fourth race shows the ghost's live delta and the split delta at a sector gate, and a fifth's countdown neither. Then the
+// menus' checks (Tools/MenuChecks.py) press the menus as a player does: the title's RACE, a race to its results, the
+// settings screen's buttons read back through Settings, a binding that listens, the pad's selection and the pause screen.
+// The pause inserts frames without fixed steps, so the ride's and the race's readings and the state at the hash's step stay
+// what they are.
 
 namespace
 {
 	// The ride test scene's checks.
-	constexpr std::string_view RideChecks = "Tests passed: 22 checks";
+	constexpr std::string_view RideChecks = "Tests passed: 29 checks";
 	// A fixed step of the ride after it was teleported into the gravel trap and back (by about step 1,650) and before it ends
 	// (about step 1,870): the physics state there is the same at every frame rate.
 	constexpr std::string_view HashStep = "1750";

@@ -10,10 +10,13 @@ the race's. Two things drive what they read:
   again, and the HUD's texts, bars and mark against the vehicle's members), presses Pause again and reads the game going
   on two frames later. The pause inserts frames without fixed steps, so the ride and the race read what they read
   without it, step for step;
-- two checks of the runner graph, after the race's: a fourth race started and its lap 1 begun by a crossing of the line
+- three checks of the runner graph, after the race's: a fourth race started and its lap 1 begun by a crossing of the line
   sent the director as its gates send them, against the stand-in ghost, given a best lap and a Delta, then given none
   and a crossing of the first sector gate, whose split the HUD compares with the best lap's (the second scripted race's,
-  RaceChecks.SCRIPT) when the lap began; then the race is abandoned.
+  RaceChecks.SCRIPT) when the lap began; then the race is abandoned, and a fifth race's countdown shows neither the
+  fourth's delta nor its sectors, and is abandoned too.
+
+The pause screen is the menus' (Menu.py): the checks read it through the menus' graph.
 
 The HUD writes what the vehicle reads in its own formats (Hud.ROUNDING); the checks compare each text with the same
 member written so, each bar's length and the marks' places with what the applied inputs and the bike's place give.
@@ -27,6 +30,7 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import Checks  # noqa: E402  (the test scenes, reporting and waiting)
 import Graphs  # noqa: E402  (writing graphs)
 import Hud  # noqa: E402  (the screen and its formats)
+import Menu  # noqa: E402  (the menus, whose pause screen the pause shows)
 import Race  # noqa: E402  (the race director and the ghost's interface)
 import RaceChecks  # noqa: E402  (the scripted races, whose best lap the split delta reads against)
 import Vehicle  # noqa: E402  (the riding graph, whose public lean the pause waits for)
@@ -126,6 +130,7 @@ ENTITY_VARIABLES = (
     ("Race", "The race director"),
     ("Bike", "The ridden bike"),
     ("Hud", "The screen, which runs the HUD"),
+    ("Menus", "The screen's menus, whose pause screen the pause shows"),
     ("StandIn", "The stand-in ghost"),
 )
 PHASES = ("Wait", "Press", "Paused", "Release", "Resumed")
@@ -167,6 +172,10 @@ def frames_reached(b, count):
     return counted, reached
 
 
+def pause_screen(b):
+    return b.once("pause screen", lambda: b.get("PauseScreen", Menu.MENU, b.var("Menus")))
+
+
 def text_of(b, variable):
     return b.pure("Get:Strada.UITextComponent.Text", "Value", Target=element(b, variable))
 
@@ -197,7 +206,7 @@ def write_functions(author):
         readings = [b.set("ResumedScale", b.pure("Get:Strada.Time.TimeScale", "Value")),
                     b.set("ResumedSnapshot", b.pure("Get:Strada.Audio.CurrentSnapshot", "Value")),
                     b.set("DirectorAfter", b.get("Paused", Race.DIRECTOR, b.var("Race"))),
-                    b.set("ScreenAfter", b.pure("Get:Strada.UIRectComponent.Visible", "Value", Target=element(b, "PauseScreen")))]
+                    b.set("ScreenAfter", b.pure("Get:Strada.UIRectComponent.Visible", "Value", Target=pause_screen(b)))]
         b.chain(b.entry, counted)
         b.chain(reached["True"], *readings, b.set("Done", True), b.set("Phase", "Done"), b.ret)
         b.flow(reached["False"], b.ret)
@@ -232,7 +241,7 @@ def write_functions(author):
             b.set("Scale", b.pure("Get:Strada.Time.TimeScale", "Value")),
             b.set("Snapshot", b.pure("Get:Strada.Audio.CurrentSnapshot", "Value")),
             b.set("DirectorPaused", b.get("Paused", Race.DIRECTOR, b.var("Race"))),
-            b.set("ScreenShown", b.pure("Get:Strada.UIRectComponent.Visible", "Value", Target=element(b, "PauseScreen"))),
+            b.set("ScreenShown", b.pure("Get:Strada.UIRectComponent.Visible", "Value", Target=pause_screen(b))),
             b.set("Held", member(b, "ForwardSpeed")),
             b.set("SpeedShown", text_of(b, "SpeedText")), b.set("SpeedExpected", b.fmt("{Kmh}", Kmh=speed)),
             b.set("GearShown", text_of(b, "GearText")), b.set("GearExpected", gear_text),
@@ -284,6 +293,8 @@ def checks():
          "racing against a ghost that rides a best lap, the HUD shows the ghost's live delta"),
         ("CheckSplitDelta", "Split delta: at a sector gate against the best lap's split",
          "without a ghost's best lap, the HUD shows the split delta at a sector gate against the best lap's split"),
+        ("CheckCountdownClears", "Countdown: the last race's delta and sectors gone",
+         "a countdown shows neither the last race's delta nor its sectors"),
     )
 
 
@@ -402,6 +413,25 @@ def write_split_delta(b, name):
     run(b, (none, abandoned), reported)
 
 
+def write_countdown_clears(b, name):
+    started = b.send("StartRace", race(b), graph=Race.DIRECTOR, comment="A fifth race, after the fourth's delta and sectors")
+    counting = Checks.wait_until(b, b.equal(b.get("State", Race.DIRECTOR, race(b)), b.lit("string", "Countdown")), START_WAIT)
+    shown = frames(b)
+    hud = driver(b, "Hud")
+    sectors = b.set("SectorsShown", b.pure("Get:Strada.UITextComponent.Text", "Value", Target=b.get("SectorsText", Hud.HUD, hud)))
+    delta = b.set("CountdownDelta", delta_text(b))
+    plate = b.set("PlateShown", b.pure("Get:Strada.UIRectComponent.Visible", "Value", Target=b.get("DeltaPlate", Hud.HUD, hud)))
+    abandoned = b.send("AbandonRace", race(b), graph=Race.DIRECTOR)
+    b.flow(shown["Completed"], sectors)
+    b.chain(sectors, delta, plate, abandoned)
+    passed = b.both(b.both(b.pure("String.IsEmpty", Text=b.var("SectorsShown")), b.pure("String.IsEmpty", Text=b.var("CountdownDelta"))),
+                    b.pure("Operator.Not", A=b.var("PlateShown")))
+    detail = b.fmt("in the countdown the sectors read '{Sectors}', the delta '{Delta}', its plate shown {Plate}",
+                   Sectors=b.var("SectorsShown"), Delta=b.var("CountdownDelta"), Plate=b.var("PlateShown"))
+    reported = b.library(Checks.CHECKS, "Check", Name=f"Moto: {name}", Passed=passed, Detail=detail)
+    run(b, started, counting, (shown, abandoned), reported)
+
+
 WRITERS = {
     "CheckHudTexts": write_hud_texts,
     "CheckHudInputs": write_hud_inputs,
@@ -409,6 +439,7 @@ WRITERS = {
     "CheckPause": write_pause,
     "CheckLiveDelta": write_live_delta,
     "CheckSplitDelta": write_split_delta,
+    "CheckCountdownClears": write_countdown_clears,
 }
 
 
@@ -419,7 +450,8 @@ def write_check(b, function, name):
 # --- The scene ---------------------------------------------------------------------------------------------------------------
 
 ENTITIES = (("HudTests", DRIVER, "Drives the HUD's and the pause's checks: the pause in the bike's launch"),)
-VARIABLES = (private("AheadShown", "string", ""), private("BehindShown", "string", ""), private("SplitShown", "string", ""))
+VARIABLES = (private("AheadShown", "string", ""), private("BehindShown", "string", ""), private("SplitShown", "string", ""),
+             private("SectorsShown", "string", "-"), private("CountdownDelta", "string", "-"), private("PlateShown", "bool", True))
 
 
 def make(create, handles):
@@ -431,7 +463,8 @@ def prepare(session, found):
     """The driver knows the director, the bike, the screen and the stand-in ghost."""
     Checks.set_variables(session, found[DRIVER], {
         "Race": Checks.entity_value(found[Race.ROOT]), "Bike": Checks.entity_value(found["Bike"]),
-        "Hud": Checks.entity_value(found[Hud.ROOT]), "StandIn": Checks.entity_value(found[RaceChecks.STAND_IN_ENTITY])})
+        "Hud": Checks.entity_value(found[Hud.ROOT]), "Menus": Checks.entity_value(found[Menu.ROOT]),
+        "StandIn": Checks.entity_value(found[RaceChecks.STAND_IN_ENTITY])})
 
 
 SUITE = Suite(checks, write_check, ENTITIES, VARIABLES, own=(DRIVER,), make=make, prepare=prepare)

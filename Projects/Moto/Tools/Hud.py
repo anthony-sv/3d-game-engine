@@ -1,6 +1,7 @@
-"""Moto's screen: the HUD over the race and the pause screen (Docs/Architecture.md section 15, "The race"), written by
-Author.py's hud part. It makes the Screen entity, a UI canvas that runs Scripts/Hud.sgraph, its elements, and the track
-map's image (Textures/Hud/TrackMap.png, made here from the layout in Circuit.py).
+"""Moto's screen: the HUD over the race (Docs/Architecture.md section 15, "The race"), written by Author.py's hud part. It
+makes the Screen entity, a UI canvas that runs Scripts/Hud.sgraph, its elements, and the track map's image
+(Textures/Hud/TrackMap.png, made here from the layout in Circuit.py); the screen's menus (Menu.py: the title, the results,
+the pause and the settings screens) stand under it, after the HUD.
 
 What the HUD shows, all of it read by its graph while the game plays:
 
@@ -11,16 +12,16 @@ What the HUD shows, all of it read by its graph while the game plays:
 - timing, while a race runs and at its results: the lap of the laps, the lap's time, the best lap, the lap's sectors,
   the countdown, and the delta: the ghost's live Delta while it rides a best lap (its BestLapTime is above 0), otherwise
   the split delta at each gate, the lap's time there against the best lap's when the lap began (its splits, and its time
-  at the line);
-- the pause screen while the race director's Paused reads true.
+  at the line). The delta and the sectors are cleared when a countdown begins and when a race starts, so the last race's
+  never show through the next.
 
 Every element is saved hidden: the graph shows each group as the director's state and pause ask, so the scene as saved
 draws no UI (the editor's view at the start line and MotoSceneTests keep their draws). A text, a bar or the map's mark
 changes only when the value it shows does (the speed by a km/h, the engine speed by 100 rpm, the lean by a degree, a bar
 by a hundredth, the mark by a canvas unit, a time by a millisecond). The screen draws in the order of its hierarchy and a
-batch of the UI ends wherever the texture changes, so the elements stand in four groups after the map: every rectangle
-(the plates, the bars, the shift light, the mark), then every text, then the pause screen over them: the HUD draws in
-three batches (the map, the rectangles, the texts), and the pause screen adds two.
+batch of the UI ends wherever the texture changes, so the elements stand in groups after the map: every rectangle (the
+plates, the bars, the shift light, the mark), then every text: the HUD draws in three batches (the map, the rectangles,
+the texts). The menus' screens come after it, each in batches of its own (Menu.py).
 
     python Projects/Moto/Tools/Hud.py      (prints the figures check() asserts)
 """
@@ -155,7 +156,6 @@ LIGHT_OFF = [0.16, 0.17, 0.2, 0.9]
 LIGHT_ON = [1.0, 0.18, 0.08, 1.0]
 AHEAD = [0.35, 1.0, 0.45, 1.0]
 BEHIND = [1.0, 0.42, 0.36, 1.0]
-DIM = [0.0, 0.0, 0.02, 0.62]
 
 # The input bars: each fills its track from the left, BAR long at full input; the lean's mark moves either side of its
 # track's middle, STEER_REACH at a full lean.
@@ -276,13 +276,6 @@ def elements():
         caption("Front Label", BAR_XS["Front"], 1008.0, BAR, 24.0, "FRONT", 18.0),
         caption("Rear Label", BAR_XS["Rear"], 1008.0, BAR, 24.0, "REAR", 18.0),
         caption("Lean Label", STEER_TRACK[0], 1008.0, STEER_TRACK[1], 24.0, "LEAN", 18.0, "Center"),
-        # The pause screen, over everything.
-        ("Pause Screen", None, {"UIRect": fill(visible=False), "UIImage": image(DIM)}, "PauseScreen"),
-        ("Pause Title", "Pause Screen", {"UIRect": anchored(CENTER, 460.0, 400.0, 1000.0, 150.0),
-                                         "UIText": label("PAUSED", 132.0, VALUE, "Center")},
-         None),
-        ("Pause Hint", "Pause Screen", {"UIRect": anchored(CENTER, 460.0, 560.0, 1000.0, 50.0),
-                                        "UIText": label("ESC OR START TO RESUME", 34.0, CAPTION, "Center")}, None),
     ]
     return rows
 
@@ -311,13 +304,24 @@ TOOLTIPS = {
     "SpeedText": "The speed in km/h",
     "RpmText": "The engine speed in rpm",
     "LeanText": "The bike's lean",
-    "PauseScreen": "The pause screen",
 }
 # The groups each state shows: riding while the bike is the player's, timing while a race runs and at its results.
 RIDING_STATES = ("Idle", "Countdown", "Racing")
 TIMING_STATES = ("Countdown", "Racing", "Results")
 RIDING_GROUP = ("TrackMap", "RidingPlates", "RidingLabels")
 TIMING_GROUP = ("TimingPlates", "TimingLabels")
+
+
+def batches_of(drawn):
+    """The UI batches elements draw in, in their order ((name, parent, components, variable) rows): a batch ends wherever
+    the texture changes, between a textured image, plain rectangles and texts."""
+    kinds = []
+    for _, _, components, _ in drawn:
+        if "UIImage" in components:
+            kinds.append("map" if "Texture" in components["UIImage"] else "rectangle")
+        elif "UIText" in components:
+            kinds.append("text")
+    return 1 + sum(1 for previous, kind in zip(kinds, kinds[1:]) if previous != kind) if kinds else 0
 
 
 def check():
@@ -327,26 +331,16 @@ def check():
     variables = [variable for *_, variable in rows if variable is not None]
     assert len(set(names)) == len(names), "the screen's elements share names"
     assert sorted(variables) == sorted(TOOLTIPS), "every element the graph changes has a variable with a tooltip"
-    # The batches: the map's texture, then rectangles, then texts, then the pause screen's rectangle and texts.
-    def batches_of(drawn):
-        kinds = []
-        for _, _, components, _ in drawn:
-            if "UIImage" in components:
-                kinds.append("map" if "Texture" in components["UIImage"] else "rectangle")
-            elif "UIText" in components:
-                kinds.append("text")
-        return 1 + sum(1 for previous, kind in zip(kinds, kinds[1:]) if previous != kind)
-
-    batches = batches_of(rows)
-    hud = batches_of(rows[:names.index("Pause Screen")])
-    assert hud == 3 and batches == 5, f"the HUD draws in {hud} batches and {batches} with the pause screen"
+    # The batches: the map's texture, then rectangles, then texts.
+    hud = batches_of(rows)
+    assert hud == 3, f"the HUD draws in {hud} batches"
     # The mark stays on the map wherever the bike is on the circuit.
     cx, cz, scale = mark_transform()
     for s in frange(0.0, Circuit.LENGTH, 5.0):
         x, _, z = Circuit.offset_point(s, 0.0)
         u, v = (x - cx) * scale + MAP_SIZE / 2.0, (z - cz) * scale + MAP_SIZE / 2.0
         assert 0.0 < u < MAP_SIZE and 0.0 < v < MAP_SIZE, f"the mark leaves the map at {s:.0f} m"
-    return f"{len(rows)} elements, the HUD in {hud} batches ({batches} with the pause screen); the map at {scale:.4f} canvas units a meter"
+    return f"{len(rows)} elements, the HUD in {hud} batches; the map at {scale:.4f} canvas units a meter"
 
 
 # --- The graph -------------------------------------------------------------------------------------------------------------
@@ -365,7 +359,6 @@ def declare(author):
         public("Bike", ENTITY, None, "The ridden bike, whose vehicle the HUD reads"),
     ) + elements_variables + (
         private("ShownState", "string", "-"),
-        private("ShownPaused", "bool", False),
         private("Riding", "bool", False),
         private("Timing", "bool", False),
         private("ShiftAt", "float", 0.0),
@@ -394,7 +387,8 @@ def declare(author):
         ("Clock", True, (("Seconds", "float"),), (("Text", "string"),), ()),
         ("Signed", True, (("Seconds", "float"),), (("Text", "string"),), ()),
         ("ShowDelta", False, (("Seconds", "float"),), (), ()),
-        ("ShowPanels", False, (), (), (("State", "string", ""), ("Paused", "bool", False))),
+        ("ShowPanels", False, (), (), (("State", "string", ""),)),
+        ("ClearRace", False, (), (), ()),
         ("ShowReadings", False, (), (), ()),
         ("ShowInputs", False, (), (), ()),
         ("ShowMark", False, (), (), ()),
@@ -455,8 +449,9 @@ def clock(b, seconds):
     return b.own("Clock", "Text", Seconds=seconds).out
 
 
-def write_formats(author):
-    with author.region(HUD, "Clock: a time as minutes, seconds and milliseconds", RULES, "Clock") as b:
+def write_clock(author, graph):
+    """A graph's Clock function: a time as minutes, seconds and milliseconds (its function Clock(Seconds) -> Text)."""
+    with author.region(graph, "Clock: a time as minutes, seconds and milliseconds", RULES, "Clock") as b:
         total = b.expr(ROUNDING["clock"], seconds=b.entry["Seconds"])
         minutes = b.expr("total / 60000", total=total)
         seconds = b.pure("String.Substring", Text=b.fmt("{Value}", Value=b.expr("total / 1000 % 60 + 100", total=total)), Start=1,
@@ -464,6 +459,10 @@ def write_formats(author):
         millis = b.pure("String.Substring", Text=b.fmt("{Value}", Value=b.expr("total % 1000 + 1000", total=total)), Start=1,
                         Length=3)
         b.link(b.fmt("{Minutes}:{Seconds}.{Millis}", Minutes=minutes, Seconds=seconds, Millis=millis), b.ret["Text"])
+
+
+def write_formats(author):
+    write_clock(author, HUD)
     with author.region(HUD, "Signed: a delta in seconds and milliseconds, with its sign", RULES, "Signed") as b:
         total = b.expr("int(round(abs(seconds) * 1000))", seconds=b.entry["Seconds"])
         millis = b.pure("String.Substring", Text=b.fmt("{Value}", Value=b.expr("total % 1000 + 1000", total=total)), Start=1,
@@ -481,12 +480,9 @@ def write_formats(author):
 
 
 def write_panels(author):
-    with author.region(HUD, "Show panels: each group as the director's state and pause ask", RULES, "ShowPanels") as b:
+    with author.region(HUD, "Show panels: each group as the director's state asks", RULES, "ShowPanels") as b:
         state = b.set("State", director(b, "State"))
-        paused = b.set("Paused", director(b, "Paused"))
-        moved = b.branch(b.pure("Operator.Or", A=b.pure("Operator.NotEqual", A=b.var("State"), B=b.var("ShownState")),
-                                B=b.pure("Operator.NotEqual", A=b.var("Paused"), B=b.var("ShownPaused"))),
-                         comment="Only when the state or the pause changed")
+        moved = b.branch(b.pure("Operator.NotEqual", A=b.var("State"), B=b.var("ShownState")), comment="Only when the state changed")
 
         def any_of(states):
             result = b.equal(b.var("State"), string(b, states[0]))
@@ -494,15 +490,20 @@ def write_panels(author):
                 result = b.pure("Operator.Or", A=result, B=b.equal(b.var("State"), string(b, name)))
             return result
 
-        kept = [b.set("ShownState", b.var("State")), b.set("ShownPaused", b.var("Paused")),
-                b.set("Riding", any_of(RIDING_STATES)), b.set("Timing", any_of(TIMING_STATES))]
+        kept = [b.set("ShownState", b.var("State")), b.set("Riding", any_of(RIDING_STATES)), b.set("Timing", any_of(TIMING_STATES))]
         groups = [show(b, variable, b.var("Riding")) for variable in RIDING_GROUP] + \
             [show(b, variable, b.var("Timing")) for variable in TIMING_GROUP]
-        counting = show(b, "CountdownText", b.equal(b.var("State"), string(b, "Countdown")))
-        pause = show(b, "PauseScreen", b.var("Paused"))
-        b.chain(b.entry, state, paused, moved)
-        b.chain(moved["True"], *kept, *groups, counting, pause, b.ret)
+        is_counting = b.equal(b.var("State"), string(b, "Countdown"))
+        counting = show(b, "CountdownText", is_counting)
+        begins = b.branch(is_counting, comment="A countdown begins: the last race's delta and sectors go")
+        b.chain(b.entry, state, moved)
+        b.chain(moved["True"], *kept, *groups, counting, begins)
+        b.chain(begins["True"], b.own("ClearRace"), b.ret)
+        b.flow(begins["False"], b.ret)
         b.flow(moved["False"], b.ret)
+    with author.region(HUD, "Clear race: no sectors and no delta yet", EFFECTS, "ClearRace") as b:
+        b.chain(b.entry, b.set("SectorsShown", ""), text(b, "SectorsText", ""), b.set("Live", False), b.set("ShownDelta", 0),
+                text(b, "DeltaText", ""), show(b, "DeltaPlate", False), b.ret)
 
 
 def write_riding(author):
@@ -620,8 +621,7 @@ def write_events(author):
         b.flow(groups["Then1"], timing)
         b.flow(timing["True"], b.own("ShowTiming"))
     with author.region(HUD, "Race started: no sectors and no delta yet", EVENTS) as b:
-        b.chain(b.custom("RaceStarted"), b.set("SectorsShown", ""), text(b, "SectorsText", ""), b.set("Live", False),
-                b.set("ShownDelta", 0), text(b, "DeltaText", ""), show(b, "DeltaPlate", False))
+        b.chain(b.custom("RaceStarted"), b.own("ClearRace"))
     with author.region(HUD, "Lap started: the best lap as it stands, for the lap's splits", EVENTS) as b:
         b.chain(b.custom("LapStarted"), b.set("LapBest", director(b, "BestLapTime")),
                 b.set("LapBestSplits", director(b, "BestSplits")), b.set("SectorsShown", ""), text(b, "SectorsText", ""))

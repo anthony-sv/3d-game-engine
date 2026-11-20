@@ -9,7 +9,8 @@ The player draws the scene's primary camera and has no camera option, so each vi
 repository (the system's temporary folder), whose main scene has the main camera where the view puts it, its tour held
 (PlayOnStart off), and the bike where the view puts it: on the grid where it waits, or on the circuit, leaned into a
 corner. A view of the tour instead plays the main scene as it is and takes the frame of a time of the tour. The ghost
-bike is hidden in those views (they are the grid bike's, and a tour's would catch it riding). A trackside view is one of
+bike is hidden in those views (they are the grid bike's, and a tour's would catch it riding). Every copy shows no menu
+(the menus' ShowMenus off, Menu.py): the views are pictures of the circuit, not of the title. A trackside view is one of
 the four trackside cameras (Trackside.py), on which the camera director starts the game (its StartCamera) and which its
 graph turns to the ghost, with the ghost set out on its lap (its StartAt) so that the picture's frame catches it riding
 towards the camera, PASS_LEAD seconds before it passes closest. The player runs each with a per-user root of its own
@@ -36,6 +37,8 @@ import Bike  # noqa: E402  (the motorcycle and its rider)
 import Circuit  # noqa: E402  (the layout)
 import GenerateAssets  # noqa: E402  (the circuit's center)
 import Ghost  # noqa: E402  (the ghost bike's name)
+import Hud  # noqa: E402  (the screen, under which the menus stand)
+import Menu  # noqa: E402  (the menus, which no view shows)
 import RacingLine  # noqa: E402  (where the ghost rides)
 import Trackside  # noqa: E402  (the trackside cameras and their director)
 
@@ -347,6 +350,7 @@ def take(player, output, names=None, sounds=False):
         scene_path = os.path.join(copy, "Assets", "Scenes", "Main.sscene")
         with open(scene_path, encoding="utf-8") as file:
             original = json.load(file)
+        set_variable(find(original["Entities"], Menu.ROOT, find(original["Entities"], Hud.ROOT)["ID"]), "ShowMenus", "Bool", False)
         for view in chosen:
             out = os.path.join(output, f"{view.name}.png")
             detail = "" if view.eye is None else \

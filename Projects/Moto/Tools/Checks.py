@@ -109,7 +109,7 @@ SCENES = (
               "bike, one after another, each a latent function that acts or waits for its moment, then reports it.",
               math.ceil(Tour.LENGTH) + 30),
     TestScene("Ride", "Ride Tests", RIDE_TESTS, "The ride test scene's checks: {count} checks of the ridden bike, the race, the "
-              "HUD and the pause, each a latent function that waits for its reading, then reports it.", 60),
+              "HUD, the pause and the menus, each a latent function that waits for its reading, then reports it.", 60),
 )
 # The modules whose checks the test scenes run, one line each, in the order their checks run: (the scene they join, the
 # module that holds them, by its name). A module's Suite is its SUITE; it is imported when the checks are written, so a
@@ -119,6 +119,7 @@ MODULES = (
     ("Ride", "BikeChecks"),
     ("Ride", "RaceChecks"),
     ("Ride", "HudChecks"),
+    ("Ride", "MenuChecks"),
 )
 # The start switches every test scene sets, one line each: (the main scene's entity, its graph's public variable, the value
 # that makes it start as Moto started before it had that director), so that a test scene's checks turn on what they need.

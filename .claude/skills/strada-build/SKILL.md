@@ -73,7 +73,7 @@ shard or in two, or a shard selects nothing.
 | Suite | Shards |
 |-------|--------|
 | StradaTests (by module folder of `Source/`) | `Asset`; `Scripting` (`Script/`, `Scene/`); `Rendering` (`RHI/`, `Renderer/`, `ImGui/`: the GPU tests); `Core` (every other folder) |
-| StradaEditorTests (by file) | `AutomationFuzz`; `Graph`; `VisualScriptPanels`; `VisualScriptModel`; `Core` (every other file) |
+| StradaEditorTests (by file) | `AutomationFuzz`; `Graph`; `VisualScriptPanels`; `VisualScriptModel`; `Moto`; `Core` (every other file) |
 | StradaRuntimeTests (by file) | `Samples` (`SampleTests.cpp`: the sample projects); `Templates` (`TemplateTests.cpp`); `Core` (every other file) |
 
 ```sh

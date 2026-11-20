@@ -7544,17 +7544,37 @@
 				},
 				{
 					"ID": 413,
+					"Type": "Literal",
+					"Position": [
+						0.0,
+						4016.0
+					],
+					"Settings": {
+						"Type": "string",
+						"Value": "Results"
+					}
+				},
+				{
+					"ID": 414,
+					"Type": "Operator.Equal",
+					"Position": [
+						192.0,
+						3744.0
+					]
+				},
+				{
+					"ID": 415,
 					"Type": "Expression",
 					"Position": [
 						320.0,
 						3584.0
 					],
 					"Settings": {
-						"Formula": "counting || racing"
+						"Formula": "counting || racing || results"
 					}
 				},
 				{
-					"ID": 414,
+					"ID": 416,
 					"Type": "Flow.Branch",
 					"Position": [
 						544.0,
@@ -7562,18 +7582,18 @@
 					]
 				},
 				{
-					"ID": 415,
+					"ID": 417,
 					"Type": "Variable.Get",
 					"Position": [
 						320.0,
-						3728.0
+						3760.0
 					],
 					"Settings": {
 						"Variable": 8
 					}
 				},
 				{
-					"ID": 416,
+					"ID": 418,
 					"Type": "Expression",
 					"Position": [
 						544.0,
@@ -7584,7 +7604,7 @@
 					}
 				},
 				{
-					"ID": 417,
+					"ID": 419,
 					"Type": "Flow.Branch",
 					"Position": [
 						768.0,
@@ -7592,7 +7612,7 @@
 					]
 				},
 				{
-					"ID": 418,
+					"ID": 420,
 					"Type": "Call:Strada.Telemetry.Mark(string)",
 					"Position": [
 						992.0,
@@ -7603,7 +7623,7 @@
 					}
 				},
 				{
-					"ID": 419,
+					"ID": 421,
 					"Type": "Function.Call",
 					"Position": [
 						1248.0,
@@ -7614,145 +7634,49 @@
 					}
 				},
 				{
-					"ID": 421,
-					"Type": "Event.ActionPressed",
-					"Position": [
-						0.0,
-						4112.0
-					],
-					"Settings": {
-						"Action": "Confirm"
-					}
-				},
-				{
-					"ID": 422,
-					"Type": "Variable.Get",
-					"Position": [
-						0.0,
-						4224.0
-					],
-					"Settings": {
-						"Variable": 15
-					}
-				},
-				{
 					"ID": 423,
-					"Type": "Operator.Not",
-					"Position": [
-						208.0,
-						4112.0
-					]
-				},
-				{
-					"ID": 424,
-					"Type": "Flow.Branch",
-					"Position": [
-						400.0,
-						4112.0
-					],
-					"Comment": "Nothing starts while the game is paused"
-				},
-				{
-					"ID": 425,
-					"Type": "Variable.Get",
-					"Position": [
-						400.0,
-						4240.0
-					],
-					"Settings": {
-						"Variable": 7
-					}
-				},
-				{
-					"ID": 426,
-					"Type": "Flow.Switch",
-					"Position": [
-						624.0,
-						4112.0
-					],
-					"Settings": {
-						"Type": "string",
-						"Cases": [
-							"Title",
-							"Results"
-						]
-					}
-				},
-				{
-					"ID": 427,
-					"Type": "Self",
-					"Position": [
-						624.0,
-						4272.0
-					]
-				},
-				{
-					"ID": 428,
-					"Type": "Event.Send",
-					"Position": [
-						848.0,
-						4224.0
-					],
-					"Settings": {
-						"Name": "StartRace",
-						"Parameters": []
-					}
-				},
-				{
-					"ID": 429,
-					"Type": "Function.Call",
-					"Position": [
-						848.0,
-						4112.0
-					],
-					"Settings": {
-						"Function": 48
-					}
-				},
-				{
-					"ID": 431,
 					"Type": "Event.ActionPressed",
 					"Position": [
 						0.0,
-						4464.0
+						4240.0
 					],
 					"Settings": {
 						"Action": "Pause"
 					}
 				},
 				{
-					"ID": 432,
+					"ID": 424,
 					"Type": "Self",
 					"Position": [
 						208.0,
-						4464.0
+						4240.0
 					]
 				},
 				{
-					"ID": 433,
+					"ID": 425,
 					"Type": "Variable.Get",
 					"Position": [
 						0.0,
-						4576.0
+						4352.0
 					],
 					"Settings": {
 						"Variable": 15
 					}
 				},
 				{
-					"ID": 434,
+					"ID": 426,
 					"Type": "Operator.Not",
 					"Position": [
 						208.0,
-						4528.0
+						4304.0
 					]
 				},
 				{
-					"ID": 435,
+					"ID": 427,
 					"Type": "Event.Send",
 					"Position": [
 						400.0,
-						4464.0
+						4240.0
 					],
 					"Settings": {
 						"Name": "SetPaused",
@@ -7766,11 +7690,11 @@
 					}
 				},
 				{
-					"ID": 437,
+					"ID": 429,
 					"Type": "Event.Custom",
 					"Position": [
 						0.0,
-						4752.0
+						4528.0
 					],
 					"Settings": {
 						"Name": "SetPaused",
@@ -7783,70 +7707,70 @@
 					}
 				},
 				{
-					"ID": 438,
+					"ID": 430,
 					"Type": "Variable.Get",
 					"Position": [
 						0.0,
-						4880.0
+						4656.0
 					],
 					"Settings": {
 						"Variable": 15
 					}
 				},
 				{
-					"ID": 439,
+					"ID": 431,
 					"Type": "Operator.NotEqual",
 					"Position": [
 						192.0,
-						4752.0
+						4528.0
 					]
 				},
 				{
-					"ID": 440,
+					"ID": 432,
 					"Type": "Flow.Branch",
 					"Position": [
 						320.0,
-						4752.0
+						4528.0
 					],
 					"Comment": "Only a change"
 				},
 				{
-					"ID": 441,
+					"ID": 433,
 					"Type": "Expression",
 					"Position": [
 						320.0,
-						4880.0
+						4656.0
 					],
 					"Settings": {
 						"Formula": "paused ? 0.0 : 1.0"
 					}
 				},
 				{
-					"ID": 442,
+					"ID": 434,
 					"Type": "Set:Strada.Time.TimeScale",
 					"Position": [
 						544.0,
-						4752.0
+						4528.0
 					],
 					"Comment": "0: no fixed step runs, so the clocks, the countdown and the bike stand still"
 				},
 				{
-					"ID": 443,
+					"ID": 435,
 					"Type": "Variable.Set",
 					"Position": [
 						736.0,
-						4752.0
+						4528.0
 					],
 					"Settings": {
 						"Variable": 15
 					}
 				},
 				{
-					"ID": 444,
+					"ID": 436,
 					"Type": "Variable.Set",
 					"Position": [
 						928.0,
-						4752.0
+						4528.0
 					],
 					"Settings": {
 						"Variable": 42
@@ -7856,39 +7780,39 @@
 					}
 				},
 				{
-					"ID": 446,
+					"ID": 438,
 					"Type": "Event.Update",
 					"Position": [
 						0.0,
-						5104.0
+						4880.0
 					]
 				},
 				{
-					"ID": 447,
+					"ID": 439,
 					"Type": "Variable.Get",
 					"Position": [
 						0.0,
-						5232.0
+						5008.0
 					],
 					"Settings": {
 						"Variable": 42
 					}
 				},
 				{
-					"ID": 448,
+					"ID": 440,
 					"Type": "Flow.Branch",
 					"Position": [
 						192.0,
-						5104.0
+						4880.0
 					],
 					"Comment": "Every graph has seen the frame's presses by its update"
 				},
 				{
-					"ID": 449,
+					"ID": 441,
 					"Type": "Variable.Set",
 					"Position": [
 						416.0,
-						5104.0
+						4880.0
 					],
 					"Settings": {
 						"Variable": 42
@@ -7898,41 +7822,41 @@
 					}
 				},
 				{
-					"ID": 450,
+					"ID": 442,
 					"Type": "Variable.Get",
 					"Position": [
 						192.0,
-						5232.0
+						5008.0
 					],
 					"Settings": {
 						"Variable": 3
 					}
 				},
 				{
-					"ID": 451,
+					"ID": 443,
 					"Type": "RunsGraph",
 					"Position": [
 						416.0,
-						5232.0
+						5008.0
 					],
 					"Settings": {
 						"Graph": "15368667258106452273"
 					}
 				},
 				{
-					"ID": 452,
+					"ID": 444,
 					"Type": "Flow.Branch",
 					"Position": [
 						640.0,
-						5104.0
+						4880.0
 					]
 				},
 				{
-					"ID": 453,
+					"ID": 445,
 					"Type": "Variable.Get",
 					"Position": [
 						416.0,
-						5344.0
+						5120.0
 					],
 					"Settings": {
 						"Variable": 2,
@@ -7940,39 +7864,39 @@
 					}
 				},
 				{
-					"ID": 454,
+					"ID": 446,
 					"Type": "Variable.Get",
 					"Position": [
 						416.0,
-						5472.0
+						5248.0
 					],
 					"Settings": {
 						"Variable": 15
 					}
 				},
 				{
-					"ID": 455,
+					"ID": 447,
 					"Type": "Operator.NotEqual",
 					"Position": [
 						640.0,
-						5232.0
+						5008.0
 					]
 				},
 				{
-					"ID": 456,
+					"ID": 448,
 					"Type": "Flow.Branch",
 					"Position": [
 						864.0,
-						5104.0
+						4880.0
 					],
 					"Comment": "A mix already where the pause puts it is left as it is"
 				},
 				{
-					"ID": 457,
+					"ID": 449,
 					"Type": "Event.Send",
 					"Position": [
 						1088.0,
-						5104.0
+						4880.0
 					],
 					"Settings": {
 						"Name": "TogglePause",
@@ -9004,11 +8928,31 @@
 				},
 				{
 					"From": [
+						408,
+						"Value"
+					],
+					"To": [
+						414,
+						"A"
+					]
+				},
+				{
+					"From": [
+						413,
+						"Value"
+					],
+					"To": [
+						414,
+						"B"
+					]
+				},
+				{
+					"From": [
 						410,
 						"Result"
 					],
 					"To": [
-						413,
+						415,
 						"counting"
 					]
 				},
@@ -9018,17 +8962,27 @@
 						"Result"
 					],
 					"To": [
-						413,
+						415,
 						"racing"
 					]
 				},
 				{
 					"From": [
-						413,
+						414,
 						"Result"
 					],
 					"To": [
-						414,
+						415,
+						"results"
+					]
+				},
+				{
+					"From": [
+						415,
+						"Result"
+					],
+					"To": [
+						416,
 						"Condition"
 					]
 				},
@@ -9038,27 +8992,27 @@
 						"Result"
 					],
 					"To": [
-						416,
+						418,
 						"racing"
 					]
 				},
 				{
 					"From": [
-						415,
+						417,
 						"Value"
 					],
 					"To": [
-						416,
+						418,
 						"lap"
 					]
 				},
 				{
 					"From": [
-						416,
+						418,
 						"Result"
 					],
 					"To": [
-						417,
+						419,
 						"Condition"
 					]
 				},
@@ -9068,68 +9022,48 @@
 						"Then"
 					],
 					"To": [
-						414,
+						416,
 						"Execute"
 					]
 				},
 				{
 					"From": [
-						414,
+						416,
 						"True"
 					],
 					"To": [
-						417,
+						419,
 						"Execute"
 					]
 				},
 				{
 					"From": [
-						417,
+						419,
 						"True"
 					],
 					"To": [
-						418,
+						420,
 						"Execute"
 					]
 				},
 				{
 					"From": [
-						418,
+						420,
 						"Then"
 					],
 					"To": [
-						419,
+						421,
 						"Execute"
 					]
 				},
 				{
 					"From": [
-						417,
+						419,
 						"False"
 					],
 					"To": [
-						419,
+						421,
 						"Execute"
-					]
-				},
-				{
-					"From": [
-						422,
-						"Value"
-					],
-					"To": [
-						423,
-						"A"
-					]
-				},
-				{
-					"From": [
-						423,
-						"Result"
-					],
-					"To": [
-						424,
-						"Condition"
 					]
 				},
 				{
@@ -9139,123 +9073,143 @@
 					],
 					"To": [
 						426,
-						"Selection"
-					]
-				},
-				{
-					"From": [
-						421,
-						"Then"
-					],
-					"To": [
-						424,
-						"Execute"
-					]
-				},
-				{
-					"From": [
-						424,
-						"True"
-					],
-					"To": [
-						426,
-						"Execute"
-					]
-				},
-				{
-					"From": [
-						427,
-						"Self"
-					],
-					"To": [
-						428,
-						"Target"
-					]
-				},
-				{
-					"From": [
-						426,
-						"Case:Title"
-					],
-					"To": [
-						428,
-						"Execute"
-					]
-				},
-				{
-					"From": [
-						426,
-						"Case:Results"
-					],
-					"To": [
-						429,
-						"Execute"
-					]
-				},
-				{
-					"From": [
-						433,
-						"Value"
-					],
-					"To": [
-						434,
 						"A"
 					]
 				},
 				{
 					"From": [
-						432,
+						424,
 						"Self"
 					],
 					"To": [
-						435,
+						427,
 						"Target"
 					]
 				},
 				{
 					"From": [
-						434,
+						426,
 						"Result"
 					],
 					"To": [
-						435,
+						427,
 						"Paused"
 					]
 				},
 				{
 					"From": [
-						431,
+						423,
 						"Then"
 					],
 					"To": [
-						435,
+						427,
 						"Execute"
 					]
 				},
 				{
 					"From": [
-						437,
+						429,
 						"Paused"
 					],
 					"To": [
-						439,
+						431,
 						"A"
 					]
 				},
 				{
 					"From": [
-						438,
+						430,
 						"Value"
 					],
 					"To": [
-						439,
+						431,
 						"B"
 					]
 				},
 				{
 					"From": [
-						439,
+						431,
 						"Result"
+					],
+					"To": [
+						432,
+						"Condition"
+					]
+				},
+				{
+					"From": [
+						429,
+						"Paused"
+					],
+					"To": [
+						433,
+						"paused"
+					]
+				},
+				{
+					"From": [
+						433,
+						"Result"
+					],
+					"To": [
+						434,
+						"Value"
+					]
+				},
+				{
+					"From": [
+						429,
+						"Then"
+					],
+					"To": [
+						432,
+						"Execute"
+					]
+				},
+				{
+					"From": [
+						429,
+						"Paused"
+					],
+					"To": [
+						435,
+						"Value"
+					]
+				},
+				{
+					"From": [
+						432,
+						"True"
+					],
+					"To": [
+						434,
+						"Execute"
+					]
+				},
+				{
+					"From": [
+						434,
+						"Then"
+					],
+					"To": [
+						435,
+						"Execute"
+					]
+				},
+				{
+					"From": [
+						435,
+						"Then"
+					],
+					"To": [
+						436,
+						"Execute"
+					]
+				},
+				{
+					"From": [
+						439,
+						"Value"
 					],
 					"To": [
 						440,
@@ -9264,42 +9218,82 @@
 				},
 				{
 					"From": [
-						437,
-						"Paused"
+						442,
+						"Value"
 					],
 					"To": [
-						441,
-						"paused"
+						443,
+						"Target"
 					]
 				},
 				{
 					"From": [
-						441,
+						443,
 						"Result"
 					],
 					"To": [
-						442,
-						"Value"
+						444,
+						"Condition"
 					]
 				},
 				{
 					"From": [
-						437,
+						442,
+						"Value"
+					],
+					"To": [
+						445,
+						"Target"
+					]
+				},
+				{
+					"From": [
+						445,
+						"Value"
+					],
+					"To": [
+						447,
+						"A"
+					]
+				},
+				{
+					"From": [
+						446,
+						"Value"
+					],
+					"To": [
+						447,
+						"B"
+					]
+				},
+				{
+					"From": [
+						447,
+						"Result"
+					],
+					"To": [
+						448,
+						"Condition"
+					]
+				},
+				{
+					"From": [
+						442,
+						"Value"
+					],
+					"To": [
+						449,
+						"Target"
+					]
+				},
+				{
+					"From": [
+						438,
 						"Then"
 					],
 					"To": [
 						440,
 						"Execute"
-					]
-				},
-				{
-					"From": [
-						437,
-						"Paused"
-					],
-					"To": [
-						443,
-						"Value"
 					]
 				},
 				{
@@ -9308,23 +9302,13 @@
 						"True"
 					],
 					"To": [
-						442,
+						441,
 						"Execute"
 					]
 				},
 				{
 					"From": [
-						442,
-						"Then"
-					],
-					"To": [
-						443,
-						"Execute"
-					]
-				},
-				{
-					"From": [
-						443,
+						441,
 						"Then"
 					],
 					"To": [
@@ -9334,88 +9318,8 @@
 				},
 				{
 					"From": [
-						447,
-						"Value"
-					],
-					"To": [
-						448,
-						"Condition"
-					]
-				},
-				{
-					"From": [
-						450,
-						"Value"
-					],
-					"To": [
-						451,
-						"Target"
-					]
-				},
-				{
-					"From": [
-						451,
-						"Result"
-					],
-					"To": [
-						452,
-						"Condition"
-					]
-				},
-				{
-					"From": [
-						450,
-						"Value"
-					],
-					"To": [
-						453,
-						"Target"
-					]
-				},
-				{
-					"From": [
-						453,
-						"Value"
-					],
-					"To": [
-						455,
-						"A"
-					]
-				},
-				{
-					"From": [
-						454,
-						"Value"
-					],
-					"To": [
-						455,
-						"B"
-					]
-				},
-				{
-					"From": [
-						455,
-						"Result"
-					],
-					"To": [
-						456,
-						"Condition"
-					]
-				},
-				{
-					"From": [
-						450,
-						"Value"
-					],
-					"To": [
-						457,
-						"Target"
-					]
-				},
-				{
-					"From": [
-						446,
-						"Then"
+						444,
+						"True"
 					],
 					"To": [
 						448,
@@ -9429,36 +9333,6 @@
 					],
 					"To": [
 						449,
-						"Execute"
-					]
-				},
-				{
-					"From": [
-						449,
-						"Then"
-					],
-					"To": [
-						452,
-						"Execute"
-					]
-				},
-				{
-					"From": [
-						452,
-						"True"
-					],
-					"To": [
-						456,
-						"Execute"
-					]
-				},
-				{
-					"From": [
-						456,
-						"True"
-					],
-					"To": [
-						457,
 						"Execute"
 					]
 				}
@@ -9555,15 +9429,15 @@
 					]
 				},
 				{
-					"ID": 420,
-					"Text": "Abandon: a race in progress ends, back to the title",
+					"ID": 422,
+					"Text": "Abandon: a race in progress or its results end, back to the title",
 					"Position": [
 						-32.0,
 						3512.0
 					],
 					"Size": [
 						1432.0,
-						490.0
+						618.0
 					],
 					"Color": [
 						0.949999988079071,
@@ -9573,29 +9447,11 @@
 					]
 				},
 				{
-					"ID": 430,
-					"Text": "Confirm: from the title the race starts, from the results the title",
-					"Position": [
-						-32.0,
-						4040.0
-					],
-					"Size": [
-						1032.0,
-						306.0
-					],
-					"Color": [
-						0.20000000298023224,
-						0.41999998688697815,
-						0.949999988079071,
-						0.2199999988079071
-					]
-				},
-				{
-					"ID": 436,
+					"ID": 428,
 					"Text": "Pause: the Pause action stops the game, or lets it go on",
 					"Position": [
 						-32.0,
-						4392.0
+						4168.0
 					],
 					"Size": [
 						584.0,
@@ -9609,11 +9465,11 @@
 					]
 				},
 				{
-					"ID": 445,
+					"ID": 437,
 					"Text": "Set paused: time stands still or runs, and the mix is told",
 					"Position": [
 						-32.0,
-						4680.0
+						4456.0
 					],
 					"Size": [
 						1142.572509765625,
@@ -9627,11 +9483,11 @@
 					]
 				},
 				{
-					"ID": 458,
+					"ID": 450,
 					"Text": "Mix: after a pause or a resume, the audio director's mix follows it",
 					"Position": [
 						-32.0,
-						5032.0
+						4808.0
 					],
 					"Size": [
 						1285.5875244140625,

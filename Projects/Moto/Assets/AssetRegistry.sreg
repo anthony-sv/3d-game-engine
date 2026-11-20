@@ -460,6 +460,11 @@
 			"Path": "Scenes/Tests.sscene"
 		},
 		{
+			"Handle": "4174439098207623822",
+			"Type": "VisualScript",
+			"Path": "Scripts/AssistsStandIn.sgraph"
+		},
+		{
 			"Handle": "15368667258106452273",
 			"Type": "VisualScript",
 			"Path": "Scripts/AudioDirector.sgraph"
@@ -508,6 +513,11 @@
 			"Handle": "13289157121568671249",
 			"Type": "VisualScript",
 			"Path": "Scripts/HudTests.sgraph"
+		},
+		{
+			"Handle": "11597766254884018974",
+			"Type": "VisualScript",
+			"Path": "Scripts/Menu.sgraph"
 		},
 		{
 			"Handle": "12016132572530095741",

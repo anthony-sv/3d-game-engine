@@ -2502,7 +2502,7 @@ TEST_CASE("PlayCommands: play mode flies the Moto sample's camera tour, a graph'
 	CHECK(shows("Start Line Camera"));
 	CHECK_FALSE(shows("Main Camera"));
 	CHECK_FALSE(shows("Turn 1 Camera"));
-	// The Pause action is the race director's (Tools/Race.py): time stands still (the tour too), the HUD's pause screen
+	// The Pause action is the race director's (Tools/Race.py): time stands still (the tour too), the menus' pause screen
 	// shows and the mix blends to the Paused snapshot, and the action again lets the game go on. On this tree the audio
 	// director still reads the action and blends the mix itself, so the race director, which tells it only when its mix is
 	// not where the pause puts it, sends it nothing; where the audio director reads no action, the race director's

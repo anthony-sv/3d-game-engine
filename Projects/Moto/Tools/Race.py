@@ -20,11 +20,12 @@ The director. Its states: Idle (as the scene starts while TitleOnStart is off, a
 Title (the title over the attract mode: AttractStarted is broadcast), Countdown (Countdown seconds, counted in fixed steps;
 Holding reads true), Racing (RaceStarted at the signal; lap 1 begins at the first crossing of the line after it), Results
 (after the crossing that finishes lap Laps: RaceFinished, and the best lap is saved). A crossing counts only in Racing and
-in the gates' order: the line, Gate 1, Gate 2, the line. The Confirm action starts the race from the title and goes back to
-the title from the results; StartRace starts it from any state but the countdown (a race in progress is started again),
-AbandonRace goes back to the title. It broadcasts RaceStarted, LapStarted(Lap), SectorCrossed(Lap, Sector, Time),
-LapFinished(Lap, Time, Best), RaceFinished(Total) and AttractStarted, publishes State, Lap, LapTime and BestLapTime with
-the read-outs below, and marks telemetry at each crossing it counts (Lap <n>, Sector <lap>.<n>, Lap end).
+in the gates' order: the line, Gate 1, Gate 2, the line. StartRace starts it from any state but the countdown (a race in
+progress is started again), AbandonRace goes back to the title from a countdown, a race or its results: the screen's menus
+(Menu.py) send them, from their buttons, which the Confirm action presses. It broadcasts RaceStarted, LapStarted(Lap),
+SectorCrossed(Lap, Sector, Time), LapFinished(Lap, Time, Best), RaceFinished(Total) and AttractStarted, publishes State,
+Lap, LapTime and BestLapTime with the read-outs below, and marks telemetry at each crossing it counts (Lap <n>,
+Sector <lap>.<n>, Lap end).
 
 The best lap is kept in the save slot SLOT: its time, its splits and the ghost's samples (GHOST_SAMPLES, at SAMPLE_RATE a
 second, as public arrays of the graph GHOST_GRAPH on the director's Ghost). The director opens the slot once the scene has
@@ -36,8 +37,8 @@ best lap's time and splits alone.
 
 The pause. The director owns the Pause action, in every state: it stops the game (Time.TimeScale 0: from the next frame,
 whose time step is scaled as it begins, no fixed step runs and the clocks, the countdown and the bike stand still) or
-lets it go on (1), publishes Paused, which the HUD's pause
-screen follows, and refuses Confirm meanwhile; SetPaused does the same for any other graph (a menu's Resume). The mix
+lets it go on (1), publishes Paused, which the menus' pause
+screen follows; SetPaused does the same for any other graph (the pause screen's Resume). The mix
 follows the pause: in the frame's update after the director paused or resumed (every graph has seen the frame's presses
 by then), it sends the audio director (AudioDirector) TogglePause when that director's Paused read-out is not the game's.
 So a mix already muffled by another sender (a StartPaused director) is left as it is, and nothing toggles it twice.
@@ -114,7 +115,6 @@ def gate_frame(number):
 LAPS = 3
 COUNTDOWN = 3.0
 STATES = ("Idle", "Title", "Countdown", "Racing", "Results")
-CONFIRM = "Confirm"
 PAUSE = "Pause"
 # The audio director's event that blends the mix to its Paused snapshot and back, and its read-out of where the mix is.
 TOGGLE_PAUSE = "TogglePause"
@@ -349,9 +349,10 @@ def write_director(author):
         b.flow(ending, steps)
         b.flow(ended["False"], steps)
         b.chain(steps, *resets)
-    with author.region(DIRECTOR, "Abandon: a race in progress ends, back to the title", RULES) as b:
+    with author.region(DIRECTOR, "Abandon: a race in progress or its results end, back to the title", RULES) as b:
         abandon = b.custom("AbandonRace")
-        running = b.branch(b.expr("counting || racing", counting=is_state(b, "Countdown"), racing=is_state(b, "Racing")))
+        running = b.branch(b.expr("counting || racing || results", counting=is_state(b, "Countdown"), racing=is_state(b, "Racing"),
+                                  results=is_state(b, "Results")))
         lap = b.branch(b.expr("racing && lap >= 1", racing=is_state(b, "Racing"), lap=b.var("Lap")))
         ending = mark(b, "Lap end")
         title = b.own("Title")
@@ -360,14 +361,6 @@ def write_director(author):
         b.flow(lap["True"], ending)
         b.flow(ending, title)
         b.flow(lap["False"], title)
-    with author.region(DIRECTOR, "Confirm: from the title the race starts, from the results the title", EVENTS) as b:
-        confirm = b.event("Event.ActionPressed", {"Action": CONFIRM})
-        playing = b.branch(b.pure("Operator.Not", A=b.var("Paused")), comment="Nothing starts while the game is paused")
-        state = b.add("Flow.Switch", {"Type": "string", "Cases": ["Title", "Results"]}, Selection=b.var("State"))
-        b.chain(confirm, playing)
-        b.flow(playing["True"], state)
-        b.flow(state["Case:Title"], b.send("StartRace", b.self_()))
-        b.flow(state["Case:Results"], b.own("Title"))
     with author.region(DIRECTOR, "Pause: the Pause action stops the game, or lets it go on", EVENTS) as b:
         pressed = b.event("Event.ActionPressed", {"Action": PAUSE})
         b.chain(pressed, b.send("SetPaused", b.self_(), graph=DIRECTOR, Paused=b.pure("Operator.Not", A=b.var("Paused"))))
