@@ -25,6 +25,8 @@ frame rate, step for step):
    the probe, which runs no graph of a ghost, so its best lap is saved without samples; the second, faster, while it is
    the stand-in again, so its best lap is saved with them.
 3. The slot: the save slot opened again after each race's results, its best lap read back.
+4. A real crossing: a third race started, the probe sent through the line at the top speed once it runs, which begins
+   lap 1 at the crossing's interpolated time; then the race abandoned, back to the title and its attract mode.
 
 The graph logs every reading in one line ("Moto's race: ..."), about 7 s into the scene, which StradaRuntimeTests compares
 between frame rates and between two short runs that keep their data (the second loads the best lap the first saved); the
@@ -71,6 +73,8 @@ PASSES = ((0, 10.0), (1, 30.0), (2, 60.0), (0, Race.TOP_SPEED), (1, Race.TOP_SPE
 PAIR_STEPS = 2
 PASS_LIMIT = 300
 SETTLE_STEPS = 10
+# The pass sent through the line in a third race, for a real crossing that begins its lap 1: the line at top speed.
+REAL_PASS = 3
 # How close a timed crossing must come to the analytic one (seconds): far inside a step (1/60 s), wide of the float
 # precision of positions hundreds of meters from the origin.
 CROSSING_TOLERANCE = 0.0005
@@ -128,6 +132,8 @@ def _float(value):
 # lap is kept without samples; then SCRIPT, whose best lap beats it and is kept with the stand-in's samples.
 SLOW = tuple((gate, int(steps * 1.1), fraction) for gate, steps, fraction in SCRIPT)
 SCRIPTS = (SLOW, SCRIPT)
+# The races the director starts: the two scripted ones and the one a real crossing begins.
+RACES = len(SCRIPTS) + 1
 
 
 def expected_races():
@@ -197,6 +203,13 @@ READOUTS = (
     ("SavedSamples", "int", -1, "How many positions of the ghost's samples the save slot holds"),
     ("FirstSaved", "float", -1.0, "The best lap's time the save slot held after the first race (seconds)"),
     ("FirstSamples", "int", -1, "How many positions of the ghost's samples the save slot held after the first race"),
+    ("ResultsState", "string", "", "The director's state at the second race's results"),
+    ("RealLap", "int", -1, "The lap a real crossing of the line began, while racing"),
+    ("RealStep", "int", -1, "The step of that crossing after the start signal, its fraction aside"),
+    ("RealFraction", "float", -1.0, "How far into the step after RealStep the crossing came"),
+    ("RealError", "float", 1.0, "How far the lap's start lies from that crossing (seconds)"),
+    ("AfterState", "string", "", "The director's state once the race was abandoned"),
+    ("Attracts", "int", 0, "How many AttractStarted broadcasts came"),
     ("Done", "bool", False, "Whether every reading has been taken"),
 )
 ENTITY_VARIABLES = (
@@ -204,7 +217,7 @@ ENTITY_VARIABLES = (
     ("Probe", "The box the gates time in place of the bike"),
     ("StandIn", "The stand-in ghost, which keeps the best lap's samples"),
 )
-PHASES = ("Launch", "Fly", "Settle", "Start", "Countdown", "Inject", "Reopen")
+PHASES = ("Launch", "Fly", "Settle", "Start", "Countdown", "Inject", "Reopen", "RealStart", "RealWait", "RealFly")
 
 
 def declare_graphs(author):
@@ -236,7 +249,7 @@ def declare_graphs(author):
             private("ExpectedSectors", "float[]", [round(value, 5) for value in race["sectors"]]),
             private("ExpectedBest", "float[]", [round(value, 5) for value in [best["best"]] + best["best_splits"]]),
         )),
-        events=tuple((name, parameters) for name, parameters in Race.BROADCASTS.items() if name != "AttractStarted"),
+        events=tuple(Race.BROADCASTS.items()),
         functions=(
             ("Enter", False, (("Next", "string"),), (), ()),
             ("Place", False, (("At", VECTOR), ("Velocity", VECTOR)), (), ()),
@@ -248,6 +261,10 @@ def declare_graphs(author):
             ("Inject", False, (), (), ()),
             ("Keep", False, (("Time", "float"),), (), (("Count", "int", 0),)),
             ("Reopen", False, (), (), ()),
+            ("Report", False, (), (), ()),
+            ("RealStart", False, (), (), ()),
+            ("RealWait", False, (), (), ()),
+            ("RealFly", False, (), (), ()),
         ))
 
 
@@ -396,29 +413,71 @@ def write_functions(author):
                                                  time=b.var("SavedTime"), best=element(b, "ExpectedBest", 0),
                                                  first=element(b, "SavedSplits", 0), one=element(b, "ExpectedBest", 1),
                                                  second=element(b, "SavedSplits", 1), two=element(b, "ExpectedBest", 2)))
-        shown = b.expr("round(worst * 10000) / 10000", worst=b.var("Worst"))
-        readings = b.fmt("Moto's race: {Passes} passes of the gates, {Once} entered and timed once, the worst {Worst} s from the "
-                         "analytic crossing; the race started {Countdown} steps after StartRace ({Starts} signals); laps {Laps} "
-                         "(best {Mask}), splits {Sectors}, total {Total} ({Finishes} finishes); after the first race, its ghost "
-                         "keeping no samples, the slot kept {First} s and {FirstSamples} samples; the ghost kept {Kept} samples; "
-                         "the slot keeps {Saved} s, splits {SavedSplits}, {Samples} samples; loaded at start: {Loaded} s, "
-                         "the ghost told {Told} times",
-                         Passes=b.var("Passes"), Once=b.var("Once"), Worst=shown, Countdown=b.var("CountdownSteps"),
-                         Starts=b.var("RaceStarts"), Laps=b.var("Laps"), Mask=b.var("BestMask"), Sectors=b.var("Sectors"),
-                         Total=b.var("Total"), Finishes=b.var("Finishes"), First=b.var("FirstSaved"),
-                         FirstSamples=b.var("FirstSamples"), Kept=b.var("Kept"), Saved=b.var("SavedTime"),
-                         SavedSplits=b.var("SavedSplits"), Samples=b.var("SavedSamples"), Loaded=director_get(b, "LoadedLapTime"),
-                         Told=b.get("Loaded", STAND_IN, b.var("StandIn")))
-        log = b.call("Call:Strada.Log.Info(string)", Message=readings, comment="Every reading, the same at every frame rate")
         first_race = b.branch(b.expr("round == 0", round=b.var("Round")), comment="After the first race: the second")
         kept_first = [b.set("FirstSaved", b.var("SavedTime")), b.set("FirstSamples", b.var("SavedSamples")),
                       b.set("Round", 1)]
+        results = b.set("ResultsState", director_get(b, "State"), comment="The director at the second race's results")
+        real = b.own("Enter", Next="RealStart")
         b.chain(b.entry, opened, b.set("Reopened", opened.out), time, splits, positions, first_race)
         b.chain(first_race["True"], *kept_first, b.own("Enter", Next="Start"), b.ret)
         b.flow(first_race["False"], two)
-        b.chain(two["True"], saved_error, log)
-        b.flow(two["False"], log)
-        b.chain(log, b.set("Done", True), b.own("Enter", Next="Done"), b.ret)
+        b.chain(two["True"], saved_error, results)
+        b.flow(two["False"], results)
+        b.chain(results, real, b.ret)
+    with author.region(RACE_TESTS, "Real start: a third race, for a real crossing of the line", EVENTS, "RealStart") as b:
+        counted = b.set("CountFrom", director_get(b, "Steps"))
+        started = b.send("StartRace", b.var("Race"), graph=DIRECTOR)
+        b.chain(b.entry, counted, started, b.own("Enter", Next="RealWait"), b.ret)
+    with author.region(RACE_TESTS, "Real wait: once racing, the probe sent through the line", EVENTS, "RealWait") as b:
+        racing = b.branch(b.equal(director_get(b, "State"), b.lit("string", "Racing")))
+        crossings = b.set("CrossingsBefore", director_get(b, "Crossings"))
+        placed = b.own("Place", At=element(b, "PassStarts", REAL_PASS), Velocity=element(b, "PassVelocities", REAL_PASS))
+        b.chain(b.entry, racing)
+        b.chain(racing["True"], crossings, b.set("Crossed", False), placed, b.own("Enter", Next="RealFly"), b.ret)
+        b.flow(racing["False"], b.ret)
+    with author.region(RACE_TESTS, "Real fly: lap 1 begun at the crossing, then the race abandoned", EVENTS, "RealFly") as b:
+        seen = b.branch(b.expr("!crossed && crossings > before", crossed=b.var("Crossed"), crossings=director_get(b, "Crossings"),
+                               before=b.var("CrossingsBefore")), comment="The director timed the crossing")
+        lap = b.set("RealLap", director_get(b, "Lap"))
+        step = b.set("RealStep", b.expr("last - start", last=director_get(b, "LastStep"), start=director_get(b, "StartStep")))
+        fraction = b.set("RealFraction", director_get(b, "LastFraction"))
+        error = b.set("RealError", b.expr("abs((float(steps - start) * dt - lap) - (float(crossing) + fraction) * dt)",
+                                          steps=director_get(b, "Steps"), start=director_get(b, "StartStep"),
+                                          lap=director_get(b, "LapTime"), crossing=b.var("RealStep"),
+                                          fraction=b.var("RealFraction"), dt=fixed_dt(b)),
+                      comment="The lap's start, from its time so far, against the crossing")
+        exit_at = b.set("ExitStep", b.expr("step + exits", step=b.var("Step"), exits=element(b, "PassExits", REAL_PASS)))
+        out = b.branch(b.expr(f"(crossed && step >= exit) || elapsed >= {PASS_LIMIT}", crossed=b.var("Crossed"), step=b.var("Step"),
+                              exit=b.var("ExitStep"), elapsed=elapsed(b)), comment="Out of the gate, or given up")
+        parked = b.own("Place", At=park(), Velocity=[0.0, 0.0, 0.0])
+        abandoned = b.send("AbandonRace", b.var("Race"), graph=DIRECTOR)
+        after = b.set("AfterState", director_get(b, "State"))
+        b.chain(b.entry, seen)
+        b.chain(seen["True"], lap, step, fraction, error, b.set("Crossed", True), exit_at, out)
+        b.flow(seen["False"], out)
+        b.chain(out["True"], parked, abandoned, after, b.own("Report"), b.ret)
+        b.flow(out["False"], b.ret)
+    with author.region(RACE_TESTS, "Report: every reading logged, the same at every frame rate", EVENTS, "Report") as b:
+        shown = b.expr("round(worst * 10000) / 10000", worst=b.var("Worst"))
+        real = b.expr("round(error * 10000) / 10000", error=b.var("RealError"))
+        readings = b.fmt("Moto's race: {Passes} passes of the gates, {Once} entered and timed once, the worst {Worst} s from the "
+                         "analytic crossing; the race started {Countdown} steps after StartRace ({Starts} signals); laps {Laps} "
+                         "(best {Mask}), splits {Sectors}, total {Total} ({Finishes} finishes, the director then {Results}); "
+                         "after the first race, its ghost keeping no samples, the slot kept {First} s and {FirstSamples} samples; "
+                         "the ghost kept {Kept} samples; the slot keeps {Saved} s, splits {SavedSplits}, {Samples} samples; "
+                         "a real crossing began lap {RealLap} at step {RealStep} and {RealFraction} of the race, {RealError} s "
+                         "from its lap's start; abandoned, the director {After} with {Attracts} attract signals; "
+                         "loaded at start: {Loaded} s, the ghost told {Told} times",
+                         Passes=b.var("Passes"), Once=b.var("Once"), Worst=shown, Countdown=b.var("CountdownSteps"),
+                         Starts=b.var("RaceStarts"), Laps=b.var("Laps"), Mask=b.var("BestMask"), Sectors=b.var("Sectors"),
+                         Total=b.var("Total"), Finishes=b.var("Finishes"), Results=b.var("ResultsState"), First=b.var("FirstSaved"),
+                         FirstSamples=b.var("FirstSamples"), Kept=b.var("Kept"), Saved=b.var("SavedTime"),
+                         SavedSplits=b.var("SavedSplits"), Samples=b.var("SavedSamples"), RealLap=b.var("RealLap"),
+                         RealStep=b.var("RealStep"), RealFraction=b.var("RealFraction"), RealError=real, After=b.var("AfterState"),
+                         Attracts=b.var("Attracts"), Loaded=director_get(b, "LoadedLapTime"),
+                         Told=b.get("Loaded", STAND_IN, b.var("StandIn")))
+        log = b.call("Call:Strada.Log.Info(string)", Message=readings, comment="Every reading, the same at every frame rate")
+        b.chain(b.entry, log, b.set("Done", True), b.own("Enter", Next="Done"), b.ret)
 
 
 def write_graphs(author):
@@ -439,6 +498,8 @@ def write_graphs(author):
         b.chain(lap, b.set("LapStarts", b.expr("count + 1", count=b.var("LapStarts"))))
         finished = b.custom("RaceFinished")
         b.chain(finished, b.set("Finishes", b.expr("count + 1", count=b.var("Finishes"))), b.set("Total", finished["Total"]))
+        attract = b.custom("AttractStarted")
+        b.chain(attract, b.set("Attracts", b.expr("count + 1", count=b.var("Attracts"))))
     with author.region(RACE_TESTS, "Sectors: each split against the script's", EVENTS) as b:
         crossed = b.custom("SectorCrossed")
         known, near, far = worst_against(b, "Sectors", "ExpectedSectors", "SectorError", crossed["Time"])
@@ -492,6 +553,10 @@ def checks():
          "three laps begin, cross their sectors and finish in the gates' order, timed from the crossings, the best flagged"),
         ("CheckResults", "Results: a race ends after its third lap with its total",
          "a race ends in the results after its third lap, with the total of its laps, and takes no crossing after"),
+        ("CheckRealLap", "Real crossing: the line crossed while racing begins lap 1 there",
+         "a body crossing the line while the race runs begins lap 1 at the crossing's interpolated time"),
+        ("CheckAbandon", "Abandon: back to the title and its attract mode",
+         "an abandoned race goes back to the title, and the attract mode starts once"),
         ("CheckBestAlone", "Best lap: kept without samples when the ghost kept none",
          "a best lap is kept in the save slot without samples when the ghost runs no graph that keeps them"),
         ("CheckBestKept", "Best lap: kept in the save slot with its splits and samples",
@@ -517,10 +582,10 @@ def write_gate_once(b, name):
 def write_countdown(b, name):
     steps = round(COUNTDOWN / Race.STEP)
     done = driver(b, "Done")
-    passed = b.expr(f"abs(steps - {steps}) <= 1 && starts == {len(SCRIPTS)}", steps=driver(b, "CountdownSteps"),
+    passed = b.expr(f"abs(steps - {steps}) <= 1 && starts == {RACES}", steps=driver(b, "CountdownSteps"),
                     starts=driver(b, "RaceStarts"))
     detail = b.fmt(f"the race started {{Steps}} steps after StartRace (the countdown's {steps}), {{Starts}} signals for "
-                   f"{len(SCRIPTS)} races", Steps=driver(b, "CountdownSteps"), Starts=driver(b, "RaceStarts"))
+                   f"{RACES} races", Steps=driver(b, "CountdownSteps"), Starts=driver(b, "RaceStarts"))
     run(b, Checks.check(b, name, done, RACE_WAIT, detail, passed))
 
 
@@ -528,7 +593,7 @@ def write_laps(b, name):
     race = expected_races()
     laps = Race.LAPS * len(SCRIPTS)
     done = driver(b, "Done")
-    passed = b.expr(f"starts == {laps} && laps == {laps} && sectors == {len(race['sectors'])} && lap <= {TIME_TOLERANCE} && "
+    passed = b.expr(f"starts == {laps + 1} && laps == {laps} && sectors == {len(race['sectors'])} && lap <= {TIME_TOLERANCE} && "
                     f"sector <= {TIME_TOLERANCE} && mask == {race['mask']}", starts=driver(b, "LapStarts"),
                     laps=b.pure("Array.Length", "Length", Array=driver(b, "Laps")),
                     sectors=b.pure("Array.Length", "Length", Array=driver(b, "Sectors")), lap=driver(b, "LapError"),
@@ -542,13 +607,30 @@ def write_laps(b, name):
 def write_results(b, name):
     total = expected_races()["races"][-1]["total"]
     done = driver(b, "Done")
-    state = b.get("State", DIRECTOR, driver(b, "Race"))
+    state = driver(b, "ResultsState")
     passed = b.both(b.equal(state, b.lit("string", "Results")),
                     b.expr(f"finishes == {len(SCRIPTS)} && abs(total - {round(total, 4)}) <= {TIME_TOLERANCE} && "
                            f"laps == {Race.LAPS * len(SCRIPTS)}", finishes=driver(b, "Finishes"), total=driver(b, "Total"),
                            laps=b.pure("Array.Length", "Length", Array=driver(b, "Laps"))))
     detail = b.fmt(f"{{Finishes}} finishes, the last with a total of {{Total}} s (the script's {total:.3f}), the director "
                    "{State}", Finishes=driver(b, "Finishes"), Total=driver(b, "Total"), State=state)
+    run(b, Checks.check(b, name, done, RACE_WAIT, detail, passed))
+
+
+def write_real_lap(b, name):
+    done = driver(b, "Done")
+    passed = b.expr(f"lap == 1 && error <= {CROSSING_TOLERANCE}", lap=driver(b, "RealLap"), error=driver(b, "RealError"))
+    detail = b.fmt("the crossing began lap {Lap} at step {Step} and {Fraction} of the race, {Error} s from the lap's start",
+                   Lap=driver(b, "RealLap"), Step=driver(b, "RealStep"), Fraction=driver(b, "RealFraction"),
+                   Error=driver(b, "RealError"))
+    run(b, Checks.check(b, name, done, RACE_WAIT, detail, passed))
+
+
+def write_abandon(b, name):
+    done = driver(b, "Done")
+    passed = b.both(b.equal(driver(b, "AfterState"), b.lit("string", "Title")), b.expr("count == 1", count=driver(b, "Attracts")))
+    detail = b.fmt("abandoned, the director is {State}, with {Count} attract signals", State=driver(b, "AfterState"),
+                   Count=driver(b, "Attracts"))
     run(b, Checks.check(b, name, done, RACE_WAIT, detail, passed))
 
 
@@ -580,6 +662,8 @@ WRITERS = {
     "CheckCountdown": write_countdown,
     "CheckLaps": write_laps,
     "CheckResults": write_results,
+    "CheckRealLap": write_real_lap,
+    "CheckAbandon": write_abandon,
     "CheckBestAlone": write_best_alone,
     "CheckBestKept": write_best_kept,
 }

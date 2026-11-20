@@ -6750,9 +6750,10 @@ graphs alone keeps its best lap and its settings screen, and none exposes a path
   that way); nothing else pauses yet. **The input actions** (`Tools/Controls.py`, the `input` part; `Input/Moto.sinput`,
   named by `Moto.sproj`): `Throttle` (an axis: W, the right trigger), `FrontBrake` and `RearBrake` (axes: S and the left
   trigger, Space and the gamepad's X), `Lean` (A and D, the left stick's X), `ShiftUp` and `ShiftDown` (E and Q, the
-  bumpers), `Pause` (Escape, Start), `NextCamera` (C, Y) and `ResetCamera` (R, Back), each on the keyboard and any gamepad
-  and no control bound twice, in a group per graph that reads them (`Controls.py`'s `GROUPS`, one line each); the directors
-  use the last three, the bike's riding graph the others. A player's profile that still names `Brake` (from before the two
+  bumpers), `Pause` (Escape, Start), `NextCamera` (C, Y), `ResetCamera` (R, Back) and `Confirm` (Enter, A), each on the
+  keyboard and any gamepad and no control bound twice, in a group per graph that reads them (`Controls.py`'s `GROUPS`,
+  one line each); the audio and camera directors use `Pause`, `NextCamera` and `ResetCamera`, the race director
+  `Confirm`, the bike's riding graph the others. A player's profile that still names `Brake` (from before the two
   brakes) loses that entry, with one log line, as the actions load (§7.4, "Rebinding"). **The test scene**
   (`Scenes/Tests.sscene`, the main scene without its props, which
   stand clear of all it checks, with a crate over the road, two blocks sent sliding with the scene, the `Waiting Tour`,
@@ -6937,7 +6938,7 @@ graphs alone keeps its best lap and its settings screen, and none exposes a path
   (`Tools/RaceChecks.py`, a module of the tests part) join `Ride.sscene` and report after the ride's seven; what they
   read is taken from the scene's first step, beside the ride, by a graph of their own (`Scripts/RaceTests.sgraph`, on
   the `Race Tests` entity, registered by a line of `Checks.MODULE_GRAPHS`) from its `Event.FixedUpdate`, as a function of
-  its own count of steps and of what the director reads, by about step 400. Its entities: the `Gate Probe`, a box of
+  its own count of steps and of what the director reads, by about step 480. Its entities: the `Gate Probe`, a box of
   0.5 m with no gravity and no damping, which is the director's `Subject` there from the first pass on (so the ridden
   bike crosses nothing the race counts), and the `Ghost Stand-In`, the director's `Ghost` as the scene starts; the
   scene's director counts down 1 s. Six passes send the probe through the gates: the line at 10 m/s, `Gate 1` at 30,
@@ -6947,20 +6948,26 @@ graphs alone keeps its best lap and its settings screen, and none exposes a path
   a lap is the best, the stand-in's arrays are filled with its samples, ten a second, as the ghost keeps a lap. The
   first race (laps of 99.008, 93.487 and 96.258 s) is run with the probe as the director's `Ghost`, which runs no graph
   of a ghost, so its best lap is saved without samples; the second (90.008, 84.988 and 87.508 s) with the stand-in
-  again, so its best lap is saved with them. Seven checks: (1) each crossing the director timed within 0.5 ms of the
-  analytic one, from where the probe's speed puts the
-  plane past a position the director read two steps after the launch (read 20 µs at most; with the interpolation's
-  fraction reversed it reads a step and fails); (2) each pass entered its gate's trigger once and was timed once; (3)
-  each race started once, 60 steps after `StartRace` (within one: the order in which two graphs run in a step is the
-  scene's); (4) six `LapStarted`, twelve `SectorCrossed` and six `LapFinished`, their times the scripts' within 1 ms
-  and the best flags laps 1, 2, 4 and 5 (the best carried from the first race to the second); (5) a `RaceFinished` for
-  each race with the total of its laps, the director in `Results`, and no lap from the crossing after; (6) after the
-  first race the slot holds its best lap without samples; (7) at the end it holds the second race's best lap and splits
-  within 1 ms and its 850 samples. The graph logs every reading in one line ("Moto's race: ..."), the same at 1/60 and
-  1/30 s a frame (`MotoRideTests.cpp`, and at 1/144 behind `STRADA_LONG_RIDES=1`), and two development runs of the
-  scene of 480 frames with one per-user root, which keep their game data in the project's `.strada/PlayData` where a
+  again, so its best lap is saved with them. Then a third race, in which the probe is sent through the line at the top
+  speed once the race runs, and which is abandoned once it is out of the gate. Nine checks: (1) each crossing the
+  director timed within 0.5 ms of the analytic one, from where the probe's speed puts the plane past a position the
+  director read two steps after the launch (read 20 µs at most; with the interpolation's fraction reversed it reads a
+  step and fails); (2) each pass entered its gate's trigger once and was timed once; (3) each race started once, 60
+  steps after `StartRace` (within one: the order in which two graphs run in a step is the scene's); (4) seven
+  `LapStarted` (the third race's from the real crossing), twelve `SectorCrossed` and six `LapFinished`, their times the
+  scripts' within 1 ms and the best flags laps 1, 2, 4 and 5 (the best carried from the first race to the second); (5)
+  a `RaceFinished` for each scripted race with the total of its laps, the director in `Results`, and no lap from the
+  crossing after; (6) the real crossing began lap 1, the lap's start within 0.5 ms of the crossing's interpolated time;
+  (7) abandoned, the race is back at the title, with one `AttractStarted`; (8) after the first race the slot holds its
+  best lap without samples; (9) at the end it holds the second race's best lap and splits within 1 ms and its 850
+  samples. The graph logs every reading in one line ("Moto's race: ...", the real crossing's step and fraction among
+  them), the same at 1/60 and 1/30 s a frame (`MotoRideTests.cpp`, and at 1/144 behind `STRADA_LONG_RIDES=1`), and two
+  development runs of the scene of 560 frames with one per-user root, which keep their game data in the project's
+  `.strada/PlayData` where a
   test run's is temporary, show the first saving the best lap and the second loading it as the scene starts, telling
-  the ghost once, and keeping it.
+  the ghost once, and keeping it. The HUD, the pause and the menus bring their checks with them, and an editor case
+  records the probe's lap with the Telemetry recorder at 30, 60 and 144 frames a second and compares the rows its marks
+  sit on.
 - The Showcase's **Graph Garden**: chimes played by six visual scripts (`Scripts/GraphGarden`; `Tools/GraphGarden.py`
   authors them and `Tools/Author.py --exhibit GraphGarden` rebuilds the exhibit in place, with a hash guard that names
   any file outside the exhibit that changed), whose score is a Timeline; seven of the Showcase's 68 checks look at it.

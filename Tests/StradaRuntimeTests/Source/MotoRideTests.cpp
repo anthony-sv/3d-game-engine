@@ -26,15 +26,16 @@ using namespace Strada::RuntimeTesting;
 // Moto's main scene takes on CI's macOS runners: the shard's starts stay well within its 200 s there.
 //
 // Beside the ride, from the scene's first step, a graph of the race's checks (Tools/RaceChecks.py) sends a box through the
-// race's trigger gates, the bike's top speed among the speeds, and two scripted three-lap races to the race director, which
-// keeps its best lap in the game's save slot; their checks report after the ride's. Its readings are logged in one line
-// too ("Moto's race: ..."), by about step 400, compared between the frame rates, and two short runs that keep their data
-// (development runs, not test runs) show the slot the first saved loaded by the second.
+// race's trigger gates, the bike's top speed among the speeds, and the race director two scripted three-lap races and a
+// third that the box's crossing of the line begins, then abandons; the director keeps its best lap in the game's save
+// slot, and the checks report after the ride's. Its readings are logged in one line too ("Moto's race: ...", by about step
+// 480), compared between the frame rates, and two short runs that keep their data (development runs, not test runs) show
+// the slot the first saved loaded by the second.
 
 namespace
 {
 	// The ride test scene's checks.
-	constexpr std::string_view RideChecks = "Tests passed: 14 checks";
+	constexpr std::string_view RideChecks = "Tests passed: 16 checks";
 	// A fixed step of the ride after it was teleported into the gravel trap and back (by about step 1,650) and before it ends
 	// (about step 1,870): the physics state there is the same at every frame rate.
 	constexpr std::string_view HashStep = "1750";
@@ -154,7 +155,7 @@ TEST_CASE("Runtime: Moto's ride test scene rides the grid bike through its check
 TEST_CASE("Runtime: Moto's race keeps its best lap in the game's save slot, which the next run loads and gives the ghost")
 {
 	// Development runs of the ride test scene, which keep their game data in the project's folder (a test run's is
-	// temporary), each 480 frames at 1/60 s, past the race's readings: the first finds no best lap and saves the scripted
+	// temporary), each 560 frames at 1/60 s, past the race's readings: the first finds no best lap and saves the scripted
 	// races' best at their results, the second race's with the stand-in ghost's samples; the second run loads it as the scene
 	// starts and tells the ghost, and its races beat nothing, so the slot keeps the first run's. A run without a window that
 	// is not a test run is paced at 60 frames a second, so the runs stop well before the ride's end.
@@ -162,7 +163,7 @@ TEST_CASE("Runtime: Moto's race keeps its best lap in the game's save slot, whic
 	std::filesystem::path const project = CopyRepositoryProject("Moto", directory.GetPath());
 	Testing::IsolatedUserRoot const userRoot;
 	std::vector<std::string> const arguments = {
-		"--project", Native(project), "--scene", "Scenes/Ride.sscene", "--headless", "--timestep", "0.0166666667", "--frames", "480"};
+		"--project", Native(project), "--scene", "Scenes/Ride.sscene", "--headless", "--timestep", "0.0166666667", "--frames", "560"};
 
 	ProcessResult const first = RunPlayer(arguments, userRoot);
 	CAPTURE(first.Output);
@@ -173,7 +174,7 @@ TEST_CASE("Runtime: Moto's race keeps its best lap in the game's save slot, whic
 	std::string const saved(RaceReading(saving, "the slot keeps ", " s, "));
 	REQUIRE_FALSE(saved.empty());
 	CHECK(saved != "-1");
-	CHECK(Contains(saving, "850 samples; loaded"));
+	CHECK(Contains(saving, "], 850 samples; a real crossing"));
 	CHECK(std::filesystem::is_regular_file(project.parent_path() / ".strada" / "PlayData" / "Saves" / "bestlap.ssave"));
 
 	ProcessResult const second = RunPlayer(arguments, userRoot);
