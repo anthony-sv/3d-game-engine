@@ -3218,7 +3218,17 @@ wheel all of its torque).
   counting down, the next ones count; from neutral, the release alone); a request during a shift starts again from the
   gear it reached, and a sum that moves no gear (down in neutral, up in top gear) changes nothing. The manual gearbox
   starts in neutral. The throttle does not lift during a manual shift, so the engine revs freely while the clutch is open
-  (Jolt cuts the throttle by the clutch in `Automatic` mode only, `WheeledVehicleController.cpp:282-284`). **The gear
+  (Jolt cuts the throttle by the clutch in `Automatic` mode only, `WheeledVehicleController.cpp:282-284`). **A closed
+  throttle never lets the idling engine push the bike**: Jolt holds the engine at `MinRPM` (`VehicleEngine.cpp:57`, `:67`),
+  so a closed clutch in gear would roll the bike at that gear's idle speed whatever its brakes do; in `Manual` mode the
+  clutch is therefore open, whatever the shift's ramp, in every collision step whose throttle is 0 while the rear wheel
+  turns the gear slower than the engine idles (its spin times the gear's ratio and `FinalDrive`, as the last collision
+  step left it, below `MinRPM`), as a rider holds the lever. The bike rolls free there and stops on its brakes; above that
+  speed the clutch stays closed and the engine turns with the wheels (its `AngularDamping` is the only engine braking
+  Jolt's engine has: at a closed throttle it gives no torque, and its inertia rides on with the bike), and any throttle
+  closes the clutch at once (from rest the bike sets off).
+  The rule reads only the step's inputs and the wheel's spin, so it adds nothing to the state, the hash or the snapshot.
+  **The gear
   stays within the gears the definition has.** Jolt reads a gear's ratio without checking its index
   (`VehicleTransmission::GetCurrentRatio`, `VehicleTransmission.cpp:131-139`), so whenever the gears can change under a
   running vehicle, the world brings the gear back within them: `SetVehicleSettings` takes Jolt's gear and Strada's

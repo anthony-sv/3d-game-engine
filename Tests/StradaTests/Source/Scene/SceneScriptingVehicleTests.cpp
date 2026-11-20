@@ -227,8 +227,15 @@ TEST_CASE("Scene: scripts ride a vehicle from OnFixedUpdate: its inputs and shif
 	CHECK(states.at(19).Gear == 3);
 	CHECK(states.at(29).Gear == 0);
 	CHECK(states.at(30).Gear == 1);
-	// The ride moved the bike forward on the Asphalt.
-	CHECK(states.back().ForwardSpeed > 1.0f);
+	// The ride moved the bike forward on the Asphalt, and the brakes slowed it once the throttle closed (with the throttle
+	// closed the idling engine pushes it no more, Docs/Architecture.md §8).
+	float fastest = 0.0f;
+	for (VehicleState const& state : states)
+	{
+		fastest = std::max(fastest, state.ForwardSpeed);
+	}
+	CHECK(fastest > 1.0f);
+	CHECK(states.back().ForwardSpeed < fastest);
 	CHECK(states.back().Wheels[1].Surface.IsValid());
 	scene.OnRuntimeStop();
 }
