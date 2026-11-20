@@ -201,8 +201,9 @@ namespace Strada
 	[[nodiscard]] Result<std::string> WriteSaveSlotText(SaveSlotData const& slot);
 	// The text WriteSaveSlotText writes of a slot a reader gave (ReadSaveSlotText, SaveSlotStore::Read), for the scripting
 	// boundary (SaveSlot_Read): neither validated (the reader did) nor bounded, since MaxSaveSlotBytes bounds the file, and
-	// a file that reads may give a longer text (written compact, or its numbers short), which scripts read whole. Any
-	// thread.
+	// a file that reads may give a longer text (written compact, or its numbers short), which scripts read whole: about
+	// seven times the file at most, numbers written one to a line at their full precision (some 115 MB of text for a
+	// compact file of MaxSaveSlotBytes). Any thread.
 	[[nodiscard]] std::string WriteReadSaveSlotText(SaveSlotData const& slot);
 
 	// The slots of the running game in <game data>/Saves. Stateless, so any thread may call it: two writes of one slot at

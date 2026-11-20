@@ -129,9 +129,14 @@ TEST_CASE("SceneSaves: a slot whose file reads reaches a script whole, though th
 		std::string made = R"({"Strada":{"Version":1,"Type":"SaveSlot"},"SaveSlot":{"Values":{)";
 		for (size_t index = 0; index < lists; index++)
 		{
-			made += (index == 0 ? "\"List" : ",\"List") + std::to_string(index) + R"(":{"Type":"Vector4[]","Value":)" + list + "}";
+			made += index == 0 ? "\"List" : ",\"List";
+			made += std::to_string(index);
+			made += R"(":{"Type":"Vector4[]","Value":)";
+			made += list;
+			made += "}";
 		}
-		return made + "}}}";
+		made += "}}}";
+		return made;
 	};
 	constexpr size_t Lists = 36;
 	SaveSlotRead const one = ReadSaveSlotText(makeText(1));

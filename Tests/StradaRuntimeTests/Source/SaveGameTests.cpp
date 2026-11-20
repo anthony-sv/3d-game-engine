@@ -422,7 +422,11 @@ TEST_CASE("SaveGame: a script's window request sizes the player's window as one 
 
 	// The next run opens at the saved size with the drawing area the request gave, whatever the display's scale, and its
 	// request of vsync alone leaves it so.
-	std::string const drawingArea = "(" + std::to_string(width) + "x" + std::to_string(height) + " framebuffer)";
+	std::string drawingArea = "(";
+	drawingArea += std::to_string(width);
+	drawingArea += "x";
+	drawingArea += std::to_string(height);
+	drawingArea += " framebuffer)";
 	Run const vsync = play("VSync.png", {});
 	CHECK(Contains(vsync.Output, drawingArea));
 	CHECK(Contains(vsync.Output, "The window takes the player's settings: windowed at 400x100, vsync on (the swapchain's: on)"));
