@@ -210,9 +210,10 @@ namespace Strada
 - Code that does measurable work every frame opens a profiler zone (`ST_PROFILE_SCOPE("<Subsystem>.<What>")`,
   `Strada/Core/Profiler.h`; Docs/Architecture.md §4.4 lists the zones), a render pass a `SceneRenderer::PassScope`, and
   a thread that can reach a zone names itself with `ST_PROFILE_THREAD`.
-- What a running game writes for its player (its bindings, saves and settings to come) goes below the folder the
-  `GameData` service names (`Strada/Core/GameData.h`, Docs/Architecture.md §13.1), never into the engine's shared
-  per-user folder; an empty service means no game runs, and nothing is written.
+- What a running game writes for its player (its bindings, its save slots and the player's settings) goes below the
+  folder the `GameData` service names (`Strada/Core/GameData.h`, Docs/Architecture.md §13.1), never into the engine's
+  shared per-user folder, and durably (`FileSystem::WriteTextFileDurably`); an empty service means no game runs, and
+  nothing is written.
 - World transforms come from the scene's cache: `Scene::GetWorldTransform` (checked, never stale), or the unchecked
   cached matrix only in code that runs after a view's refresh (Docs/Architecture.md §7.1). Meshes are drawn as
   instances: a new pass or submission path keeps per-object data in `InstanceData`, not in push constants (§6.2).
