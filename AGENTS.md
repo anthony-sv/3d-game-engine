@@ -268,7 +268,8 @@ Rules for the other suites:
   StradaRuntimeTests, `Testing::IsolatedUserRoot`, `EditorExport::SetGameEnvironment` in editor tests, the session's
   user data in StradaToolTests); without one the game writes a folder named after itself into the real profile.
 - Sample projects and the templates are played by `StradaRuntimeTests` (a template through a project made from it); a
-  change to a sample or a template updates its pinned check count. Their graphs must read well:
+  change to a sample or a template updates its pinned check count. Moto's ride at 1/144 s a frame runs only with
+  `STRADA_LONG_RIDES=1`. Their graphs must read well:
   `Tests/StradaEditorTests/Source/SampleGraphsTests.cpp` requires every node placed in a titled comment box, none
   overlapping, each box arranged. After a change to arranging, re-run the authoring command its failure names:
   `python Projects/PrismBreak/Tools/Author.py` for Prism Break, `python Projects/Moto/Tools/Author.py --part camera` for
