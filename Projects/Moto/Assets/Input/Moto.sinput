@@ -238,6 +238,32 @@
 						"Scale": 1.0
 					}
 				]
+			},
+			{
+				"Name": "Confirm",
+				"Type": "Button",
+				"PressThreshold": 0.5,
+				"ReleaseThreshold": 0.4000000059604645,
+				"Bindings": [
+					{
+						"Controls": "Key/Enter",
+						"Gamepad": -1,
+						"DeadZone": 0.0,
+						"ResponseCurve": "0",
+						"Invert": false,
+						"InvertY": false,
+						"Scale": 1.0
+					},
+					{
+						"Controls": "Gamepad/A",
+						"Gamepad": -1,
+						"DeadZone": 0.0,
+						"ResponseCurve": "0",
+						"Invert": false,
+						"InvertY": false,
+						"Scale": 1.0
+					}
+				]
 			}
 		]
 	}

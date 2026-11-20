@@ -1,0 +1,161 @@
+{
+	"Strada": {
+		"Version": 3,
+		"Type": "VisualScript"
+	},
+	"VisualScript": {
+		"Description": "What the race director keeps of the ghost: its best lap's samples, ten a second, as public arrays the director saves with the best lap and writes back when the scene starts, the ghost's Delta, and BestLapLoaded, which tells the ghost the arrays were loaded. The ride test scene's stand-in ghost runs it.",
+		"Variables": [
+			{
+				"ID": 1,
+				"Name": "Positions",
+				"Type": "Strada.Vector3[]",
+				"Value": [],
+				"Public": true,
+				"Tooltip": "The best lap's positions at each sample, ten a second"
+			},
+			{
+				"ID": 2,
+				"Name": "Rotations",
+				"Type": "Strada.Quaternion[]",
+				"Value": [],
+				"Public": true,
+				"Tooltip": "The best lap's rotations at each sample, ten a second"
+			},
+			{
+				"ID": 3,
+				"Name": "EngineSpeeds",
+				"Type": "float[]",
+				"Value": [],
+				"Public": true,
+				"Tooltip": "The best lap's engine speeds at each sample, ten a second"
+			},
+			{
+				"ID": 4,
+				"Name": "Loads",
+				"Type": "float[]",
+				"Value": [],
+				"Public": true,
+				"Tooltip": "The best lap's loads at each sample, ten a second"
+			},
+			{
+				"ID": 5,
+				"Name": "Delta",
+				"Type": "float",
+				"Value": 0.0,
+				"Public": true,
+				"Tooltip": "The current lap against the best at the same place (seconds, negative when ahead)"
+			},
+			{
+				"ID": 6,
+				"Name": "Loaded",
+				"Type": "int",
+				"Value": 0,
+				"Public": true,
+				"Tooltip": "How many times the best lap's samples were loaded (a read-out)"
+			}
+		],
+		"Functions": [],
+		"Graph": {
+			"Nodes": [
+				{
+					"ID": 7,
+					"Type": "Event.Custom",
+					"Position": [
+						0.0,
+						0.0
+					],
+					"Settings": {
+						"Name": "BestLapLoaded",
+						"Parameters": []
+					}
+				},
+				{
+					"ID": 8,
+					"Type": "Variable.Get",
+					"Position": [
+						0.0,
+						112.0
+					],
+					"Settings": {
+						"Variable": 6
+					}
+				},
+				{
+					"ID": 9,
+					"Type": "Expression",
+					"Position": [
+						208.0,
+						0.0
+					],
+					"Settings": {
+						"Formula": "loaded + 1"
+					}
+				},
+				{
+					"ID": 10,
+					"Type": "Variable.Set",
+					"Position": [
+						416.0,
+						0.0
+					],
+					"Settings": {
+						"Variable": 6
+					}
+				}
+			],
+			"Links": [
+				{
+					"From": [
+						8,
+						"Value"
+					],
+					"To": [
+						9,
+						"loaded"
+					]
+				},
+				{
+					"From": [
+						9,
+						"Result"
+					],
+					"To": [
+						10,
+						"Value"
+					]
+				},
+				{
+					"From": [
+						7,
+						"Then"
+					],
+					"To": [
+						10,
+						"Execute"
+					]
+				}
+			],
+			"Comments": [
+				{
+					"ID": 11,
+					"Text": "Loaded: the best lap's samples were written into the arrays",
+					"Position": [
+						-32.0,
+						-72.0
+					],
+					"Size": [
+						605.572509765625,
+						244.0
+					],
+					"Color": [
+						0.20000000298023224,
+						0.41999998688697815,
+						0.949999988079071,
+						0.2199999988079071
+					]
+				}
+			]
+		}
+	}
+}

@@ -31,9 +31,14 @@ visual scripts alone (no C#). In order:
    with a voice for each layer, Scripts/EngineSound.sgraph and the curve assets it crossfades the layers through);
 10. the trackside part: the four trackside cameras and the camera director (Trackside.py: the Trackside entity, whose
     children the cameras are, and Scripts/CameraDirector.sgraph), which cuts between them and the tour on actions;
-11. the tests part: the test scenes (Checks.py's SCENES, each the main scene with its checks and without the props:
+11. the race part: the race (Race.py): the Race entity, which runs the race director (Scripts/RaceDirector.sgraph: the time
+    trial from the title over the attract mode, through the countdown and three laps timed from the gates' interpolated
+    crossings, to the results, the best lap kept in a save slot), and its children, the trigger gates at the start and
+    finish line and at the two sector arches (Scripts/Gate.sgraph), with Scripts/GhostStandIn.sgraph, what the director
+    keeps of a ghost;
+12. the tests part: the test scenes (Checks.py's SCENES, each the main scene with its checks and without the props:
     Scenes/Tests.sscene, and Scenes/Ride.sscene, whose graph rides the bike, BikeChecks.py) and their graphs (Checks.py);
-12. checks: spheres dropped on the road, a kerb, a gravel trap, a verge, the ground, a barrier and the footbridge come to
+13. checks: spheres dropped on the road, a kerb, a gravel trap, a verge, the ground, a barrier and the footbridge come to
     rest on their surfaces; the test scene's checks pass in a test run; the tour plays in play mode, the camera where its
     path puts it, and so does the ghost, where its line puts it; and nothing logs a warning.
 
@@ -53,7 +58,7 @@ with the checks and they name its entities; its own entities keep their IDs too.
 project outside Tools before and after: when a file the part (or the tests part after it) does not own changed, it names
 the files and fails, also when the authoring itself failed. After a change to how graphs are arranged, `--part camera`
 writes every graph again: the tour's, then those of the parts that have made theirs (the audio director's, the ghost's
-and its engine sound's, the camera director's) and the test scene's.
+and its engine sound's, the camera director's, the bike's, the race's) and the test scenes'.
 
 With --captures, nothing is built: the player takes its screenshots of the main scene from the fixed list of cameras in
 Captures.py, each from a copy of the project outside the repository, at 1920 by 1080 pixels, into the output folder;
@@ -84,6 +89,7 @@ import GenerateAudio  # noqa: E402  (the sounds)
 import Ghost  # noqa: E402  (the ghost bike)
 import Graphs  # noqa: E402  (writing graphs)
 import Props  # noqa: E402  (the props' placement)
+import Race  # noqa: E402  (the gates and the race director)
 import RacingLine  # noqa: E402  (the line the ghost rides)
 import Sound  # noqa: E402  (the mixer)
 import Tour  # noqa: E402  (the camera tour)
@@ -163,6 +169,7 @@ GRAPH_GROUPS = (
     ("ghost", (EngineSound.ENGINE_SOUND, Ghost.GHOST), _ghost_graphs("declare"), _ghost_graphs("write")),
     ("trackside", (Trackside.CAMERA_DIRECTOR,), Trackside.declare, Trackside.write),
     ("bike", (Vehicle.BIKE,), Vehicle.declare, Vehicle.write),
+    ("race", (Race.GHOST_STAND_IN, Race.GATE, Race.DIRECTOR), Race.declare, Race.write),
 )
 # Every graph of the project, in the order they are written.
 GRAPHS = tuple(graph for _, graphs, _, _ in GRAPH_GROUPS for graph in graphs) + Checks.GRAPHS
@@ -618,6 +625,22 @@ class Moto:
         for name, position in placed:
             self.entity(name, Trackside.camera(position), root)
 
+    def make_race(self):
+        """The race (Race.py): the Race entity, which runs the race director with the grid bike as the subject its gates time
+        and the ghost whose samples it keeps, and its children, the trigger gates."""
+        print("race:", Race.check())
+        self.write_part_graphs("race")
+        roots = self.root_ids()
+        missing = [name for name in ("Bike", Ghost.ENTITY) if name not in roots]
+        if missing:
+            raise SystemExit(f"the race part follows the bike and ghost parts: the scene has no {', '.join(missing)}")
+        root = self.entity(Race.ROOT, {"Transform": {"Translation": [0.0, 0.0, 0.0]}, "VisualScript": {
+            "Graph": self.handles[Race.DIRECTOR], "Variables": {
+                "Subject": {"Type": "Entity", "Value": roots["Bike"]},
+                "Ghost": {"Type": "Entity", "Value": roots[Ghost.ENTITY]}}}})
+        for number, (name, s) in enumerate(Race.GATES):
+            self.entity(name, Race.gate_components(number, s, self.handles[Race.GATE]), root)
+
     def make_lighting(self):
         self.call("scene_settings", {"name": "Main", "settings": {"Renderer": {
             "Tonemapper": "ACES", "EV100": 0.0, "Shadows": True, "SoftShadows": True, "ShadowDistance": 220.0, "CascadeCount": 4,
@@ -891,6 +914,7 @@ PARTS = {
     "sound": ((Sound.DIRECTOR, Sound.ECHO), ("Assets/Audio/*.wav", "Assets/Audio/Engine/*.wav", "Assets/Audio/*.smixer", "Moto.sproj", MAIN, graph_file(Sound.AUDIO_DIRECTOR), REGISTRY), Moto.make_sound),
     "ghost": ((Ghost.ENTITY,), (MAIN, graph_file(Ghost.GHOST), graph_file(EngineSound.ENGINE_SOUND), "Assets/Curves/*.scurve", REGISTRY), Moto.make_ghost),
     "trackside": ((Trackside.ROOT,), (MAIN, graph_file(Trackside.CAMERA_DIRECTOR), REGISTRY), Moto.make_trackside),
+    "race": ((Race.ROOT,), (MAIN, graph_file(Race.GHOST_STAND_IN), graph_file(Race.GATE), graph_file(Race.DIRECTOR), REGISTRY), Moto.make_race),
     "tests": ((), Checks.FILES, None),
 }
 ORDER = tuple(PARTS)

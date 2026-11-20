@@ -12,6 +12,8 @@ graph that reads them, each registered by one line of GROUPS; no control is boun
 - Pause (a button): Escape, the gamepad's Start. The audio director blends the mix to the Paused snapshot and back.
 - NextCamera and ResetCamera (buttons): C and R, the gamepad's Y and Back. The camera director cuts to the next trackside
   camera, and back to the tour.
+- Confirm (a button): Enter, the gamepad's A. The race director starts the race from its title, and goes back to the title
+  from the results.
 
 A player's profile written before the two brakes (it names Brake, which the actions no longer have) loses that entry,
 with one line in the log, when the game loads its actions; the rest of the profile holds.
@@ -47,12 +49,16 @@ CAMERAS = (
     action("NextCamera", "Button", binding("Key/C"), binding("Gamepad/Y")),
     action("ResetCamera", "Button", binding("Key/R"), binding("Gamepad/Back")),
 )
+RACE = (
+    action("Confirm", "Button", binding("Key/Enter"), binding("Gamepad/A")),
+)
 
 # The groups of actions, one line each: (the graph that reads them, its actions), in the order the asset lists them.
 GROUPS = (
     ("the bike's riding graph", RIDING),
     ("the audio director", PAUSE),
     ("the camera director", CAMERAS),
+    ("the race director", RACE),
 )
 ACTIONS = tuple(action for _, actions in GROUPS for action in actions)
 

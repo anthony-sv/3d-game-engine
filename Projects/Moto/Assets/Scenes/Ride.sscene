@@ -2478,6 +2478,477 @@
 			}
 		},
 		{
+			"ID": "10554775477527097747",
+			"Components": {
+				"Tag": {
+					"Tag": "Race"
+				},
+				"Transform": {
+					"Translation": [
+						0.0,
+						0.0,
+						0.0
+					],
+					"Rotation": [
+						0.0,
+						0.0,
+						0.0,
+						1.0
+					],
+					"Scale": [
+						1.0,
+						1.0,
+						1.0
+					]
+				},
+				"Relationship": {
+					"Parent": "0",
+					"Children": [
+						"11496827322287543120",
+						"1325580097094759393",
+						"6656699174957508737"
+					]
+				},
+				"VisualScript": {
+					"Graph": "12016132572530095741",
+					"Variables": {
+						"Countdown": {
+							"Type": "Float",
+							"Value": 1.0
+						},
+						"Ghost": {
+							"Type": "Entity",
+							"Value": "14357680727681950231"
+						},
+						"Subject": {
+							"Type": "Entity",
+							"Value": "1233048084916068541"
+						},
+						"TitleOnStart": {
+							"Type": "Bool",
+							"Value": false
+						}
+					}
+				}
+			}
+		},
+		{
+			"ID": "11496827322287543120",
+			"Components": {
+				"Tag": {
+					"Tag": "Line"
+				},
+				"Transform": {
+					"Translation": [
+						73.36579895019531,
+						0.0,
+						-218.00489807128906
+					],
+					"Rotation": [
+						0.0,
+						-0.8226891160011292,
+						0.0,
+						0.568491518497467
+					],
+					"Scale": [
+						1.0,
+						1.0,
+						1.0
+					]
+				},
+				"Relationship": {
+					"Parent": "10554775477527097747",
+					"Children": []
+				},
+				"RigidBody": {
+					"Type": "Static",
+					"Mass": 1.0,
+					"LinearDamping": 0.05000000074505806,
+					"AngularDamping": 0.05000000074505806,
+					"GravityFactor": 1.0,
+					"Layer": 0,
+					"LockTranslation": [
+						false,
+						false,
+						false
+					],
+					"LockRotation": [
+						false,
+						false,
+						false
+					],
+					"ContinuousCollision": false,
+					"AllowSleep": true,
+					"Interpolation": "Interpolate",
+					"InitialLinearVelocity": [
+						0.0,
+						0.0,
+						0.0
+					],
+					"InitialAngularVelocity": [
+						0.0,
+						0.0,
+						0.0
+					]
+				},
+				"BoxCollider": {
+					"HalfExtents": [
+						13.199999809265137,
+						2.0,
+						2.0
+					],
+					"Offset": [
+						0.0,
+						1.5,
+						0.0
+					],
+					"IsTrigger": true,
+					"Material": "0",
+					"Friction": 0.6000000238418579,
+					"Restitution": 0.0
+				},
+				"VisualScript": {
+					"Graph": "6905308179307172376",
+					"Variables": {
+						"Gate": {
+							"Type": "Int32",
+							"Value": 0
+						}
+					}
+				}
+			}
+		},
+		{
+			"ID": "1325580097094759393",
+			"Components": {
+				"Tag": {
+					"Tag": "Gate 1"
+				},
+				"Transform": {
+					"Translation": [
+						507.1415100097656,
+						0.0,
+						247.95509338378906
+					],
+					"Rotation": [
+						0.0,
+						-0.9971160292625427,
+						0.0,
+						0.07589244097471237
+					],
+					"Scale": [
+						1.0,
+						1.0,
+						1.0
+					]
+				},
+				"Relationship": {
+					"Parent": "10554775477527097747",
+					"Children": []
+				},
+				"RigidBody": {
+					"Type": "Static",
+					"Mass": 1.0,
+					"LinearDamping": 0.05000000074505806,
+					"AngularDamping": 0.05000000074505806,
+					"GravityFactor": 1.0,
+					"Layer": 0,
+					"LockTranslation": [
+						false,
+						false,
+						false
+					],
+					"LockRotation": [
+						false,
+						false,
+						false
+					],
+					"ContinuousCollision": false,
+					"AllowSleep": true,
+					"Interpolation": "Interpolate",
+					"InitialLinearVelocity": [
+						0.0,
+						0.0,
+						0.0
+					],
+					"InitialAngularVelocity": [
+						0.0,
+						0.0,
+						0.0
+					]
+				},
+				"BoxCollider": {
+					"HalfExtents": [
+						13.199999809265137,
+						2.0,
+						2.0
+					],
+					"Offset": [
+						0.0,
+						1.5,
+						0.0
+					],
+					"IsTrigger": true,
+					"Material": "0",
+					"Friction": 0.6000000238418579,
+					"Restitution": 0.0
+				},
+				"VisualScript": {
+					"Graph": "6905308179307172376",
+					"Variables": {
+						"Gate": {
+							"Type": "Int32",
+							"Value": 1
+						}
+					}
+				}
+			}
+		},
+		{
+			"ID": "6656699174957508737",
+			"Components": {
+				"Tag": {
+					"Tag": "Gate 2"
+				},
+				"Transform": {
+					"Translation": [
+						-189.0988006591797,
+						0.0,
+						198.83299255371094
+					],
+					"Rotation": [
+						0.0,
+						-0.20710860192775726,
+						0.0,
+						-0.9783179759979248
+					],
+					"Scale": [
+						1.0,
+						1.0,
+						1.0
+					]
+				},
+				"Relationship": {
+					"Parent": "10554775477527097747",
+					"Children": []
+				},
+				"RigidBody": {
+					"Type": "Static",
+					"Mass": 1.0,
+					"LinearDamping": 0.05000000074505806,
+					"AngularDamping": 0.05000000074505806,
+					"GravityFactor": 1.0,
+					"Layer": 0,
+					"LockTranslation": [
+						false,
+						false,
+						false
+					],
+					"LockRotation": [
+						false,
+						false,
+						false
+					],
+					"ContinuousCollision": false,
+					"AllowSleep": true,
+					"Interpolation": "Interpolate",
+					"InitialLinearVelocity": [
+						0.0,
+						0.0,
+						0.0
+					],
+					"InitialAngularVelocity": [
+						0.0,
+						0.0,
+						0.0
+					]
+				},
+				"BoxCollider": {
+					"HalfExtents": [
+						13.199999809265137,
+						2.0,
+						2.0
+					],
+					"Offset": [
+						0.0,
+						1.5,
+						0.0
+					],
+					"IsTrigger": true,
+					"Material": "0",
+					"Friction": 0.6000000238418579,
+					"Restitution": 0.0
+				},
+				"VisualScript": {
+					"Graph": "6905308179307172376",
+					"Variables": {
+						"Gate": {
+							"Type": "Int32",
+							"Value": 2
+						}
+					}
+				}
+			}
+		},
+		{
+			"ID": "7175455564740575453",
+			"Components": {
+				"Tag": {
+					"Tag": "Gate Probe"
+				},
+				"Transform": {
+					"Translation": [
+						66.00800323486328,
+						60.0,
+						-223.99400329589844
+					],
+					"Rotation": [
+						0.0,
+						0.0,
+						0.0,
+						1.0
+					],
+					"Scale": [
+						1.0,
+						1.0,
+						1.0
+					]
+				},
+				"Relationship": {
+					"Parent": "0",
+					"Children": []
+				},
+				"RigidBody": {
+					"Type": "Dynamic",
+					"Mass": 1.0,
+					"LinearDamping": 0.0,
+					"AngularDamping": 0.0,
+					"GravityFactor": 0.0,
+					"Layer": 0,
+					"LockTranslation": [
+						false,
+						false,
+						false
+					],
+					"LockRotation": [
+						true,
+						true,
+						true
+					],
+					"ContinuousCollision": false,
+					"AllowSleep": false,
+					"Interpolation": "Interpolate",
+					"InitialLinearVelocity": [
+						0.0,
+						0.0,
+						0.0
+					],
+					"InitialAngularVelocity": [
+						0.0,
+						0.0,
+						0.0
+					]
+				},
+				"BoxCollider": {
+					"HalfExtents": [
+						0.25,
+						0.25,
+						0.25
+					],
+					"Offset": [
+						0.0,
+						0.0,
+						0.0
+					],
+					"IsTrigger": false,
+					"Material": "0",
+					"Friction": 0.6000000238418579,
+					"Restitution": 0.0
+				}
+			}
+		},
+		{
+			"ID": "14357680727681950231",
+			"Components": {
+				"Tag": {
+					"Tag": "Ghost Stand-In"
+				},
+				"Transform": {
+					"Translation": [
+						0.0,
+						0.0,
+						0.0
+					],
+					"Rotation": [
+						0.0,
+						0.0,
+						0.0,
+						1.0
+					],
+					"Scale": [
+						1.0,
+						1.0,
+						1.0
+					]
+				},
+				"Relationship": {
+					"Parent": "0",
+					"Children": []
+				},
+				"VisualScript": {
+					"Graph": "17826225481884949757",
+					"Variables": {}
+				}
+			}
+		},
+		{
+			"ID": "6482406355689270357",
+			"Components": {
+				"Tag": {
+					"Tag": "Race Tests"
+				},
+				"Transform": {
+					"Translation": [
+						0.0,
+						0.0,
+						0.0
+					],
+					"Rotation": [
+						0.0,
+						0.0,
+						0.0,
+						1.0
+					],
+					"Scale": [
+						1.0,
+						1.0,
+						1.0
+					]
+				},
+				"Relationship": {
+					"Parent": "0",
+					"Children": []
+				},
+				"VisualScript": {
+					"Graph": "13834839178695237625",
+					"Variables": {
+						"Probe": {
+							"Type": "Entity",
+							"Value": "7175455564740575453"
+						},
+						"Race": {
+							"Type": "Entity",
+							"Value": "10554775477527097747"
+						},
+						"StandIn": {
+							"Type": "Entity",
+							"Value": "14357680727681950231"
+						}
+					}
+				}
+			}
+		},
+		{
 			"ID": "14439250953927458796",
 			"Components": {
 				"Tag": {
@@ -2511,6 +2982,10 @@
 						"Bike": {
 							"Type": "Entity",
 							"Value": "1233048084916068541"
+						},
+						"RaceTests": {
+							"Type": "Entity",
+							"Value": "6482406355689270357"
 						}
 					}
 				}
