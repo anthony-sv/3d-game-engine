@@ -3228,6 +3228,10 @@ wheel all of its torque).
   Jolt's engine has: at a closed throttle it gives no torque, and its inertia rides on with the bike), and any throttle
   closes the clutch at once (from rest the bike sets off).
   The rule reads only the step's inputs and the wheel's spin, so it adds nothing to the state, the hash or the snapshot.
+  It has no hysteresis: each collision step judges it afresh against `MinRPM` itself, with no band. So the engine's
+  braking in gear ends at the speed at which the gear turns the engine at `MinRPM` (in Moto's first gear about 4.6 m/s),
+  and a bike that rolls in gear with the throttle closed at about that speed (down a slope, say) may have its clutch open
+  in one collision step and closed in the next.
   **The gear
   stays within the gears the definition has.** Jolt reads a gear's ratio without checking its index
   (`VehicleTransmission::GetCurrentRatio`, `VehicleTransmission.cpp:131-139`), so whenever the gears can change under a
