@@ -359,10 +359,12 @@ TEST_CASE("Scene: a bike a script rides from OnFixedUpdate gives the same state 
 	}
 	// What they show of the ride: the script's lean of each step, odd and even (VehicleRider: 0.3 at odd steps from 61 to 119,
 	// 0.2 at even ones), reaching that step; and the gears it shifted to.
-	std::vector<std::optional<float>> const& lean = readings.at(1.0f / 30.0f).at(3);
+	float const slowRate = 1.0f / 30.0f;
+	float const fullRate = 1.0f / 60.0f;
+	std::vector<std::optional<float>> const lean = readings.at(slowRate).at(3);
 	CHECK(lean.at(60) == std::optional<float>(0.3f));
 	CHECK(lean.at(61) == std::optional<float>(0.2f));
 	CHECK(lean.at(119) == std::optional<float>(0.0f));
-	std::vector<std::optional<float>> const& gear = readings.at(1.0f / 60.0f).at(5);
+	std::vector<std::optional<float>> const gear = readings.at(fullRate).at(5);
 	CHECK(std::find(gear.begin(), gear.end(), std::optional<float>(2.0f)) != gear.end());
 }
