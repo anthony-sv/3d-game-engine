@@ -7,6 +7,7 @@
 #include "Strada/Core/Image.h"
 #include "Strada/Core/Layer.h"
 #include "Strada/Core/Result.h"
+#include "Strada/Project/PlayerWindow.h"
 #include "Strada/Project/Project.h"
 #include "Strada/Project/SceneRunner.h"
 #include "Strada/Renderer/QualityPresets.h"
@@ -44,6 +45,10 @@ namespace Strada
 		std::optional<glm::uvec2> Resolution;
 		// --no-vsync: the window presents without waiting, whatever the player's settings say.
 		bool NoVSync = false;
+		// The state the window opened in (the player's settings under the command line): a window a script asks for later is
+		// resized only when its size differs from the size the window was last given, so that a request of vsync or of the
+		// mode alone leaves the window's size as it is.
+		PlayerWindowState OpenedWindow;
 		// Records the mix into this WAV file of 16-bit PCM (empty: none). The application mixes through manual output
 		// (ApplicationSpecification::ManualAudio): after each frame's update the layer reads the frames of audio that frame's
 		// time covers (AudioCaptureClock). A run whose capture cannot be made or written exits with an error.

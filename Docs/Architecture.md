@@ -5872,7 +5872,11 @@ settings, High, a master volume of 1, no bus and no value; a field the file lack
   it. Its command line wins: `--resolution` keeps a window of that drawing size, `--no-vsync` keeps vsync off, and a run
   without a window (`--headless`, `--test`) keeps the values without applying them. One pure function of the Project
   module merges the game's window settings, the player's and the command line, before the window opens and for each
-  window a script asks for, so the precedence is tested without a window.
+  window a script asks for, so the precedence is tested without a window. A size is the size a window opened at it
+  has (scaled by the display where the system scales a new window, Windows and X11: `Window::GetCreatedSize`), and the
+  player sets it only when it differs from the size last given, so a request of vsync or of the mode alone leaves the
+  window's size as it is (one the player dragged too); a size asked for while fullscreen is the size the window returns
+  to.
 - The volumes are **the player's stage** of the mix (§9.5), which the audio engine keeps beside the game's values (the
   stage `Strada.Audio.MasterVolume`, `SetBusVolume` and `SetBusMuted` set) and combines with them on the main thread: a
   bus's node gets the sum of the two volumes in decibels and either mute, the master the product of the two volumes,

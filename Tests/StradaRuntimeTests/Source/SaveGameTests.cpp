@@ -219,7 +219,8 @@ namespace
 	}
 
 	// As the game starts: unless the player's window is 400 x 100 already, ask for it (windowed, vsync off) and save the
-	// settings, as a settings screen would.
+	// settings, as a settings screen would. A game whose window is so asks for vsync alone when it is off, and saves it;
+	// with vsync on it goes fullscreen and, five frames later, back into a window, saving nothing.
 	VisualScriptDocument MakeWindowGraph()
 	{
 		VisualScriptDocument document;
@@ -234,6 +235,13 @@ namespace
 		nodes.push_back(MakeNode(15, "Set:Strada.Settings.WindowMode", Json::object(), Json::object({{"Value", "Windowed"}})));
 		nodes.push_back(MakeNode(16, "Set:Strada.Settings.VSync", Json::object(), Json::object({{"Value", false}})));
 		nodes.push_back(MakeNode(17, "Call:Strada.Settings.Save()"));
+		nodes.push_back(MakeNode(18, "Get:Strada.Settings.VSync"));
+		nodes.push_back(MakeNode(19, "Flow.Branch"));
+		nodes.push_back(MakeNode(20, "Set:Strada.Settings.VSync", Json::object(), Json::object({{"Value", true}})));
+		nodes.push_back(MakeNode(21, "Call:Strada.Settings.Save()"));
+		nodes.push_back(MakeNode(22, "Set:Strada.Settings.WindowMode", Json::object(), Json::object({{"Value", "Fullscreen"}})));
+		nodes.push_back(MakeNode(23, "Flow.WaitFrames", Json::object(), Json::object({{"Frames", 5}})));
+		nodes.push_back(MakeNode(24, "Set:Strada.Settings.WindowMode", Json::object(), Json::object({{"Value", "Windowed"}})));
 		links.push_back({{10, "Then"}, {13, "Execute"}});
 		links.push_back({{11, "Value"}, {12, "A"}});
 		links.push_back({{12, "Result"}, {13, "Condition"}});
@@ -241,6 +249,13 @@ namespace
 		links.push_back({{14, "Then"}, {15, "Execute"}});
 		links.push_back({{15, "Then"}, {16, "Execute"}});
 		links.push_back({{16, "Then"}, {17, "Execute"}});
+		links.push_back({{13, "False"}, {19, "Execute"}});
+		links.push_back({{18, "Value"}, {19, "Condition"}});
+		links.push_back({{19, "False"}, {20, "Execute"}});
+		links.push_back({{20, "Then"}, {21, "Execute"}});
+		links.push_back({{19, "True"}, {22, "Execute"}});
+		links.push_back({{22, "Then"}, {23, "Execute"}});
+		links.push_back({{23, "Completed"}, {24, "Execute"}});
 		return document;
 	}
 
@@ -367,8 +382,8 @@ TEST_CASE("SaveGame: an exported game's quality, a bus volume and a slot written
 	CHECK(settings.Settings.Buses == std::vector<PlayerBusSettings>{{"Music", -12.0f, false}});
 }
 
-TEST_CASE("SaveGame: a script's window request resizes the player's window after the frame, an exported game opens its window "
-          "as saved, and --resolution holds against a request")
+TEST_CASE("SaveGame: a script's window request sizes the player's window as one opened at that size, a request of vsync or "
+          "the mode alone keeps its size, and --resolution holds against a request")
 {
 	{
 		// The player needs a Vulkan device (this probe's is released at the end of the block) and a display.
@@ -378,8 +393,13 @@ TEST_CASE("SaveGame: a script's window request resizes the player's window after
 	ExportedGraphGame const game(MakeWindowGraph());
 	Testing::IsolatedUserRoot const root;
 	std::filesystem::path const settingsFile = root.GetGameDirectory(game.GetIdentity()) / "Settings.json";
-	// The drawing area's shape, whatever the display's scale; a resize takes a frame or two to reach the swapchain.
-	auto const capture = [&](std::string const& name, std::vector<std::string> arguments)
+	// A resize takes a frame or two to reach the swapchain, so each run draws 20 frames before its screenshot.
+	struct Run
+	{
+		Image Shot;
+		std::string Output;
+	};
+	auto const play = [&](std::string const& name, std::vector<std::string> arguments)
 	{
 		std::filesystem::path const shot = game.GetDirectory() / FileSystem::PathFromUtf8(name);
 		arguments.insert(arguments.end(), {"--frames", "20", "--screenshot", Native(shot)});
@@ -388,22 +408,38 @@ TEST_CASE("SaveGame: a script's window request resizes the player's window after
 		REQUIRE(run.ExitCode == 0);
 		Result<Image> image = Image::LoadFromFile(shot);
 		REQUIRE(image.IsOk());
-		return image.TakeValue();
+		return Run{image.TakeValue(), run.Output};
 	};
 
-	// The game opens at its own 1280 x 720 (16:9), and its script asks for 4:1 in its first frame.
-	Image const requested = capture("Requested.png", {});
-	CHECK(requested.GetWidth() == 4 * requested.GetHeight());
+	// The game opens at its own 1280 x 720 (16:9), and its script asks for 400 x 100 (4:1) in its first frame.
+	Run const requested = play("Requested.png", {});
+	uint32_t const width = requested.Shot.GetWidth();
+	uint32_t const height = requested.Shot.GetHeight();
+	CHECK(width == 4 * height);
+	CHECK(Contains(requested.Output, "The window takes the player's settings: windowed at 400x100, vsync off (the swapchain's: off)"));
 	REQUIRE(FileSystem::IsRegularFile(settingsFile));
 	CHECK(ReadPlayerSettingsFile(settingsFile, {}).Settings.Window == PlayerWindowSettings{PlayerWindowMode::Windowed, 400, 100, false});
 
-	// The next run opens at the saved size, and its script asks for nothing.
-	Image const reopened = capture("Reopened.png", {});
-	CHECK(reopened.GetWidth() == 4 * reopened.GetHeight());
+	// The next run opens at the saved size with the drawing area the request gave, whatever the display's scale, and its
+	// request of vsync alone leaves it so.
+	std::string const drawingArea = "(" + std::to_string(width) + "x" + std::to_string(height) + " framebuffer)";
+	Run const vsync = play("VSync.png", {});
+	CHECK(Contains(vsync.Output, drawingArea));
+	CHECK(Contains(vsync.Output, "The window takes the player's settings: windowed at 400x100, vsync on (the swapchain's: on)"));
+	CHECK(vsync.Shot.GetWidth() == width);
+	CHECK(vsync.Shot.GetHeight() == height);
+	CHECK(ReadPlayerSettingsFile(settingsFile, {}).Settings.Window.VSync);
+
+	// Fullscreen, then back into a window: the size it opened at.
+	Run const returned = play("Returned.png", {});
+	CHECK(Contains(returned.Output, "The window takes the player's settings: fullscreen, vsync on (the swapchain's: on)"));
+	CHECK(Contains(returned.Output, "The window takes the player's settings: windowed at 400x100, vsync on (the swapchain's: on)"));
+	CHECK(returned.Shot.GetWidth() == width);
+	CHECK(returned.Shot.GetHeight() == height);
 
 	// Without the saved settings the script asks again, and --resolution keeps the drawing size it names.
 	REQUIRE(FileSystem::Remove(settingsFile).IsOk());
-	Image const sized = capture("Sized.png", {"--resolution", "320x184"});
-	CHECK(sized.GetWidth() == 320);
-	CHECK(sized.GetHeight() == 184);
+	Run const sized = play("Sized.png", {"--resolution", "320x184"});
+	CHECK(sized.Shot.GetWidth() == 320);
+	CHECK(sized.Shot.GetHeight() == 184);
 }

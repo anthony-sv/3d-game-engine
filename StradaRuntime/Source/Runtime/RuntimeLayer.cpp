@@ -11,6 +11,7 @@
 #include "Strada/Core/Profiler.h"
 #include "Strada/Core/Window.h"
 #include "Strada/Project/PlayerWindow.h"
+#include "Strada/RHI/Swapchain.h"
 #include "Strada/Renderer/Renderer.h"
 #include "Strada/Scene/SceneRendering.h"
 #include "Strada/Script/PlayerSettings.h"
@@ -26,9 +27,13 @@ namespace Strada
 {
 	namespace
 	{
-		// Gives the window the state the player's settings and the command line make of it: a size changed while fullscreen
-		// is the size the window returns to.
-		void ApplyPlayerWindow(PlayerWindowState const& state)
+		// Gives the window the state the player's settings and the command line make of it. `applied` is the state the
+		// window has from the player (it opened in it, and each request since changed it), and becomes the new one. A size is
+		// the size a window opened at it has (Window::GetCreatedSize, scaled by the display where the system scales a new
+		// window), and is set only when it differs from the size last given, so a request of vsync or of the mode alone
+		// leaves the window's size as it is (also one the player dragged); a size asked for while fullscreen is the size the
+		// window returns to.
+		void ApplyPlayerWindow(PlayerWindowState const& state, PlayerWindowState& applied)
 		{
 			Application& application = Application::Get();
 			Window* const window = application.GetWindow();
@@ -36,29 +41,53 @@ namespace Strada
 			{
 				return;
 			}
+			bool const resize = state.Size && state.Size != applied.Size;
+			auto const setSize = [window, &applied](glm::uvec2 size)
+			{
+				glm::uvec2 const created = window->GetCreatedSize(size);
+				window->SetSize(created.x, created.y);
+				applied.Size = size;
+			};
 			if (state.Fullscreen)
 			{
-				// Sized while windowed, so that the window returns to that size; a fullscreen window keeps the size it returns
-				// to until it does.
-				if (!window->IsFullscreen() && state.Size && window->GetWindowSize() != *state.Size)
+				// Sized while windowed, so that the window returns to that size. A fullscreen window keeps the size it returns
+				// to, and the size last given stays the one it had, so that leaving fullscreen applies the new one.
+				if (!window->IsFullscreen())
 				{
-					window->SetSize(state.Size->x, state.Size->y);
+					if (resize)
+					{
+						setSize(*state.Size);
+					}
+					window->SetFullscreen(true);
 				}
-				window->SetFullscreen(true);
 			}
 			else
 			{
 				// Back in a window first: leaving fullscreen restores the size the window had, which the settings then change.
 				window->SetFullscreen(false);
-				if (state.Size && window->GetWindowSize() != *state.Size)
+				if (resize)
 				{
-					window->SetSize(state.Size->x, state.Size->y);
+					setSize(*state.Size);
 				}
 			}
+			applied.Fullscreen = state.Fullscreen;
 			if (window->IsVSync() != state.VSync)
 			{
 				application.SetVSync(state.VSync);
 			}
+			applied.VSync = state.VSync;
+		}
+
+		// Whether the frames are presented waiting for the display, as the swapchain now holds it (the window's flag without
+		// one).
+		bool IsPresentedWithVSync()
+		{
+			Application& application = Application::Get();
+			if (Swapchain const* const swapchain = application.GetSwapchain())
+			{
+				return swapchain->IsVSync();
+			}
+			return application.GetWindow() != nullptr && application.GetWindow()->IsVSync();
 		}
 
 		SceneRunnerSettings MakeRunnerSettings(Project const& game, RuntimeLayerSpecification const& specification)
@@ -74,15 +103,15 @@ namespace Strada
 				PlayerWindowOverrides overrides;
 				overrides.KeepSize = specification.Resolution.has_value();
 				overrides.NoVSync = specification.NoVSync;
-				settings.ApplyWindow = [overrides](PlayerWindowSettings const& window)
+				settings.ApplyWindow = [overrides, applied = specification.OpenedWindow](PlayerWindowSettings const& window) mutable
 				{
 					PlayerWindowState const state = ResolvePlayerWindow(window, overrides);
-					ApplyPlayerWindow(state);
-					ST_INFO("The window takes the player's settings: {}, vsync {}",
+					ApplyPlayerWindow(state, applied);
+					ST_INFO("The window takes the player's settings: {}, vsync {} (the swapchain's: {})",
 					        state.Fullscreen ? std::string("fullscreen")
 					        : state.Size     ? fmt::format("windowed at {}x{}", state.Size->x, state.Size->y)
 					                         : std::string("windowed at the size the command line names"),
-					        state.VSync ? "on" : "off");
+					        state.VSync ? "on" : "off", IsPresentedWithVSync() ? "on" : "off");
 				};
 			}
 			return settings;

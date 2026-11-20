@@ -497,6 +497,25 @@ namespace Strada
 		}
 	}
 
+	glm::uvec2 Window::GetCreatedSize(glm::uvec2 specifiedSize) const
+	{
+		glm::uvec2 const size = glm::max(specifiedSize, glm::uvec2(1));
+		int const platform = glfwGetPlatform();
+		if (platform != GLFW_PLATFORM_WIN32 && platform != GLFW_PLATFORM_X11)
+		{
+			return size;
+		}
+		glm::vec2 const scale = GetContentScale();
+		if (!(scale.x > 0.0f) || !(scale.y > 0.0f))
+		{
+			return size;
+		}
+		// As glfwCreateWindow scales it (win32_window.c and x11_window.c, under scaleToMonitor): a float product truncated.
+		glm::uvec2 const scaled(static_cast<uint32_t>(static_cast<float>(size.x) * scale.x),
+		                        static_cast<uint32_t>(static_cast<float>(size.y) * scale.y));
+		return glm::max(scaled, glm::uvec2(1));
+	}
+
 	void Window::SetFramebufferSize(uint32_t width, uint32_t height)
 	{
 		// A window is created at a size in screen coordinates scaled by the monitor's content scale (GLFW_SCALE_TO_MONITOR),

@@ -488,6 +488,7 @@ namespace Strada
 		specification.EnableScripting = false;
 		runtime.Layer.Resolution = resolution;
 		runtime.Layer.NoVSync = overrides.NoVSync;
+		runtime.Layer.OpenedWindow = opening;
 		runtime.Layer.ViewportWidth = resolution ? resolution->x : window.GetValue().Width;
 		runtime.Layer.ViewportHeight = resolution ? resolution->y : window.GetValue().Height;
 		if (!audioCapture.empty())
