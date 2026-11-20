@@ -113,8 +113,17 @@ namespace Strada::ScriptGlue
 					                            slot);
 					break;
 				case SaveSlotStatus::Damaged:
-					Log::GetScriptLogger().warn("SaveSlot.Open: slot '{}' reads as empty, {}: only Save or Delete replaces it", slot,
-					                            found.Problem);
+					if (found.Kept)
+					{
+						Log::GetScriptLogger().warn("SaveSlot.Open: slot '{}' reads as empty, {}: it is kept, and Save and Delete are "
+						                            "refused while it cannot be read",
+						                            slot, found.Problem);
+					}
+					else
+					{
+						Log::GetScriptLogger().warn("SaveSlot.Open: slot '{}' reads as empty, {}: only Save or Delete replaces it", slot,
+						                            found.Problem);
+					}
 					break;
 				case SaveSlotStatus::Newer:
 					Log::GetScriptLogger().warn("SaveSlot.Open: slot '{}' reads as empty, {}: it is never written over or deleted", slot,

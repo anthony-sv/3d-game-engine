@@ -18,7 +18,9 @@ public enum SaveSlotStatus
 	Present,
 
 	/// <summary>A file that does not read: the slot is empty, and the file stays on disk until the game saves or deletes the
-	/// slot.</summary>
+	/// slot, which replaces or removes it. A file that cannot be read at all (a folder in its place, a file the game may not
+	/// read or another program holds open) is kept: <see cref="SaveSlot.Save"/> and <see cref="SaveSlot.Delete"/> answer
+	/// false, logged, while that lasts, since it may be a newer build's save.</summary>
 	Damaged,
 
 	/// <summary>A file of a newer version of the engine: the slot is empty, and this game never writes over it or deletes it,
@@ -165,9 +167,9 @@ public sealed unsafe class SaveSlot
 	}
 
 	/// <summary>Writes every value of the slot to its file and returns once the file is on disk, whole: the old file stays whole
-	/// until then, whatever happens. False, logged, while no game runs, for a slot of a newer version and when the slot cannot
-	/// be written (larger than 16 MiB, a full disk); <see cref="Status"/> is <see cref="SaveSlotStatus.Present"/> after one
-	/// that succeeds.</summary>
+	/// until then, whatever happens. False, logged, while no game runs, for a slot of a newer version, for a file on disk that
+	/// cannot be read at all, and when the slot cannot be written (larger than 16 MiB, a full disk); <see cref="Status"/> is
+	/// <see cref="SaveSlotStatus.Present"/> after one that succeeds.</summary>
 	/// <returns>Whether the slot is on disk.</returns>
 	public bool Save()
 	{
@@ -188,7 +190,8 @@ public sealed unsafe class SaveSlot
 	}
 
 	/// <summary>Removes the slot's file and every value of this object; a slot without a file is deleted already. False, logged,
-	/// while no game runs and for a slot of a newer version, which keep their file and values.</summary>
+	/// while no game runs, for a slot of a newer version and for a file on disk that cannot be read at all, which keep their
+	/// file and values.</summary>
 	/// <returns>Whether the slot has no file now.</returns>
 	public bool Delete()
 	{

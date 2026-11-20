@@ -292,14 +292,20 @@ TEST_CASE("PlayerSettingsStore: settings load from the game data folder, change 
 
 		// A damaged file likewise; a folder in the file's place is damaged, and a save that cannot replace it fails.
 		REQUIRE(FileSystem::WriteTextFile(file, "{ broken").IsOk());
+		uint64_t const damagedStart = Log::GetNextEntryIndex();
 		PlayerSettingsStore::Load(defaults);
 		CHECK(PlayerSettingsStore::GetStatus() == PlayerSettingsStatus::Damaged);
+		CHECK(Testing::WasLogged(damagedStart, "the game's defaults apply, and the game's next save of its settings replaces it"));
 		REQUIRE(PlayerSettingsStore::Save().IsOk());
 		CHECK(ReadPlayerSettingsFile(file, defaults).Status == PlayerSettingsStatus::Present);
 		REQUIRE(FileSystem::Remove(file).IsOk());
 		REQUIRE(FileSystem::WriteTextFile(file / "inside.txt", "x").IsOk());
+		uint64_t const folderStart = Log::GetNextEntryIndex();
 		PlayerSettingsStore::Load(defaults);
 		CHECK(PlayerSettingsStore::GetStatus() == PlayerSettingsStatus::Damaged);
+		CHECK(ReadPlayerSettingsFile(file, defaults).Kept);
+		CHECK(Testing::WasLogged(folderStart, "Player settings: Settings.json is not read, it is no file: the game's defaults apply, and "
+		                                      "the game's saves of its settings fail until it is removed"));
 		CHECK_FALSE(PlayerSettingsStore::Save().IsOk());
 		CHECK(ReadWholeFile(file / "inside.txt") == "x");
 	}

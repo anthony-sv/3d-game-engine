@@ -280,6 +280,7 @@ namespace Strada
 		if (!std::filesystem::is_regular_file(status))
 		{
 			damaged.Problem = "it is no file";
+			damaged.Kept = true;
 			return damaged;
 		}
 		std::optional<uint64_t> const size = FileSystem::GetFileSize(file);
@@ -335,9 +336,9 @@ namespace Strada
 		PlayerSettingsRead read = ReadPlayerSettingsFile(*folder / FileSystem::PathFromUtf8(PlayerSettingsFileName), defaults);
 		if (read.Status == PlayerSettingsStatus::Damaged || read.Status == PlayerSettingsStatus::Newer)
 		{
-			ST_CORE_WARN("Player settings: {} is not read, {}: the game's defaults apply, and the game's next save of its settings "
-			             "replaces it",
-			             PlayerSettingsFileName, read.Problem);
+			ST_CORE_WARN("Player settings: {} is not read, {}: the game's defaults apply, and {}", PlayerSettingsFileName, read.Problem,
+			             read.Kept ? "the game's saves of its settings fail until it is removed"
+			                       : "the game's next save of its settings replaces it");
 		}
 		for (std::string const& warning : read.Warnings)
 		{

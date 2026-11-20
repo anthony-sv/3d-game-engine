@@ -446,7 +446,8 @@ A game of graphs keeps a best score and its settings screen's choices as a game 
   **Remove** do what they say. Both are typed by their links: link a `float[]` to Set's `Value` (or Get's `Fallback`)
   and the node is the `float[]` one; with nothing linked, choose `T` in Details (`TypeArguments`).
 - **Save** writes every value of the slot and returns once it is on disk; it answers false (and logs why) while no game
-  runs or for a slot a later build wrote. The frame that saves waits for the disk, so save at a results screen or a menu,
+  runs, for a slot a later build wrote, or for a file it cannot read at all (a folder of that name), which it keeps. The
+  frame that saves waits for the disk, so save at a results screen or a menu,
   never while the player rides, and keep a lap's best in a variable until then. **Delete** removes the slot. `Status`
   (`Strada.SaveSlotStatus`) says what Open found: `Missing`, `Present`, `Damaged`, `Newer` or `Unavailable`.
 - `Strada.Settings`: `Quality`, `WindowMode`, `VSync` and `MasterVolume` have Get and Set nodes, **Set Window Size**,

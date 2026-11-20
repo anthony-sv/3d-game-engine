@@ -3979,8 +3979,9 @@ editor's Simulate mode runs neither kind.
   name when the value is of another type. `Set<T>` refuses (`ArgumentException`) a name the store refuses, a `T` without
   a field type, a list of more than 4,096 elements, a number that is not finite, a quaternion of length below 1e-6 and
   a value past the 4,096th. `Save` writes every value as one document and returns once it is on disk (a slot past
-  16 MiB is refused then, whole), and `Delete` removes the file; both answer false, logged, for a newer slot or
-  without a game data folder, and `Save` for a write the store refuses. The object keeps its values in the managed
+  16 MiB is refused then, whole), and `Delete` removes the file; both answer false, logged, for a newer slot, for a
+  file that cannot be read at all and without a game data folder, and `Save` for a write the store refuses. The object
+  keeps its values in the managed
   runtime, so `Get` and `Set` cross no boundary; `Open` and `Save` cross it once, with the values in the script field
   JSON (§7.3; bindings `SaveSlot_*` in `ScriptBindingsSaves.cpp`). `Open` is given the slot's text as the engine writes
   it (`WriteReadSaveSlotText`: unbounded, since a file that reads may write longer than the file), which it frees once
@@ -5841,7 +5842,9 @@ reaches (§10.4).
   what it can find again.
 - **What a reader sees** (`SaveSlotStatus`): `Missing`, no file (an empty slot, which a write creates); `Present`;
   `Damaged`, a file that does not read (it reads as empty, stays on disk, and only an explicit save or delete replaces
-  it); `Newer`, a file whose header names a version above this engine's (it reads as empty, and this engine never writes
+  it; a file that cannot be read at all, a folder in its place or a file the game may not read or another program holds
+  open, is kept, its writes and deletes refused while that lasts, since it may be a newer build's: `SaveSlotRead::Kept`);
+  `Newer`, a file whose header names a version above this engine's (it reads as empty, and this engine never writes
   over it or deletes it, so a player who runs an older build keeps the newer build's save); `Unavailable`, no game runs
   (nothing is read or written). A slot's version is read from its header alone, before anything else: the text's first
   top-level member when it is `Strada` (as writers write it; delimited by walking strings and brackets, so a truncated
@@ -5889,7 +5892,8 @@ settings, High, a master volume of 1, no bus and no value; a field the file lack
   game's stage; the settings set the player's at a game's start and reset it at its stop. A bus the project's mixer
   lacks is kept by name and applies nothing until a bus of that name exists (the audio engine logs its name once).
 - A file of a newer version, or a damaged one, is logged once and read as the defaults, and the next save replaces it:
-  settings are cheap to choose again, saves are not.
+  settings are cheap to choose again, saves are not. A save fails, logged, where nothing can replace the file: a folder
+  in its place (`PlayerSettingsRead::Kept`, which the log names) or a file another program holds open.
 - `SceneRunner::Start` loads the settings (`PlayerSettingsStore::Load`, after the host has filled the service) **whatever
   its audio and the audio engine's state**, so a headless run, Simulate and a test run read them as a player's run does;
   only the volumes' application sits with the other audio calls, after the game values are reset and the mixer applied.

@@ -1249,8 +1249,8 @@ A save slot: named values the game keeps for its player between runs (a best lap
 | `T? Get<T>(string name, T? fallback)` | The value of the name, when the slot holds one of `T`'s type (an array and a list of a type are one type, an enum is its integers); otherwise the fallback, and a value of another type is warned about once per name. |
 | `void Set<T>(string name, T? value)` | Sets a value of the slot, kept by this object until `SaveSlot.Save`. An array or a list is copied. |
 | `bool Remove(string name)` | Removes a value of the slot; `SaveSlot.Save` writes the slot without it. |
-| `bool Save()` | Writes every value of the slot to its file and returns once the file is on disk, whole: the old file stays whole until then, whatever happens. False, logged, while no game runs, for a slot of a newer version and when the slot cannot be written (larger than 16 MiB, a full disk); `SaveSlot.Status` is `SaveSlotStatus.Present` after one that succeeds. |
-| `bool Delete()` | Removes the slot's file and every value of this object; a slot without a file is deleted already. False, logged, while no game runs and for a slot of a newer version, which keep their file and values. |
+| `bool Save()` | Writes every value of the slot to its file and returns once the file is on disk, whole: the old file stays whole until then, whatever happens. False, logged, while no game runs, for a slot of a newer version, for a file on disk that cannot be read at all, and when the slot cannot be written (larger than 16 MiB, a full disk); `SaveSlot.Status` is `SaveSlotStatus.Present` after one that succeeds. |
+| `bool Delete()` | Removes the slot's file and every value of this object; a slot without a file is deleted already. False, logged, while no game runs, for a slot of a newer version and for a file on disk that cannot be read at all, which keep their file and values. |
 
 ### SaveSlotStatus
 

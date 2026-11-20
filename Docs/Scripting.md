@@ -959,8 +959,10 @@ fallback for a name the slot lacks or holds as another type; `Set` throws `Argum
 keep (a number that is not finite, a list too long, a name of more than 128 bytes). The object holds the values: `Get`
 and `Set` touch no file, `Save` writes them all and returns once they are on disk, whole (an interrupted save leaves the
 old slot), and `Delete` removes the slot. `Status` says what `Open` found: `Missing`, `Present`, `Damaged` (the file
-stays until the game saves or deletes the slot), `Newer` (a save of a later build of the game, which this one never
-writes over) or `Unavailable` (no game runs: the editor while it edits). Slot names are 1 to 64 letters, digits, spaces,
+stays until the game saves or deletes the slot, which replace it; a file that cannot be read at all, such as a folder in
+its place or a file another program holds open, is kept, and `Save` and `Delete` answer false while it lasts), `Newer`
+(a save of a later build of the game, which this one never writes over) or `Unavailable` (no game runs: the editor while
+it edits). Slot names are 1 to 64 letters, digits, spaces,
 `-` and `_`, in any letter case; `SaveSlot.GetNames()` lists them.
 
 `Settings` is the player's: `Quality` (`Low`, `Medium` or `High`, which lower the scenes' shadows, ambient occlusion,

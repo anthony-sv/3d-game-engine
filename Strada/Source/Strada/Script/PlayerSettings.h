@@ -207,7 +207,8 @@ namespace Strada
 		// No file: the defaults.
 		Missing = 0,
 		Present,
-		// Read as the defaults, replaced by the next Save.
+		// Read as the defaults, replaced by the next Save (which fails, logged, where no file stands at the path: a folder in
+		// its place, PlayerSettingsRead::Kept; or where the system refuses, a file another program holds open).
 		Damaged,
 		// Of a newer version: read as the defaults, replaced by the next Save.
 		Newer,
@@ -231,6 +232,8 @@ namespace Strada
 		std::string Problem;
 		// Unknown fields skipped while reading.
 		std::vector<std::string> Warnings;
+		// A Damaged path where no file stands (a folder): a save cannot replace it until it is removed.
+		bool Kept = false;
 	};
 
 	// Reads a settings document's text over the defaults (a field the content lacks keeps the default), with SaveSlotRead's

@@ -421,6 +421,7 @@ TEST_CASE("SaveSlotStore: a newer slot is never written over or deleted, and a d
 	REQUIRE(FileSystem::WriteTextFile(file, "not a slot").IsOk());
 	SaveSlotRead const damaged = SaveSlotStore::Read("Best").GetValue();
 	CHECK(damaged.Status == SaveSlotStatus::Damaged);
+	CHECK_FALSE(damaged.Kept);
 	CHECK(ReadWholeFile(file) == "not a slot");
 	REQUIRE(SaveSlotStore::Write("Best", slot).IsOk());
 	CHECK(SaveSlotStore::Read("Best").GetValue().Data == slot);
@@ -434,7 +435,9 @@ TEST_CASE("SaveSlotStore: a newer slot is never written over or deleted, and a d
 
 	// A folder in the slot's place reads as damaged and is kept: what cannot be read may be a newer slot.
 	REQUIRE(FileSystem::WriteTextFile(file / "inside.txt", "x").IsOk());
-	CHECK(SaveSlotStore::Read("Best").GetValue().Status == SaveSlotStatus::Damaged);
+	SaveSlotRead const unreadable = SaveSlotStore::Read("Best").GetValue();
+	CHECK(unreadable.Status == SaveSlotStatus::Damaged);
+	CHECK(unreadable.Kept);
 	CHECK_FALSE(SaveSlotStore::Write("Best", slot).IsOk());
 	CHECK_FALSE(SaveSlotStore::Delete("Best").IsOk());
 	CHECK(ReadWholeFile(file / "inside.txt") == "x");

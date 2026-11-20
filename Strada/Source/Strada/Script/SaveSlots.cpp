@@ -720,6 +720,7 @@ namespace Strada
 			SaveSlotRead read;
 			read.Status = SaveSlotStatus::Damaged;
 			read.Problem = file.GetError();
+			read.Kept = true;
 			return read;
 		}
 		if (!file.GetValue().Exists)

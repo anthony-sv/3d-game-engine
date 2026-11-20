@@ -81,8 +81,11 @@ namespace Strada
 		Missing = 0,
 		// Read: its values.
 		Present,
-		// A file that cannot be read (not JSON, another type, a value of the wrong kind, larger than MaxSaveSlotBytes
-		// without a later version's header): read as empty; only an explicit write or delete replaces it.
+		// A file that does not read (not JSON, another type, a value of the wrong kind, larger than MaxSaveSlotBytes
+		// without a later version's header): read as empty; only an explicit write or delete replaces it. A file that
+		// cannot be read at all (a folder in its place, a file the game may not read or another program holds open) is
+		// Damaged too, and kept: writes and deletes refuse it while that lasts (SaveSlotRead::Kept), since it may be a newer
+		// version's.
 		Damaged,
 		// A file of a version newer than this engine's: read as empty; never written over or deleted.
 		Newer,
@@ -168,6 +171,9 @@ namespace Strada
 		std::string Problem;
 		// Unknown fields skipped while reading (a compatible field of a later engine), for the log.
 		std::vector<std::string> Warnings;
+		// A Damaged slot whose file cannot be read at all (SaveSlotStore::Read): writes and deletes keep it rather than
+		// replace it, until it can be read.
+		bool Kept = false;
 	};
 
 	// The version a versioned document's header names when its Type is `type`, read from the header alone, so that a
@@ -215,8 +221,8 @@ namespace Strada
 
 		// Reads the slot: Unavailable without a game data folder, Missing without a file, else ReadSaveSlotText of the file.
 		// A file larger than MaxSaveSlotBytes is not read past its first MaxSaveSlotHeaderBytes: Newer when its header
-		// names a later version, else Damaged. A file that cannot be read, or a folder in the slot's place, is Damaged too
-		// (Write and Delete keep it, since it may be a newer one). Fails only for a name MakeFileStem refuses.
+		// names a later version, else Damaged. A file that cannot be read, or a folder in the slot's place, is Damaged and
+		// Kept (Write and Delete keep it, since it may be a newer one). Fails only for a name MakeFileStem refuses.
 		// Opens the profiler zone Saves.ReadSlot.
 		[[nodiscard]] static Result<SaveSlotRead> Read(std::string_view name);
 		// Writes the slot durably (FileSystem::WriteTextFileDurably), creating Saves/. Refuses an invalid name, no game data

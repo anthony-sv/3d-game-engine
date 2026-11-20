@@ -622,7 +622,8 @@ On each player's machine the game has a data folder of its own, named by the **I
 
 The game reads its settings before its window opens, so the window, the quality and the volumes start as the player
 left them. A save of a later build of the game is never written over by an earlier one, and a damaged file is kept
-until the game saves that slot again ([Scripting.md](Scripting.md#saves-and-settings) shows the scripting side).
+until the game saves that slot again (one the game cannot read at all, such as a folder of that name, is kept and its
+save refused; [Scripting.md](Scripting.md#saves-and-settings) shows the scripting side).
 Playing the game in the editor never touches that folder: play mode uses the project's `.strada/PlayData` folder
 instead, and a test run a temporary one ([Editor.md](Editor.md#where-an-exported-game-keeps-its-data) has the details).
 
