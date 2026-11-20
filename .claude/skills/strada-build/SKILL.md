@@ -34,10 +34,10 @@ python Tools/build.py --keep-going             # build past failed compiles, rep
   test suite is built whatever it names, and so are the script projects the suites share (the test scripts and the
   scripts of FeatureTest, Blocks, Showcase and the csharp-starter template, defined in the root `CMakeLists.txt`). A
   target that more than one suite uses belongs in the root file too: in one suite's directory it would be missing from
-  a build without that suite. CI's Windows MSVC Release and Linux GCC Release builds are two jobs each with it,
-  `StradaTests;ScriptCoreTests` and `StradaEditorTests;StradaRuntimeTests;StradaToolTests`, so that each stays far from
-  the job's time limit; each pair together builds every target and runs every ctest entry once. The value stays in the build tree's cache until
-  `--cmake-arg=-USTRADA_TEST_SUITES`.
+  a build without that suite. CI's Windows MSVC Debug, Windows MSVC Release and Linux GCC Release builds are two jobs
+  each with it, `StradaTests;ScriptCoreTests` and `StradaEditorTests;StradaRuntimeTests;StradaToolTests`, so that each
+  stays far from the job's time limit; each pair together builds every target and runs every ctest entry once. The value
+  stays in the build tree's cache until `--cmake-arg=-USTRADA_TEST_SUITES`.
 - A build stops at the first failed command. `--keep-going` (Ninja's `-k 0`) builds everything that does not depend on
   a failed command, so one build reports every compile error, and still exits with a failure. CI's Build step passes
   it, so that one run reports every compile error on each platform: most contributors cannot build two of the three
@@ -94,9 +94,9 @@ build/<preset>/bin/StradaTests "--source-file=*StradaTests?Source?Asset?*"     #
 - `*` matches separators too, so an inner `*` can reach into the checkout's path (in a clone under `D:\VisualScriptLab`,
   `*VisualScript*Tests.cpp` matches every file). Anchor a pattern with an inner `*` to the suite's directory:
   `*StradaEditorTests?Source?VisualScript*Tests.cpp`, `*StradaTests?Source?Asset?*`.
-- A shard that passes 450 s on CI's Windows MSVC Debug job is split by source-file patterns: add the shard to the
-  suite's `Shards.cmake`, take its files out of the shard that held them (for Core: add its patterns to Core's
-  exclusions), and check the partition with
+- A shard that passes 450 s on CI's Windows MSVC Debug job that runs its suite is split by source-file patterns: add the
+  shard to the suite's `Shards.cmake`, take its files out of the shard that held them (for Core: add its patterns to
+  Core's exclusions), and check the partition with
   `cmake -DTEST_EXECUTABLE=<suite executable> -DSHARDS_FILE=Tests/<suite>/Shards.cmake -P cmake/CheckShardPartition.cmake`
   (name a changed copy as `SHARDS_FILE` to check it first).
 - `STRADA_UPDATE_DOCS=1` and `STRADA_UPDATE_GOLDEN=1` reach the shards through ctest's environment; or run the

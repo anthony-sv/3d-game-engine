@@ -235,11 +235,12 @@ namespace Strada
   `"<Module>: <behavior>"`. Tests that touch global state (Input, Log) restore it; temporary files go through
   `Testing::TemporaryDirectory`.
 - Run everything with `python Tools/build.py --test`; CI runs the same command on Windows, Linux and macOS.
-- No ctest entry may outgrow its timeout: an entry that passes 450 s on CI's Windows MSVC Debug job is split by
-  source-file patterns. StradaTests, StradaEditorTests and StradaRuntimeTests run as the shards of their `Shards.cmake`
-  (`Tests/StradaTests/Shards.cmake`, `Tests/StradaEditorTests/Shards.cmake`, `Tests/StradaRuntimeTests/Shards.cmake`):
-  `StradaTests.<shard>`, `StradaEditorTests.<shard>` and `StradaRuntimeTests.<shard>`, which `ctest -R StradaTests`,
-  `ctest -R StradaEditorTests` and `ctest -R StradaRuntimeTests` run all of. Each suite's
+- No ctest entry may outgrow its timeout: an entry that passes 450 s on CI's Windows MSVC Debug job that runs its suite
+  is split by source-file patterns. StradaTests, StradaEditorTests and StradaRuntimeTests run as the shards of their
+  `Shards.cmake` (`Tests/StradaTests/Shards.cmake`, `Tests/StradaEditorTests/Shards.cmake`,
+  `Tests/StradaRuntimeTests/Shards.cmake`): `StradaTests.<shard>`, `StradaEditorTests.<shard>` and
+  `StradaRuntimeTests.<shard>`, which `ctest -R StradaTests`, `ctest -R StradaEditorTests` and
+  `ctest -R StradaRuntimeTests` run all of. Each suite's
   `.Partition` entry keeps its shards a partition: it fails when a test case is in no shard or in two, or when a shard
   selects nothing.
 - Every file format users write gets a fuzz test (`Testing::DocumentMutator` in `Tests/StradaTests/Source/Fuzzing.h`):
