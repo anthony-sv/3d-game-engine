@@ -44,8 +44,8 @@ using namespace Strada;
 
 // The Moto sample in the editor, played as M1 shows it (Docs/Architecture.md section 15, "The race"): a conditional
 // breakpoint on its race director stepped into the HUD across a broadcast, the race's telemetry marks recorded at three
-// frame rates, and its menus driven by an injected gamepad, the mouse and the keyboard, their settings and bindings kept for
-// the next play.
+// frame rates, its menus driven by an injected gamepad, the mouse and the keyboard, their settings and bindings kept for
+// the next play, and the HUD's shift light following a live edit of the bike's definition.
 
 namespace
 {
@@ -180,6 +180,15 @@ namespace
 			return variable->second;
 		}
 
+		// Sets a public variable of the graph an entity runs, in the scene (an edit, as the inspector makes one).
+		void SetVariable(std::string_view entity, std::string const& name, ScriptFieldValue value)
+		{
+			Entity const found = Find(entity);
+			VisualScriptComponent script = found.GetComponent<VisualScriptComponent>();
+			script.Variables[name] = std::move(value);
+			REQUIRE(m_Operations.SetComponent(found.GetUUID(), script).IsOk());
+		}
+
 		std::string GetText(std::string_view element) { return Find(element).GetComponent<UITextComponent>().Text; }
 
 		bool IsShown(std::string_view element) { return Find(element).GetComponent<UIRectComponent>().Visible; }
@@ -207,6 +216,7 @@ namespace
 	// scripted three-lap races and a third that a box's crossing of the line begins, all by about step 480.
 	constexpr std::string_view RideScene = "Scenes/Ride.sscene";
 	constexpr std::string_view Director = "asset://Scripts/RaceDirector.sgraph";
+	constexpr std::string_view Definition = "asset://Vehicles/Moto.svehicle";
 
 	// The node of the race director's BeginLap function that broadcasts LapStarted.
 	int32_t FindLapStartedBroadcast(MotoPlay& moto)
@@ -313,9 +323,14 @@ TEST_CASE("MotoPlay: the race's telemetry marks sit on the same rows at 30, 60 a
 	for (double const timestep : {1.0 / 60.0, 1.0 / 30.0, 1.0 / 144.0})
 	{
 		CAPTURE(timestep);
+		// Play mode keeps the game's data in the copy's .strada/PlayData from one play to the next, where the first play's
+		// races leave a best lap that a later play would load: each play starts without one, so the three differ in their
+		// frame rate alone.
+		REQUIRE(FileSystem::RemoveAll(moto.GetDirectory() / ".strada" / "PlayData").IsOk());
 		moto.Start();
 		auto const frames = static_cast<uint32_t>(static_cast<double>(Steps) / 60.0 / timestep + 0.5);
 		moto.Ok("play.advance", Json::object({{"frames", frames}, {"timestep", timestep}}));
+		CHECK(moto.ReadOut("Race", "LoadedLapTime").GetFloat() == 0.0f);
 		moto.Stop();
 		Json const session = moto.Ok("telemetry.channels")["session"];
 		REQUIRE_FALSE(session.is_null());
@@ -358,9 +373,10 @@ TEST_CASE("MotoPlay: the race's telemetry marks sit on the same rows at 30, 60 a
 	CHECK(marks[2] == marks[0]);
 }
 
-TEST_CASE("MotoPlay: Moto's title opens the settings by the gamepad, a click steps the quality, the throttle takes the key "
-          "pressed next with its conflict named, the pad's binding refuses a key, and the next play reads both back, rebinds "
-          "the lean's two keys, resets the controls and resumes from the pause screen by a click")
+TEST_CASE("MotoPlay: Moto's title opens the settings by the gamepad, clicks step the quality and the window's mode, the "
+          "throttle takes the key pressed next with its conflict named, the pad's binding refuses a key, and the next play reads "
+          "them back, steps the window back, rebinds the lean's two keys, resets the controls and resumes from the pause screen "
+          "by a click")
 {
 	MotoPlay moto;
 	moto.Start();
@@ -382,9 +398,13 @@ TEST_CASE("MotoPlay: Moto's title opens the settings by the gamepad, a click ste
 	CHECK(moto.GetText("Throttle Key Text") == "W");
 	CHECK(moto.GetText("Throttle Pad Text") == "PAD RIGHTTRIGGER");
 
-	// The mouse clicks the quality's "<".
+	// The mouse clicks the quality's "<", and the window's ">": play mode keeps the window the settings ask for without
+	// applying it to the editor's (PlayMode.cpp leaves SceneRunnerSettings::ApplyWindow empty).
 	moto.Click("Quality Lower");
 	CHECK(moto.GetText("Quality Value") == "MEDIUM");
+	CHECK(moto.GetText("Window Value") == "WINDOWED");
+	moto.Click("Window Upper");
+	CHECK(moto.GetText("Window Value") == "FULLSCREEN");
 
 	// The throttle's keyboard button listens; E, the key of ShiftUp, answers: the throttle takes it, and the screen names the
 	// conflict.
@@ -422,6 +442,7 @@ TEST_CASE("MotoPlay: Moto's title opens the settings by the gamepad, a click ste
 	PlayerSettingsRead const settings = ReadPlayerSettingsFile(data / "Settings.json", PlayerSettings());
 	CHECK(settings.Status == PlayerSettingsStatus::Present);
 	CHECK(settings.Settings.Quality == QualityPreset::Medium);
+	CHECK(settings.Settings.Window.Mode == PlayerWindowMode::Fullscreen);
 	Result<std::string> const profile = FileSystem::ReadTextFile(data / "Input" / "Moto.sinput.json");
 	REQUIRE(profile.IsOk());
 	CHECK(profile.GetValue().find("\"Key/E\"") != std::string::npos);
@@ -430,13 +451,17 @@ TEST_CASE("MotoPlay: Moto's title opens the settings by the gamepad, a click ste
 	moto.Start();
 	moto.Advance(3);
 	CHECK(moto.GetText("Quality Value") == "MEDIUM");
+	CHECK(moto.GetText("Window Value") == "FULLSCREEN");
 	CHECK(moto.GetText("Throttle Key Text") == "E");
 	CHECK(moto.GetText("Throttle Pad Text") == "PAD RIGHTTRIGGER");
 
-	// The mouse opens the settings. The lean's keyboard binding is two keys: it listens for the left, then the right; a pad
-	// button given for the right is refused, the binding given back with its new left key, and the right asked again.
+	// The mouse opens the settings, and steps the window back to a window. The lean's keyboard binding is two keys: it listens for the
+	// left, then the right; a pad button given for the right is refused, the binding given back with its new left key, and the right asked
+	// again.
 	moto.Click("Settings Button");
 	REQUIRE(moto.ReadOut("Menus", "Screen").GetString() == "Settings");
+	moto.Click("Window Lower");
+	CHECK(moto.GetText("Window Value") == "WINDOWED");
 	moto.Click("Lean Key");
 	CHECK(moto.GetText("Settings Status") == "PRESS A KEY FOR LEAN LEFT   ESC CANCELS");
 	moto.Press("J");
@@ -472,5 +497,48 @@ TEST_CASE("MotoPlay: Moto's title opens the settings by the gamepad, a click ste
 	CHECK_FALSE(moto.ReadOut("Race", "Paused").GetBool());
 	CHECK(moto.ReadOut("Menus", "Screen").GetString() == "Title");
 	CHECK_FALSE(moto.IsShown("Pause Screen"));
+	moto.Stop();
+	PlayerSettingsRead const stepped = ReadPlayerSettingsFile(data / "Settings.json", PlayerSettings());
+	CHECK(stepped.Status == PlayerSettingsStatus::Present);
+	CHECK(stepped.Settings.Window.Mode == PlayerWindowMode::Windowed);
+}
+
+TEST_CASE("MotoPlay: a live edit of the bike's shift point moves the HUD's shift light from the next frame")
+{
+	// The race director without its title, as the test scenes start it, so that the HUD shows its riding group: the bike
+	// waits on the grid in neutral at its idle speed, far below the definition's shift point, and the light is off.
+	MotoPlay moto;
+	moto.SetVariable("Race", "TitleOnStart", ScriptFieldValue::FromBool(false));
+	moto.Start();
+	moto.Advance(3);
+	REQUIRE(moto.ReadOut("Race", "State").GetString() == "Idle");
+	REQUIRE(moto.IsShown("Riding Plates"));
+	auto const lit = [&moto]
+	{
+		glm::vec4 const color = moto.Find("Shift Light").GetComponent<UIImageComponent>().Color;
+		CAPTURE(color.r);
+		CHECK((color.r > 0.9f || color.r < 0.3f));
+		return color.r > 0.9f;
+	};
+	Json const vehicles = moto.Ok("vehicle.state")["vehicles"];
+	REQUIRE(vehicles.size() == 1);
+	float const idle = vehicles[0]["engineSpeed"].get<float>();
+	CAPTURE(idle);
+	Json const transmission = moto.Ok("vehicle.get", Json::object({{"vehicle", Definition}}))["fields"]["Transmission"];
+	REQUIRE(idle > 1200.0f);
+	REQUIRE(transmission["ShiftUpRPM"].get<float>() > idle);
+	CHECK_FALSE(lit());
+
+	// vehicle.set moves the shift point below the idle speed while the game plays (an agent's "shift later" the other way):
+	// the HUD reads the definition every frame, so the light is on from the next frame, and off again once it is back.
+	Json lowered = transmission;
+	lowered["ShiftDownRPM"] = 1000.0;
+	lowered["ShiftUpRPM"] = 1200.0;
+	moto.Ok("vehicle.set", Json::object({{"vehicle", Definition}, {"fields", Json::object({{"Transmission", lowered}})}}));
+	moto.Advance(2);
+	CHECK(lit());
+	moto.Ok("vehicle.set", Json::object({{"vehicle", Definition}, {"fields", Json::object({{"Transmission", transmission}})}}));
+	moto.Advance(2);
+	CHECK_FALSE(lit());
 	moto.Stop();
 }
