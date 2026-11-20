@@ -8,8 +8,8 @@ option(STRADA_ENABLE_THREAD_SANITIZER
 option(STRADA_PRECOMPILE_THIRD_PARTY_HEADERS
     "Precompile the editor core's and the C++ tests' third-party headers, except with GCC (OFF checks their sources' includes)" ON)
 # Every test suite, in the order the build adds them (Tests/<suite>). STRADA_TEST_SUITES names the ones a build adds: CI's
-# Windows and Linux GCC Release builds are two jobs each, each with some of the suites, so that each stays far from the
-# job's time limit.
+# Windows Debug, Windows Release and Linux GCC Release builds are two jobs each, each with some of the suites, so that
+# each stays far from the job's time limit.
 set(STRADA_ALL_TEST_SUITES StradaTests StradaEditorTests StradaRuntimeTests ScriptCoreTests StradaToolTests)
 set(STRADA_TEST_SUITES "${STRADA_ALL_TEST_SUITES}" CACHE STRING
     "The test suites to build when STRADA_BUILD_TESTS is ON, separated by semicolons (default: every one)")

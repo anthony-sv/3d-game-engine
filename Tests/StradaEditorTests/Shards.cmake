@@ -2,8 +2,8 @@
 #
 # cmake/StradaTestShards.cmake says how a shard selects its test cases by source file and how patterns match.
 # StradaEditorTests.Partition checks that the shards are a partition of the suite: every test case in exactly one shard,
-# no shard empty. A shard that passes 450 s on CI's Windows MSVC Debug job is split by source-file patterns: add the new
-# shard here and take its files out of the shard that held them.
+# no shard empty. A shard that passes 450 s on CI's Windows MSVC Debug job that runs this suite (editor and player
+# tests) is split by source-file patterns: add the new shard here and take its files out of the shard that held them.
 
 # The visual script editor's panels, panes, windows and canvases, drawn through HeadlessImGui.
 set(STRADA_EDITOR_TEST_PANEL_FILES

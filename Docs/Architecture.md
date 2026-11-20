@@ -6408,8 +6408,9 @@ graphs alone keeps its best lap and its settings screen, and none exposes a path
   of the visual script editor), `.Moto` (the Moto sample played in the editor, `MotoPlayTests.cpp`) and `.Core` (every
   other file). `StradaEditorTests.Partition` lists the test cases
   unfiltered and through each shard's filters and fails when one is in no shard or in two, or when a shard selects
-  nothing; a shard that passes 450 s on CI's Windows MSVC Debug job is split again by source-file patterns. A fuzz test
-  sends every command parameters built from its schema and the editor's state (mostly names of what exists, plus values
+  nothing; a shard that passes 450 s on CI's Windows MSVC Debug job that runs the suite is split again by source-file
+  patterns. A fuzz test sends every command parameters built from its schema and the editor's state (mostly names of
+  what exists, plus values
   to refuse; damaged graph documents to `graph.set` and `graph.check`), while editing and playing: every request answers
   once without InternalError, the scene stays loadable, undoing and redoing everything restores it, and nothing outside
   the project changes. The graph commands are tested with and without the scripting runtime: strict refusals naming
@@ -7105,7 +7106,7 @@ graphs alone keeps its best lap and its settings screen, and none exposes a path
   `GraphDebug.ReadValues` 0.82 to 0.98 ms. The remainders are runtime work (a cheaper Record mode, a
   binary value block, reading only the sources that changed, a document reader without a JSON document per member).
 - CI: Windows (MSVC), Ubuntu 24.04 (GCC + Clang), macOS (Apple Clang, arm64); format check; tests on every push.
-  Windows MSVC Release and Linux GCC Release are two jobs each, which divide the test suites between them through the
-  CMake cache variable `STRADA_TEST_SUITES` (`StradaTests` and `ScriptCoreTests`; `StradaEditorTests`,
+  Windows MSVC Debug, Windows MSVC Release and Linux GCC Release are two jobs each, which divide the test suites between
+  them through the CMake cache variable `STRADA_TEST_SUITES` (`StradaTests` and `ScriptCoreTests`; `StradaEditorTests`,
   `StradaRuntimeTests` and `StradaToolTests`), so that each stays far from the job's time limit: each builds every target
   that is not a test suite, and each pair together builds every target and runs every ctest entry once.
