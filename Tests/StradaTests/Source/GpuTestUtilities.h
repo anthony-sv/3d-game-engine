@@ -66,6 +66,13 @@ namespace Strada::Testing
 		return Platform::ReadEnvironmentVariable("STRADA_TESTS_ALLOW_NO_DISPLAY").value_or("") == "1" ||
 		       GpuTestScope::IsMissingGpuAllowed();
 	}
+
+	// A windowed test never takes the display fullscreen unasked, since a person may be working at it: the parts that do
+	// run only with STRADA_TESTS_FULLSCREEN=1.
+	inline bool IsFullscreenAllowed()
+	{
+		return Platform::ReadEnvironmentVariable("STRADA_TESTS_FULLSCREEN").value_or("") == "1";
+	}
 }
 
 // Skips (or fails) the current test when no window can be created.

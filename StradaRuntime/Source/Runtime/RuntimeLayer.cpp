@@ -10,8 +10,12 @@
 #include "Strada/Core/Log.h"
 #include "Strada/Core/Profiler.h"
 #include "Strada/Core/Window.h"
+#include "Strada/Project/PlayerWindow.h"
+#include "Strada/RHI/Swapchain.h"
 #include "Strada/Renderer/Renderer.h"
 #include "Strada/Scene/SceneRendering.h"
+#include "Strada/Script/PlayerSettings.h"
+#include "Strada/Serialization/JsonSerialization.h"
 
 #include <algorithm>
 #include <optional>
@@ -23,12 +27,93 @@ namespace Strada
 {
 	namespace
 	{
+		// Gives the window the state the player's settings and the command line make of it. `applied` is the state the
+		// window has from the player (it opened in it, and each request since changed it), and becomes the new one. A size is
+		// the size a window opened at it has (Window::GetCreatedSize, scaled by the display where the system scales a new
+		// window), and is set only when it differs from the size last given, so a request of vsync or of the mode alone
+		// leaves the window's size as it is (also one the player dragged); a size asked for while fullscreen is the size the
+		// window returns to.
+		void ApplyPlayerWindow(PlayerWindowState const& state, PlayerWindowState& applied)
+		{
+			Application& application = Application::Get();
+			Window* const window = application.GetWindow();
+			if (window == nullptr)
+			{
+				return;
+			}
+			bool const resize = state.Size && state.Size != applied.Size;
+			auto const setSize = [window, &applied](glm::uvec2 size)
+			{
+				glm::uvec2 const created = window->GetCreatedSize(size);
+				window->SetSize(created.x, created.y);
+				applied.Size = size;
+			};
+			if (state.Fullscreen)
+			{
+				// Sized while windowed, so that the window returns to that size. A fullscreen window keeps the size it returns
+				// to, and the size last given stays the one it had, so that leaving fullscreen applies the new one.
+				if (!window->IsFullscreen())
+				{
+					if (resize)
+					{
+						setSize(*state.Size);
+					}
+					window->SetFullscreen(true);
+				}
+			}
+			else
+			{
+				// Back in a window first: leaving fullscreen restores the size the window had, which the settings then change.
+				window->SetFullscreen(false);
+				if (resize)
+				{
+					setSize(*state.Size);
+				}
+			}
+			applied.Fullscreen = state.Fullscreen;
+			if (window->IsVSync() != state.VSync)
+			{
+				application.SetVSync(state.VSync);
+			}
+			applied.VSync = state.VSync;
+		}
+
+		// Whether the frames are presented waiting for the display, as the swapchain now holds it (the window's flag without
+		// one).
+		bool IsPresentedWithVSync()
+		{
+			Application& application = Application::Get();
+			if (Swapchain const* const swapchain = application.GetSwapchain())
+			{
+				return swapchain->IsVSync();
+			}
+			return application.GetWindow() != nullptr && application.GetWindow()->IsVSync();
+		}
+
 		SceneRunnerSettings MakeRunnerSettings(Project const& game, RuntimeLayerSpecification const& specification)
 		{
 			SceneRunnerSettings settings;
 			settings.Runtime = MakeSceneRuntimeSettings(game.GetSettings());
 			settings.Runtime.PhysicsHashStep = specification.Test ? specification.HashStep : 0;
 			settings.IsEditor = false;
+			settings.PlayerDefaults = MakePlayerSettingsDefaults(game.GetSettings().Window);
+			// A run without a window keeps the window settings a game changes without applying them.
+			if (Application::Get().GetWindow() != nullptr)
+			{
+				PlayerWindowOverrides overrides;
+				overrides.KeepSize = specification.Resolution.has_value();
+				overrides.NoVSync = specification.NoVSync;
+				settings.ApplyWindow = [overrides, applied = specification.OpenedWindow](PlayerWindowSettings const& window) mutable
+				{
+					PlayerWindowState const state = ResolvePlayerWindow(window, overrides);
+					ApplyPlayerWindow(state, applied);
+					ST_INFO("The window takes the player's settings: {}, vsync {} (the swapchain's: {})",
+					        state.Fullscreen ? std::string("fullscreen")
+					        : state.Size     ? fmt::format("windowed at {}x{}", state.Size->x, state.Size->y)
+					                         : std::string("windowed at the size the command line names"),
+					        state.VSync ? "on" : "off", IsPresentedWithVSync() ? "on" : "off");
+				};
+			}
 			return settings;
 		}
 
@@ -117,6 +202,7 @@ namespace Strada
 		// The application has served or cancelled every capture before its layers detach.
 		ReportMissingScreenshot();
 		FinishAudioCapture();
+		ReportProfiledQuality();
 		if (m_Specification.Test && m_Runner.IsRunning())
 		{
 			// Closed before the run ended (--frames): it did not finish.
@@ -352,6 +438,10 @@ namespace Strada
 		{
 			options.DisplayScale = window->GetContentScale().x;
 		}
+		// The player's graphics quality, over the scene's settings (Docs/Architecture.md §6.2, "Quality presets").
+		options.Quality = PlayerSettingsStore::Get().Quality;
+		m_LastQuality = options.Quality;
+		m_RenderedQualities = static_cast<uint8_t>(m_RenderedQualities | (1u << static_cast<uint32_t>(options.Quality)));
 		if (!RenderSceneFromPrimaryCamera(scene, *m_Renderer, options))
 		{
 			// The cleared window shows until a camera becomes primary or the scene gets screen-space content.
@@ -389,6 +479,24 @@ namespace Strada
 		}
 		Application::Get().SetExitCode(static_cast<int>(std::min<uint32_t>(failures, MaxTestExitCode)));
 		Application::Get().Close();
+	}
+
+	void RuntimeLayer::ReportProfiledQuality() const
+	{
+		if (!Profiler::GetStatus().Recording || m_RenderedQualities == 0)
+		{
+			return;
+		}
+		std::string others;
+		for (auto const& [preset, name] : EnumTraits<QualityPreset>::Values)
+		{
+			if (preset != m_LastQuality && (m_RenderedQualities & (1u << static_cast<uint32_t>(preset))) != 0)
+			{
+				others += fmt::format("{}{}", others.empty() ? "" : ", ", name);
+			}
+		}
+		ST_INFO("Profile quality: {}{}", EnumToString(m_LastQuality),
+		        others.empty() ? std::string() : fmt::format(" (the run also rendered at {})", others));
 	}
 
 	std::string RuntimeLayer::DescribePhysicsState() const

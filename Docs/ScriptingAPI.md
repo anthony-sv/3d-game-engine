@@ -10,7 +10,7 @@ summary C# editors show as you type. The [scripting guide](Scripting.md) shows t
 the few whose summary says graphs have none.
 The engine's tests generate this page from the API, so it lists exactly what the API has.
 
-99 types in 2 namespaces, with 840 members and enum values in all.
+104 types in 2 namespaces, with 876 members and enum values in all.
 
 ## Strada
 
@@ -68,6 +68,7 @@ The engine's tests generate this page from the API, so it lists exactly what the
 | [PostProcessComponent](#postprocesscomponent) | class | A post-process volume: changes the scene's post-processing (exposure, tonemapper, bloom, ambient occlusion, color grading and lens effects) where the camera is. Each setting applies only while its `Override` property is set. `PostProcessComponent.Global` volumes apply everywhere; local volumes apply inside their box (the unit cube placed, rotated and scaled by the entity, so the entity's scale is the box's size in meters) and fade out over `PostProcessComponent.BlendDistance` around it. Volumes apply in order of `PostProcessComponent.Priority`, each scaled by its `PostProcessComponent.Weight`: numbers move towards the volume's values, `PostProcessComponent.Bloom` fades in or out through the bloom's intensity, and `PostProcessComponent.AmbientOcclusion` and `PostProcessComponent.Tonemapper` take the volume's value once its blend reaches one half. Animate `PostProcessComponent.Weight` for effects such as a damage flash or an underwater tint. |
 | [Prefab](#prefab) | class | A prefab asset: entities saved for instantiation (see `Entity.Instantiate`). |
 | [ProjectionType](#projectiontype) | enum | How a camera projects the scene. |
+| [QualityPreset](#qualitypreset) | enum | The graphics quality of the game's views: presets made of the scene's own settings, each only lowering them. |
 | [Quaternion](#quaternion) | struct | A rotation stored as a unit quaternion (X, Y, Z, W), laid out like the engine's quaternions. |
 | [Random](#random) | static class | Random numbers for games. Seeding makes the sequence repeat (main thread use). |
 | [RangeAttribute](#rangeattribute) | attribute | Limits the value the inspector lets a numeric field take. |
@@ -80,10 +81,13 @@ The engine's tests generate this page from the API, so it lists exactly what the
 | [RigidBodyComponent](#rigidbodycomponent) | class | Makes the entity a physics body; its colliders give it shape. While the scene runs, velocities, forces and sleep act on the simulated body. |
 | [RigidBodyInterpolation](#rigidbodyinterpolation) | enum | How `RigidBodyComponent.Interpolation` draws a moving body between physics steps. |
 | [RigidBodyType](#rigidbodytype) | enum | How a rigid body moves. |
+| [SaveSlot](#saveslot) | class | A save slot: named values the game keeps for its player between runs (a best lap, its splits, progress), in a file of the game's own data folder that this class never names. Open a slot by its name, read values with `SaveSlot.Get`, change them with `SaveSlot.Set` and `SaveSlot.Remove`, and write them with `SaveSlot.Save`, which returns once the slot is on disk: the frame that saves waits for the device, so save at a results screen, a menu or between races, never while the player plays, and keep what a ride learns in memory until then. A slot holds numbers, text, vectors, quaternions, colors, entities, prefabs, assets, enums (as their integers) and arrays or lists of any of them of up to 4,096 elements, at most 4,096 values, and is written whole, at most 16 MiB. The object holds the values: reading and changing them touches no file, and two objects opened with one name are separate copies, the last to save winning. Main thread. |
+| [SaveSlotStatus](#saveslotstatus) | enum | What a save slot read as when it was opened, or what its last `SaveSlot.Save` or `SaveSlot.Delete` left it. |
 | [SceneManager](#scenemanager) | static class | The scenes of the game. |
 | [Script](#script) | abstract class | Base class of entity behaviours. A Script component names a class deriving from Script; when the scene runs, the engine creates one instance per such entity, sets its serialized fields (public fields and fields marked `SerializeFieldAttribute`) and calls the overridden methods. Exceptions thrown by them are logged and do not stop the scene. |
 | [ScriptComponent](#scriptcomponent) | class | Runs a script class on the entity. |
 | [SerializeFieldAttribute](#serializefieldattribute) | attribute | Exposes a private or protected field of a script to the editor and to scene files, like a public field. |
+| [Settings](#settings) | static class | The player's settings of the game: the window, the graphics quality, the master volume, each bus's volume and mute, and named values the game owns (its assists, its options), kept for the player in the game's own data folder, which this class never names. The game starts with them as the player last saved them (or the game's own window settings and High quality); every setter applies at once (the window once the frame's update has returned; the player's command line wins over the window, and the editor's play mode keeps the window without applying it) and reaches the file only at `Settings.Save`. The volumes are the player's, a stage of the mix after `Audio`'s, so a settings screen and the game's own mixing never overwrite each other. Main thread. |
 | [ShapeCastHit](#shapecasthit) | struct | What a sphere, box or capsule cast touched first (`Physics.SphereCast`, `Physics.BoxCast`, `Physics.CapsuleCast`). |
 | [SkyLightComponent](#skylightcomponent) | class | The sky and image-based lighting from an HDR environment map. |
 | [SphereColliderComponent](#spherecollidercomponent) | class | A sphere collision shape of the entity's body. |
@@ -112,6 +116,7 @@ The engine's tests generate this page from the API, so it lists exactly what the
 | [VisualNodeAttribute](#visualnodeattribute) | attribute | Makes a member of the game's scripts a node of visual scripts, or every public member of a type: graphs call your code as they call the scripting API. |
 | [VisualScript](#visualscript) | class | A visual script asset (`.sgraph`): a graph of nodes that a `VisualScriptComponent` runs on its entity. |
 | [VisualScriptComponent](#visualscriptcomponent) | class | Runs a visual script (a graph asset) on the entity, beside or instead of a C# script. While the scene runs, C# scripts raise the graph's custom events and read and write its variables through this component. |
+| [WindowMode](#windowmode) | enum | How the game's window is shown. |
 
 ### Application
 
@@ -1024,6 +1029,16 @@ How a camera projects the scene.
 
 Values: `Perspective`, `Orthographic`.
 
+### QualityPreset
+
+```csharp
+public enum QualityPreset
+```
+
+The graphics quality of the game's views: presets made of the scene's own settings, each only lowering them.
+
+Values: `Low`, `Medium`, `High`.
+
 ### Quaternion
 
 ```csharp
@@ -1216,6 +1231,37 @@ How a rigid body moves.
 
 Values: `Static`, `Dynamic`, `Kinematic`.
 
+### SaveSlot
+
+```csharp
+public sealed class SaveSlot
+```
+
+A save slot: named values the game keeps for its player between runs (a best lap, its splits, progress), in a file of the game's own data folder that this class never names. Open a slot by its name, read values with `SaveSlot.Get`, change them with `SaveSlot.Set` and `SaveSlot.Remove`, and write them with `SaveSlot.Save`, which returns once the slot is on disk: the frame that saves waits for the device, so save at a results screen, a menu or between races, never while the player plays, and keep what a ride learns in memory until then. A slot holds numbers, text, vectors, quaternions, colors, entities, prefabs, assets, enums (as their integers) and arrays or lists of any of them of up to 4,096 elements, at most 4,096 values, and is written whole, at most 16 MiB. The object holds the values: reading and changing them touches no file, and two objects opened with one name are separate copies, the last to save winning. Main thread.
+
+| Member | Summary |
+|---|---|
+| `string Name { get; }` | The slot's name as the game's folder spells it, in lower case: `Best` and `best` are one slot. |
+| `SaveSlotStatus Status { get; }` | What the slot read as when it was opened, or what its last save or delete left it. |
+| `static SaveSlot Open(string name)` | Reads a slot. A slot without a file is empty (`SaveSlotStatus.Missing`); a damaged slot, one of a newer version and any slot while no game runs are empty too, and logged. It reads the disk where the flow passes, so open a slot once and keep the object. |
+| `static string[] GetNames()` | The names of the slots the game has saved, in lower case and sorted; empty while no game runs. It reads the disk where the flow passes. |
+| `bool Has(string name)` | Whether the slot holds a value of the name, of any type. |
+| `T? Get<T>(string name, T? fallback)` | The value of the name, when the slot holds one of `T`'s type (an array and a list of a type are one type, an enum is its integers); otherwise the fallback, and a value of another type is warned about once per name. |
+| `void Set<T>(string name, T? value)` | Sets a value of the slot, kept by this object until `SaveSlot.Save`. An array or a list is copied. |
+| `bool Remove(string name)` | Removes a value of the slot; `SaveSlot.Save` writes the slot without it. |
+| `bool Save()` | Writes every value of the slot to its file and returns once the file is on disk, whole: the old file stays whole until then, whatever happens. False, logged, while no game runs, for a slot of a newer version, for a file on disk that cannot be read at all, and when the slot cannot be written (larger than 16 MiB, a full disk); `SaveSlot.Status` is `SaveSlotStatus.Present` after one that succeeds. |
+| `bool Delete()` | Removes the slot's file and every value of this object; a slot without a file is deleted already. False, logged, while no game runs, for a slot of a newer version and for a file on disk that cannot be read at all, which keep their file and values. |
+
+### SaveSlotStatus
+
+```csharp
+public enum SaveSlotStatus
+```
+
+What a save slot read as when it was opened, or what its last `SaveSlot.Save` or `SaveSlot.Delete` left it.
+
+Values: `Missing`, `Present`, `Damaged`, `Newer`, `Unavailable`.
+
 ### SceneManager
 
 ```csharp
@@ -1276,6 +1322,33 @@ Exposes a private or protected field of a script to the editor and to scene file
 | Member | Summary |
 |---|---|
 | `SerializeFieldAttribute()` |  |
+
+### Settings
+
+```csharp
+public static class Settings
+```
+
+The player's settings of the game: the window, the graphics quality, the master volume, each bus's volume and mute, and named values the game owns (its assists, its options), kept for the player in the game's own data folder, which this class never names. The game starts with them as the player last saved them (or the game's own window settings and High quality); every setter applies at once (the window once the frame's update has returned; the player's command line wins over the window, and the editor's play mode keeps the window without applying it) and reaches the file only at `Settings.Save`. The volumes are the player's, a stage of the mix after `Audio`'s, so a settings screen and the game's own mixing never overwrite each other. Main thread.
+
+| Member | Summary |
+|---|---|
+| `static QualityPreset Quality { get; set; }` | The graphics quality of the game's views, applied from the next frame. |
+| `static WindowMode WindowMode { get; set; }` | Whether the game's window is a window or covers its monitor. |
+| `static int WindowWidth { get; }` | The width of the game's window when it is a window, in screen coordinates. |
+| `static int WindowHeight { get; }` | The height of the game's window when it is a window, in screen coordinates. |
+| `static bool VSync { get; set; }` | Whether frames are shown in step with the display's refresh. |
+| `static float MasterVolume { get; set; }` | The player's master volume, from 0 (silence) to 1 (the mix as the game makes it); values beyond are brought within. It applies at once, without a click. |
+| `static void SetWindowSize(int width, int height)` | Sets the size of the game's window when it is a window, in screen coordinates (64 to 16,384; values beyond are brought within). |
+| `static float GetBusVolume(string bus)` | The player's volume of a bus of the game's mixer, in decibels (0 leaves the bus as the game sets it). |
+| `static void SetBusVolume(string bus, float decibels)` | Sets the player's volume of a bus, in decibels: added to the game's own, from -80 (silence) to +24 (values beyond are brought within). It applies at once, without a click; a bus the game's mixer lacks is kept by name. |
+| `static bool IsBusMuted(string bus)` | Whether the player muted a bus of the game's mixer. |
+| `static void SetBusMuted(string bus, bool muted)` | Mutes or unmutes a bus for the player; it applies at once. |
+| `static bool Has(string name)` | Whether the game keeps a value of the name in the settings, of any type. |
+| `static T? Get<T>(string name, T? fallback)` | The game's value of the name, when the settings hold one of `T`'s type (as `SaveSlot.Get` says); otherwise the fallback, and a value of another type is warned about once per name. |
+| `static void Set<T>(string name, T? value)` | Sets a value of the game's (an assist, an option), with a save slot's rules for names and values (as `SaveSlot.Set` says). Keep many values in a slot instead: each changed value measures the settings' file. |
+| `static bool Remove(string name)` | Removes a value of the game's; `Settings.Save` writes the settings without it. |
+| `static bool Save()` | Writes the settings to the game's data folder and returns once the file is on disk, whole (the old file stays whole until then). False, logged, while no game runs and when the file cannot be written. |
 
 ### ShapeCastHit
 
@@ -1748,6 +1821,16 @@ Runs a visual script (a graph asset) on the entity, beside or instead of a C# sc
 | `T? GetVariable<T>(string name)` | The value of the variable `name` (public or private, not a function's local) of the entity's running graph, as a `T`: the variable's own type, a wider numeric type, a base type or `Object`. A variable of a reference type that holds no value reads as null. |
 | `void SetVariable<T>(string name, T? value)` | Sets the variable `name` (public or private, not a function's local) of the entity's running graph, which sees the new value at once. The value must convert to the variable's type (see the remarks). Null sets a variable of a reference type to none (a `String` variable to the empty string) when `T` converts to the variable's type. |
 | `bool HasVariable(string name)` | Whether the entity's running graph has a variable (public or private) of the name. |
+
+### WindowMode
+
+```csharp
+public enum WindowMode
+```
+
+How the game's window is shown.
+
+Values: `Windowed`, `Fullscreen`.
 
 ## Strada.Testing
 

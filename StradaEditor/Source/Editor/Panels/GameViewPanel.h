@@ -2,6 +2,7 @@
 
 #include "Strada/Core/Base.h"
 #include "Strada/Renderer/SceneRenderer.h"
+#include "Strada/Scene/SceneRendering.h"
 
 #include <glm/glm.hpp>
 #include <imgui.h>
@@ -65,6 +66,11 @@ namespace Strada
 	// (so it rendered nothing) and a graph window showed the preview in the last frame. The scene renders at most once per
 	// frame either way. Pure.
 	[[nodiscard]] bool WantsHiddenGameRender(bool gameViewVisible, bool previewWanted);
+
+	// The options the game view renders the game with: the lines scripts draw as wide as on the player's display at the
+	// display's scale, and the player's graphics quality (PlayerSettingsStore: the running game's, High while no game plays;
+	// Docs/Architecture.md §6.2), which no other view of the editor takes.
+	[[nodiscard]] SceneRenderOptions MakeGameViewRenderOptions(float displayScale);
 
 	// Renders a scene at a size through its primary camera and gives the image's texture; none when nothing rendered (no
 	// primary camera). Tests give the panel one of their own.

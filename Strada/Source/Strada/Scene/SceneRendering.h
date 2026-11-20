@@ -1,7 +1,9 @@
 #pragma once
 
 #include "Strada/Core/UUID.h"
+#include "Strada/Renderer/QualityPresets.h"
 #include "Strada/Renderer/SceneRenderer.h"
+#include "Strada/Renderer/SceneRendererSettings.h"
 
 #include <glm/glm.hpp>
 
@@ -47,7 +49,19 @@ namespace Strada
 		// Draws each top-level canvas's UI in the world instead (UILayout::GetCanvases), where this places it; canvases it
 		// places nowhere are left out. Requires DrawUI.
 		std::function<std::optional<WorldCanvasPlacement>(UUID canvas)> PlaceCanvas;
+		// The player's graphics quality (Renderer/QualityPresets.h), applied over the resolved settings of a frame that draws
+		// the world. Only the game's views set it (the player's window, the editor's Game View, from the player's settings);
+		// High, the default, leaves the resolved settings as they are, so every other view (the Scene View, thumbnails)
+		// renders the scene's own settings.
+		QualityPreset Quality = QualityPreset::High;
 	};
+
+	// The settings a frame renders with: the scene's renderer settings as its post-process volumes change them at the
+	// camera's position (PostProcessVolumes::Resolve), at the options' quality preset (ApplyQualityPreset); with DrawWorld
+	// off, the screen-space content's own (no shadows, ambient occlusion, bloom, FXAA or dithering), at every preset.
+	// RenderScene begins its frame with them.
+	[[nodiscard]] SceneRendererSettings ResolveViewSettings(Scene& scene, glm::vec3 const& cameraPosition,
+	                                                        SceneRenderOptions const& options);
 
 	// Renders the scene from an explicit camera (the editor camera) with the scene's renderer settings as its post-process
 	// volumes change them at the camera's position: submits visible meshes with their materials (per-slot overrides first,

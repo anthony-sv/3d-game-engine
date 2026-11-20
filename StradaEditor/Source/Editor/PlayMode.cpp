@@ -6,6 +6,7 @@
 #include "Strada/Core/Log.h"
 #include "Strada/Core/Profiler.h"
 #include "Strada/Core/Telemetry.h"
+#include "Strada/Project/PlayerWindow.h"
 #include "Strada/Project/Project.h"
 #include "Strada/Project/ProjectSettings.h"
 #include "Strada/Script/VisualScriptEngine.h"
@@ -37,9 +38,12 @@ namespace Strada
 
 		SceneRunnerSettings settings;
 		settings.IsEditor = true;
+		// The player's settings are loaded and kept as the player does, but their window is never applied to the editor's
+		// (settings.ApplyWindow stays empty); the Game View renders at their quality.
 		if (Project const* const project = m_Context.GetProject())
 		{
 			settings.Runtime = MakeSceneRuntimeSettings(project->GetSettings());
+			settings.PlayerDefaults = MakePlayerSettingsDefaults(project->GetSettings().Window);
 			// The game keeps its data apart from the shipped game's real folder: in the project's play data, or for a test
 			// run in a folder of its own that starts empty and is removed when the run stops. Without a project there is none.
 			if (options.TestRun)

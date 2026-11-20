@@ -29,7 +29,7 @@ before changing anything structural; it is the architectural contract.
 | `Tests/TestScripts/` | C# game scripts the scripting tests run |
 | `Tests/ScriptCoreTests/` | C# unit tests of the scripting API (xUnit v3) |
 | `Tests/StradaToolTests/` | Tests of `strada`: command line, MCP server, sessions with the headless editor (xUnit v3) |
-| `Tests/Data/` | Test data: renderer golden images (`Golden/`), the curve evaluators' differential cases (`Curves/`), data asset documents (`DataAssets/`), scene and prefab version fixtures (`Scenes/`, `Prefabs/`), visual-script documents and fixtures (`VisualScripting/`), a fake engine content tree (`FrontDoor/`) |
+| `Tests/Data/` | Test data: renderer golden images (`Golden/`), the curve evaluators' differential cases (`Curves/`), data asset documents (`DataAssets/`), scene and prefab version fixtures (`Scenes/`, `Prefabs/`), save slot version fixtures (`Saves/`), the player's settings version fixtures (`PlayerSettings/`), visual-script documents and fixtures (`VisualScripting/`), a fake engine content tree (`FrontDoor/`) |
 | `Projects/FeatureTest/` | Project exercising every component and the entire scripting API, with graphs of every built-in node kind and every `[VisualNode]` member of its scripts |
 | `Projects/Blocks/` | Sample game (falling blocks) made through the agent tools, with a test scene |
 | `Projects/PrismBreak/` | A game made of visual scripts alone (a neon brick breaker), built by `Tools/Author.py` through the agent tools; its test scene's checks are graphs too |
@@ -210,9 +210,10 @@ namespace Strada
 - Code that does measurable work every frame opens a profiler zone (`ST_PROFILE_SCOPE("<Subsystem>.<What>")`,
   `Strada/Core/Profiler.h`; Docs/Architecture.md §4.4 lists the zones), a render pass a `SceneRenderer::PassScope`, and
   a thread that can reach a zone names itself with `ST_PROFILE_THREAD`.
-- What a running game writes for its player (its bindings, saves and settings to come) goes below the folder the
-  `GameData` service names (`Strada/Core/GameData.h`, Docs/Architecture.md §13.1), never into the engine's shared
-  per-user folder; an empty service means no game runs, and nothing is written.
+- What a running game writes for its player (its bindings, its save slots and the player's settings) goes below the
+  folder the `GameData` service names (`Strada/Core/GameData.h`, Docs/Architecture.md §13.1), never into the engine's
+  shared per-user folder, and durably (`FileSystem::WriteTextFileDurably`); an empty service means no game runs, and
+  nothing is written.
 - World transforms come from the scene's cache: `Scene::GetWorldTransform` (checked, never stale), or the unchecked
   cached matrix only in code that runs after a view's refresh (Docs/Architecture.md §7.1). Meshes are drawn as
   instances: a new pass or submission path keeps per-object data in `InstanceData`, not in push constants (§6.2).
@@ -350,7 +351,8 @@ Rules for the other suites:
 - Every acquired swapchain image is written (the application clears it) before it is presented.
 - GPU tests run with validation enabled and fail on any validation message; `STRADA_TESTS_ALLOW_NO_GPU=1` skips them on
   machines without a Vulkan device (CI macOS runners). CI runs them on Mesa lavapipe on Windows and Linux. Windowed
-  tests additionally need a display; `STRADA_TESTS_ALLOW_NO_DISPLAY=1` lets them skip on headless machines.
+  tests additionally need a display; `STRADA_TESTS_ALLOW_NO_DISPLAY=1` lets them skip on headless machines. The
+  windowed case that takes the display fullscreen runs that part only with `STRADA_TESTS_FULLSCREEN=1`.
 - Paths: use `std::filesystem::path`; store project-relative paths with forward slashes in files.
 
 ## Skills

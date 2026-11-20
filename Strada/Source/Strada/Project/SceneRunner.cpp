@@ -83,10 +83,15 @@ namespace Strada
 		m_Scene = std::move(scene);
 		m_SceneVersion++;
 		ScriptEngine::SetHost(this);
+		// What the game data folder keeps, whatever the sound: a headless run and Simulate read the settings as a player's
+		// run does.
+		PlayerSettingsStore::Load(m_Settings.PlayerDefaults);
 		if (m_Settings.Runtime.PlayAudio && AudioEngine::IsInitialized())
 		{
 			AudioEngine::ResetGameValues();
 			SyncMixer(true);
+			// After the game's values are reset and the mixer applied, so that every bus the settings name exists.
+			PlayerSettingsStore::ApplyAudio();
 		}
 		m_Scene->OnRuntimeStart(m_Settings.Runtime);
 	}
@@ -140,6 +145,9 @@ namespace Strada
 		m_Scene.reset();
 		m_SceneVersion++;
 		m_RequestedScene = AssetHandle();
+		m_RequestedWindow.reset();
+		// After the scripts' OnDestroy, their last chance to change a setting; the player's stage of the mix ends with them.
+		PlayerSettingsStore::Clear();
 		if (m_Settings.Runtime.PlayAudio && AudioEngine::IsInitialized())
 		{
 			AudioEngine::ResetGameValues();
@@ -167,6 +175,15 @@ namespace Strada
 
 	void SceneRunner::ApplyRequests()
 	{
+		if (m_RequestedWindow)
+		{
+			PlayerWindowSettings const window = *m_RequestedWindow;
+			m_RequestedWindow.reset();
+			if (m_Scene != nullptr && m_Settings.ApplyWindow)
+			{
+				m_Settings.ApplyWindow(window);
+			}
+		}
 		if (m_Scene != nullptr && m_RequestedScene.IsValid())
 		{
 			LoadRequestedScene();
@@ -181,6 +198,12 @@ namespace Strada
 	void SceneRunner::RequestQuit()
 	{
 		m_QuitRequested = true;
+	}
+
+	void SceneRunner::RequestWindowSettings(PlayerWindowSettings const& window)
+	{
+		// The last request of a frame is the one applied.
+		m_RequestedWindow = window;
 	}
 
 	void SceneRunner::ReportTestResult(ScriptTestResult const& result)

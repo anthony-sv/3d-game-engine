@@ -18,6 +18,7 @@
 namespace Strada
 {
 	class Scene;
+	struct PlayerWindowSettings;
 
 	// A named value of a C# enum field.
 	struct ScriptEnumerator
@@ -90,6 +91,10 @@ namespace Strada
 		virtual void FinishTests() = 0;
 		// A script's callback or constructor threw (the exception was logged).
 		virtual void OnScriptException() = 0;
+		// The player's window settings changed (PlayerSettingsStore::SetWindow, Script/PlayerSettings.h): the application's
+		// window is to take them after this frame, as its own rules allow (the player resizes its window, makes it fullscreen
+		// and sets vsync, minding its command line; the editor's play mode keeps them without applying them).
+		virtual void RequestWindowSettings(PlayerWindowSettings const& window) = 0;
 	};
 
 	// A contact event as one of its two entities' handlers see it (Strada.Collision): the event, and whether the handling

@@ -9,12 +9,14 @@
 #include "Strada/Asset/VisualScriptAsset.h"
 #include "Strada/Audio/AudioEngine.h"
 #include "Strada/Core/FileSystem.h"
+#include "Strada/Core/GameData.h"
 #include "Strada/Core/Input.h"
 #include "Strada/Core/KeyCodes.h"
 #include "Strada/Core/Log.h"
 #include "Strada/Project/SceneRunner.h"
 #include "Strada/Scene/Entity.h"
 #include "Strada/Scene/SceneSerializer.h"
+#include "Strada/Script/PlayerSettings.h"
 #include "Strada/Script/VisualScriptDebugger.h"
 #include "Strada/Script/VisualScriptEngine.h"
 
@@ -358,4 +360,108 @@ TEST_CASE("SceneRunner: a game mixes through its project's mixer, follows its ed
 	                    {
 							return entry.Message.find("does not load as a Mixer asset") != std::string::npos;
 						}) == 1);
+}
+
+TEST_CASE("SceneRunner: a game loads the player's settings, applies their volumes after the game's reset, hands the window "
+          "to its owner after the frame, and clears them at its end")
+{
+	Testing::AudioEngineScope engine;
+	Testing::AssetManagerScope assets;
+	Testing::ScriptRuntimeScope runtime;
+	MixerBus music;
+	music.Name = "Music";
+	Mixer mixer;
+	mixer.Buses.push_back(music);
+	TypedDataAssetType<Mixer> const* type = DataAssetRegistry::Find<Mixer>();
+	REQUIRE(type != nullptr);
+	auto const asset = std::static_pointer_cast<TypedDataAsset<Mixer>>(type->CreateAsset());
+	REQUIRE(asset->SetData(mixer).IsOk());
+	AssetHandle const handle = AssetManager::AddMemoryAsset(asset, "Game mixer");
+
+	// What the player chose in an earlier run, in the game data folder.
+	Testing::TemporaryDirectory directory;
+	PlayerSettings saved;
+	saved.Window = {PlayerWindowMode::Fullscreen, 800, 600, false};
+	saved.Quality = QualityPreset::Low;
+	saved.MasterVolume = 0.5f;
+	saved.Buses.push_back({"music", -6.0f, false});
+	Result<std::string> const text = WritePlayerSettingsText(saved);
+	REQUIRE(text.IsOk());
+	REQUIRE(FileSystem::WriteTextFile(directory.GetPath() / "Settings.json", text.GetValue()).IsOk());
+	GameDataScope const gameData(directory.GetPath(), GameDataLifetime::Kept);
+
+	SceneRunnerSettings settings;
+	settings.Runtime.RunScripts = false;
+	settings.Runtime.Mixer = handle;
+	settings.PlayerDefaults.Window = {PlayerWindowMode::Windowed, 1280, 720, true};
+	std::vector<PlayerWindowSettings> applied;
+	settings.ApplyWindow = [&applied](PlayerWindowSettings const& window)
+	{
+		applied.push_back(window);
+	};
+	{
+		SceneRunner runner(settings);
+		// What an earlier game left is not this one's: the game's values start reset, the player's from the file.
+		AudioEngine::SetMixer(mixer);
+		AudioEngine::SetBusVolume("Music", -20.0f);
+		AudioEngine::SetMasterVolume(0.25f);
+		runner.Start(CreateRef<Scene>("Settled"));
+		CHECK(PlayerSettingsStore::GetStatus() == PlayerSettingsStatus::Present);
+		CHECK(PlayerSettingsStore::Get() == saved);
+		CHECK(AudioEngine::GetBusVolume("Music") == 0.0f);
+		CHECK(AudioEngine::GetMasterVolume() == 1.0f);
+		CHECK(AudioEngine::GetPlayerBusVolume("Music") == -6.0f);
+		CHECK(AudioEngine::GetPlayerMasterVolume() == 0.5f);
+		// The settings' setters reach the mix at once while the game plays.
+		PlayerSettingsStore::SetBusVolume("MUSIC", -3.0f);
+		PlayerSettingsStore::SetMasterVolume(0.75f);
+		CHECK(AudioEngine::GetPlayerBusVolume("Music") == -3.0f);
+		CHECK(AudioEngine::GetPlayerMasterVolume() == 0.75f);
+		// The opening window was the player's to apply before the game started: nothing is asked of the owner for it.
+		runner.Update(Timestep(1.0f / 60.0f));
+		CHECK(applied.empty());
+
+		// A changed window reaches the owner after the frame, once; the last of a frame's changes is the one applied.
+		PlayerWindowSettings const windowed = {PlayerWindowMode::Windowed, 1024, 768, true};
+		PlayerSettingsStore::SetWindow(windowed);
+		CHECK(applied.empty());
+		runner.Update(Timestep(1.0f / 60.0f));
+		REQUIRE(applied.size() == 1);
+		CHECK(applied[0] == windowed);
+		runner.Update(Timestep(1.0f / 60.0f));
+		CHECK(applied.size() == 1);
+		PlayerSettingsStore::SetWindow({PlayerWindowMode::Fullscreen, 1024, 768, true});
+		PlayerSettingsStore::SetWindow({PlayerWindowMode::Fullscreen, 1600, 900, false});
+		runner.ApplyRequests();
+		REQUIRE(applied.size() == 2);
+		CHECK(applied[1] == PlayerWindowSettings{PlayerWindowMode::Fullscreen, 1600, 900, false});
+		// A change the game makes as it stops is dropped with it.
+		PlayerSettingsStore::SetWindow(windowed);
+	}
+	CHECK(applied.size() == 2);
+	// The game ended: the settings are cleared, and the player's stage of the mix is back to unchanged.
+	CHECK(PlayerSettingsStore::GetStatus() == PlayerSettingsStatus::Unavailable);
+	CHECK(PlayerSettingsStore::Get() == PlayerSettings{});
+	CHECK(AudioEngine::GetPlayerBusVolume("Music") == 0.0f);
+	CHECK(AudioEngine::GetPlayerMasterVolume() == 1.0f);
+
+	// Simulating (no sound) and an owner that applies no window (the editor's play mode): the settings load and change, the
+	// mix and the window do not.
+	settings.Runtime.PlayAudio = false;
+	settings.ApplyWindow = {};
+	{
+		SceneRunner runner(settings);
+		runner.Start(CreateRef<Scene>("Simulated"));
+		CHECK(PlayerSettingsStore::Get().Quality == QualityPreset::Low);
+		CHECK(AudioEngine::GetPlayerMasterVolume() == 1.0f);
+		PlayerSettingsStore::SetMasterVolume(0.2f);
+		CHECK(AudioEngine::GetPlayerMasterVolume() == 1.0f);
+		PlayerSettingsStore::SetWindow({PlayerWindowMode::Windowed, 640, 480, true});
+		runner.Update(Timestep(1.0f / 60.0f));
+		CHECK(PlayerSettingsStore::Get().Window == PlayerWindowSettings{PlayerWindowMode::Windowed, 640, 480, true});
+	}
+	CHECK(applied.size() == 2);
+	CHECK(PlayerSettingsStore::GetStatus() == PlayerSettingsStatus::Unavailable);
+	// Nothing was written: only a game's save writes the file.
+	CHECK(ReadPlayerSettingsFile(directory.GetPath() / "Settings.json", {}).Settings == saved);
 }

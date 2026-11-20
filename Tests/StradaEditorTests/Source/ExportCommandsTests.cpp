@@ -10,13 +10,17 @@
 
 #include "Strada/Core/FileSystem.h"
 #include "Strada/Project/GameExporter.h"
+#include "Strada/Renderer/QualityPresets.h"
+#include "Strada/Script/PlayerSettings.h"
 
 #include <doctest/doctest.h>
 
 #include <chrono>
+#include <filesystem>
 #include <functional>
 #include <optional>
 #include <string>
+#include <string_view>
 #include <thread>
 
 using namespace Strada;
@@ -149,13 +153,36 @@ TEST_CASE("ExportCommands: projects export as games with their scripts built in 
 	CHECK(exported["smokeTest"].is_null());
 	CHECK(exported["files"].get<uint32_t>() > 5);
 	CHECK(exported["bytes"].get<uint64_t>() > exported["files"].get<uint64_t>());
-	// The smoke test runs the exported game headless.
+	// The smoke test runs the exported game headless. It is a check, not a player's run: settings a player left in the game's
+	// own folder are not read, and the game keeps its data in a temporary folder that is gone afterwards.
+	std::filesystem::path const gameData = fixture.UserRoot.GetGameDirectory(GameIdentity{"", "Exported Game"});
+	PlayerSettings players;
+	players.Quality = QualityPreset::Low;
+	Result<std::string> const settingsText = WritePlayerSettingsText(players);
+	REQUIRE(settingsText.IsOk());
+	REQUIRE(FileSystem::WriteTextFile(gameData / "Settings.json", settingsText.GetValue()).IsOk());
 	Json const again = fixture.Ok("project.export", Json::object({{"directory", "Out/Game"}, {"smokeTest", true}}));
 	CAPTURE(again.dump());
 	CHECK(again["smokeTest"]["passed"] == true);
 	// The exported game logged below its own data folder, named by its name (the project sets no identity).
-	CHECK(FileSystem::IsRegularFile(fixture.UserRoot.GetGameDirectory(GameIdentity{"", "Exported Game"}) / "Logs" / "Exported Game.log"));
+	std::filesystem::path const log = gameData / "Logs" / "Exported Game.log";
+	CHECK(FileSystem::IsRegularFile(log));
 	CHECK_FALSE(FileSystem::Exists(fixture.UserRoot.GetEngineDirectory()));
+	Result<std::string> const logText = FileSystem::ReadTextFile(log);
+	REQUIRE(logText.IsOk());
+	std::string_view const prefix = "The game keeps its data in '";
+	size_t const start = logText.GetValue().find(prefix);
+	REQUIRE(start != std::string::npos);
+	size_t const end = logText.GetValue().find("', a temporary folder removed at exit", start);
+	REQUIRE(end != std::string::npos);
+	std::filesystem::path const temporary =
+		FileSystem::PathFromUtf8(logText.GetValue().substr(start + prefix.size(), end - start - prefix.size()));
+	CHECK_FALSE(FileSystem::Exists(temporary));
+	CHECK_FALSE(FileSystem::IsInside(temporary, gameData));
+	CHECK(logText.GetValue().find("Player settings: quality High") != std::string::npos);
+	CHECK(logText.GetValue().find("the game's defaults") != std::string::npos);
+	CHECK(FileSystem::ReadTextFile(gameData / "Settings.json").GetValue() == settingsText.GetValue());
+	CHECK_FALSE(FileSystem::Exists(gameData / "Saves"));
 	CHECK(again["unsavedChanges"] == true);
 	CHECK(again["directory"] == FileSystem::PathToUtf8(fixture.Directory.GetPath() / "Game" / "Out" / "Game"));
 

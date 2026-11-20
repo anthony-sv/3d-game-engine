@@ -96,6 +96,7 @@ add_executable(StradaTests
     Source/Project/ExampleCatalogTests.cpp
     Source/Project/FeatureTestProjectTests.cpp
     Source/Project/GameExporterTests.cpp
+    Source/Project/PlayerWindowTests.cpp
     Source/Project/ProjectCopyTests.cpp
     Source/Project/ProjectFileFuzzTests.cpp
     Source/Project/ProjectTemplateFuzzTests.cpp
@@ -115,6 +116,7 @@ add_executable(StradaTests
     Source/Renderer/InstancingTests.cpp
     Source/Renderer/MotoSceneTests.cpp
     Source/Renderer/PostProcessingTests.cpp
+    Source/Renderer/QualityPresetTests.cpp
     Source/Renderer/SceneRendererTests.cpp
     Source/Renderer/ShadowMathTests.cpp
     Source/Renderer/ShadowRenderingTests.cpp
@@ -141,6 +143,7 @@ add_executable(StradaTests
     Source/Scene/SceneProfilingTests.cpp
     Source/Scene/SceneReverbZoneTests.cpp
     Source/Scene/SceneRuntimeTests.cpp
+    Source/Scene/SceneSavesScriptingTests.cpp
     Source/Scene/SceneScriptingApiTests.cpp
     Source/Scene/SceneScriptingGuideTests.cpp
     Source/Scene/SceneScriptingHostTests.cpp
@@ -155,6 +158,9 @@ add_executable(StradaTests
     Source/Scene/SceneVisualScriptingTests.cpp
     Source/Scene/UILayoutTests.cpp
     Source/Scene/WorldTransformCacheTests.cpp
+    Source/Script/PlayerSettingsTests.cpp
+    Source/Script/SaveSlotBenchmarkTests.cpp
+    Source/Script/SaveSlotTests.cpp
     Source/Script/ScriptEngineTests.cpp
     Source/Script/ScriptFieldTests.cpp
     Source/Script/ScriptTestUtilities.h

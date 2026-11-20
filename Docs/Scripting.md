@@ -936,6 +936,44 @@ the time of scripts and physics: at 0 physics stops and `OnUpdate` gets a delta 
 `Application.Quit()` ends the game (play mode in the editor), and `Application.IsEditor` tells the editor from an
 exported game. `Application.WindowWidth` and `WindowHeight` are the size of the view the game renders to.
 
+## Saves and settings
+
+A game keeps what its player earns in **save slots** and what the player chose in **the player's settings**, both in the
+game's own data folder, which no script names ([Getting started](GettingStarted.md#where-a-game-keeps-its-data) says where it is).
+
+```csharp
+SaveSlot progress = SaveSlot.Open("Progress");        // once, then keep the object
+float best = progress.Get("BestLap", float.MaxValue); // the fallback when the slot has none
+if (lapTime < best)
+{
+	progress.Set("BestLap", lapTime);
+	progress.Set("BestSplits", splits);               // float[] or List<float>
+}
+// At the results screen, never while the player rides: the save waits for the disk.
+progress.Save();
+```
+
+A slot holds named values of the types a script field holds (numbers, text, vectors, quaternions, colors, entities,
+prefabs, assets, enums) and arrays or lists of them of up to 4,096 elements, at most 4,096 values. `Get` answers the
+fallback for a name the slot lacks or holds as another type; `Set` throws `ArgumentException` for a value a slot cannot
+keep (a number that is not finite, a list too long, a name of more than 128 bytes). The object holds the values: `Get`
+and `Set` touch no file, `Save` writes them all and returns once they are on disk, whole (an interrupted save leaves the
+old slot), and `Delete` removes the slot. `Status` says what `Open` found: `Missing`, `Present`, `Damaged` (the file
+stays until the game saves or deletes the slot, which replace it; a file that cannot be read at all, such as a folder in
+its place or a file another program holds open, is kept, and `Save` and `Delete` answer false while it lasts), `Newer`
+(a save of a later build of the game, which this one never writes over) or `Unavailable` (no game runs: the editor while
+it edits). Slot names are 1 to 64 letters, digits, spaces,
+`-` and `_`, in any letter case; `SaveSlot.GetNames()` lists them.
+
+`Settings` is the player's: `Quality` (`Low`, `Medium` or `High`, which lower the scenes' shadows, ambient occlusion,
+bloom and anti-aliasing; `High` is the scenes as they are), `WindowMode`, `SetWindowSize`, `VSync`, `MasterVolume`,
+`SetBusVolume` and `SetBusMuted` per bus of the game's mixer, and the game's own values (`Set("LinkedBrakes", true)`,
+`Get`, `Has`, `Remove`) for its assists and options. Each setter applies at once (the window after the frame), and
+`Settings.Save()` keeps them for the next run, which starts with them: the window opens as the player left it. The
+volumes are a stage of their own after `Audio`'s, so a settings screen and the game's own mixing never undo each
+other. In the editor's play mode the window is kept and never applied to the editor, and saves and settings go to the
+project's `.strada/PlayData` folder, so playing never touches a player's saves; a test run gets a temporary folder.
+
 ## Debugging
 
 `Log.Info`, `Log.Warn` and `Log.Error` write to the editor's console (and to the game's log file),

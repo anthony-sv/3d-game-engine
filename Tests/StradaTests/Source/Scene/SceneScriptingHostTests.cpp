@@ -81,6 +81,7 @@ namespace
 		void ReportTestResult(ScriptTestResult const& result) override { Results.push_back(result); }
 		void FinishTests() override { FinishCalls++; }
 		void OnScriptException() override { Exceptions++; }
+		void RequestWindowSettings(PlayerWindowSettings const&) override {}
 
 		bool Editor = false;
 		std::vector<AssetHandle> SceneLoads;

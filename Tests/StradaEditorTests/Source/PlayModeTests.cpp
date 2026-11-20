@@ -6,6 +6,8 @@
 #include "Editor/Automation/PlayCommands.h"
 #include "Editor/EditorOperations.h"
 #include "Editor/EditorScripts.h"
+#include "Editor/Panels/GameViewPanel.h"
+#include "Editor/Panels/ViewportPanel.h"
 #include "Editor/PlayMode.h"
 #include "Editor/Viewport/ViewportOverlays.h"
 
@@ -27,10 +29,17 @@
 #include "Strada/Core/InputCapture.h"
 #include "Strada/Core/Log.h"
 #include "Strada/Physics/PhysicsTypes.h"
+#include "Strada/Project/PlayerWindow.h"
+#include "Strada/Renderer/QualityPresets.h"
+#include "Strada/Renderer/SceneRendererSettings.h"
 #include "Strada/Scene/Components.h"
 #include "Strada/Scene/Entity.h"
+#include "Strada/Scene/PostProcessVolumes.h"
 #include "Strada/Scene/Scene.h"
+#include "Strada/Scene/SceneRendering.h"
 #include "Strada/Scene/SceneSerializer.h"
+#include "Strada/Script/PlayerSettings.h"
+#include "Strada/Script/ScriptEngine.h"
 #include "Strada/Script/VisualScriptEngine.h"
 #include "Strada/Serialization/JsonSerialization.h"
 
@@ -560,6 +569,91 @@ TEST_CASE(
 	}
 	CHECK_FALSE(GameData::GetDirectory().has_value());
 	CHECK(FileSystem::IsRegularFile(playData / "Saves" / "Slot1.json"));
+}
+
+TEST_CASE("PlayMode: the player's settings come from the play data, the Game View renders at their quality, their window is "
+          "kept but never applied, a test run reads and writes its own folder, and editing has none")
+{
+	// The scripting runtime, so that play mode's runner is the host a changed window is asked of.
+	Testing::ScriptRuntimeScope scripting;
+	ProjectPlayFixture fixture;
+	std::filesystem::path const playData = fixture.Context.GetProject()->GetPlayDataDirectory();
+	std::filesystem::path const file = playData / "Settings.json";
+
+	// While editing no game runs: the defaults, nothing to save to, and the Game View at the scene's own settings.
+	CHECK(PlayerSettingsStore::GetStatus() == PlayerSettingsStatus::Unavailable);
+	CHECK_FALSE(PlayerSettingsStore::Save().IsOk());
+	CHECK(MakeGameViewRenderOptions(1.0f).Quality == QualityPreset::High);
+	CHECK_FALSE(FileSystem::Exists(playData));
+
+	PlayerSettings chosen = MakePlayerSettingsDefaults(fixture.Context.GetProject()->GetSettings().Window);
+	chosen.Quality = QualityPreset::Low;
+	chosen.Window = {PlayerWindowMode::Windowed, 800, 600, false};
+	Result<std::string> const text = WritePlayerSettingsText(chosen);
+	REQUIRE(text.IsOk());
+	REQUIRE(FileSystem::WriteTextFile(file, text.GetValue()).IsOk());
+
+	uint64_t const logStart = Log::GetNextEntryIndex();
+	REQUIRE(fixture.Play.Start(EditorPlayState::Play, 640, 480).IsOk());
+	CHECK(PlayerSettingsStore::GetStatus() == PlayerSettingsStatus::Present);
+	CHECK(PlayerSettingsStore::Get() == chosen);
+	CHECK(Testing::WasLogged(logStart, "Player settings: quality Low, window 800x600 windowed, vsync off, 0 buses, from Settings.json"));
+	// The Game View takes the game's quality; the Scene View, as its panel builds its options, renders the playing scene's
+	// own settings (the thumbnails render with SceneRenderOptions{}, High likewise).
+	CHECK(MakeGameViewRenderOptions(1.0f).Quality == QualityPreset::Low);
+	CHECK(SceneRenderOptions{}.Quality == QualityPreset::High);
+	{
+		Scene& playing = fixture.Context.GetScene();
+		glm::vec3 const eye(0.0f, 2.0f, 10.0f);
+		SceneRendererSettings const own = PostProcessVolumes::Resolve(playing, eye);
+		ViewportPanel sceneView;
+		SceneRendererSettings const scene = ResolveViewSettings(playing, eye, sceneView.MakeRenderOptions(fixture.Context, 1.0f));
+		SceneRendererSettings const game = ResolveViewSettings(playing, eye, MakeGameViewRenderOptions(1.0f));
+		CHECK(scene == own);
+		CHECK(game == ApplyQualityPreset(own, QualityPreset::Low));
+		// What Low lowers of a scene at the defaults (QualityPresets.h), so the two views differ.
+		REQUIRE(own.ShadowMapSize > QualityPresetMinShadowMapSize);
+		REQUIRE((own.AmbientOcclusion && own.Bloom));
+		CHECK(game.ShadowMapSize < scene.ShadowMapSize);
+		CHECK_FALSE(game.AmbientOcclusion);
+		CHECK_FALSE(game.Bloom);
+	}
+
+	// A window the game asks for reaches play mode's runner, which hands it to no window after the frame (play mode sets
+	// no SceneRunnerSettings::ApplyWindow): it is kept for the game to save.
+	REQUIRE(ScriptEngine::GetHost() != nullptr);
+	CHECK(ScriptEngine::GetHost()->IsEditor());
+	PlayerSettingsStore::SetWindow({PlayerWindowMode::Fullscreen, 1920, 1080, true});
+	fixture.Play.Update(Timestep(1.0f / 60.0f));
+	CHECK(PlayerSettingsStore::Get().Window == PlayerWindowSettings{PlayerWindowMode::Fullscreen, 1920, 1080, true});
+	// A save writes below the play data, never into the game's real folder.
+	PlayerSettingsStore::SetQuality(QualityPreset::Medium);
+	REQUIRE(PlayerSettingsStore::Save().IsOk());
+	fixture.Play.Stop();
+	CHECK(PlayerSettingsStore::GetStatus() == PlayerSettingsStatus::Unavailable);
+	CHECK(MakeGameViewRenderOptions(1.0f).Quality == QualityPreset::High);
+	PlayerSettingsRead const saved = ReadPlayerSettingsFile(file, {});
+	CHECK(saved.Status == PlayerSettingsStatus::Present);
+	CHECK(saved.Settings.Quality == QualityPreset::Medium);
+	CHECK(saved.Settings.Window.Mode == PlayerWindowMode::Fullscreen);
+
+	// Simulate reads them too.
+	REQUIRE(fixture.Play.Start(EditorPlayState::Simulate, 640, 480).IsOk());
+	CHECK(PlayerSettingsStore::Get().Quality == QualityPreset::Medium);
+	fixture.Play.Stop();
+
+	// A test run starts from the game's defaults in its own folder, and what it saves goes with that folder.
+	REQUIRE(fixture.Play.Start(EditorPlayState::Play, 640, 480, nullptr, PlayStartOptions{.TestRun = true}).IsOk());
+	std::optional<std::filesystem::path> const temporary = GameData::GetDirectory();
+	REQUIRE(temporary.has_value());
+	CHECK(PlayerSettingsStore::GetStatus() == PlayerSettingsStatus::Missing);
+	CHECK(PlayerSettingsStore::Get() == MakePlayerSettingsDefaults(fixture.Context.GetProject()->GetSettings().Window));
+	PlayerSettingsStore::SetQuality(QualityPreset::Low);
+	REQUIRE(PlayerSettingsStore::Save().IsOk());
+	CHECK(FileSystem::IsRegularFile(*temporary / "Settings.json"));
+	fixture.Play.Stop();
+	CHECK_FALSE(FileSystem::Exists(*temporary));
+	CHECK(ReadPlayerSettingsFile(file, {}).Settings.Quality == QualityPreset::Medium);
 }
 
 TEST_CASE("PlayMode: script fields edited while playing reach the running script at once, and edits start from its values")

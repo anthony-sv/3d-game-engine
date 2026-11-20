@@ -108,6 +108,7 @@ internal static class ScriptRegistry
 		s_Classes.Clear();
 		s_GameTypes.Clear();
 		s_ReportedLongLists.Clear();
+		Settings.ForgetWarnings();
 		if (s_LoadContext == null)
 		{
 			return;

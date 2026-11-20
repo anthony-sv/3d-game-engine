@@ -460,6 +460,16 @@ namespace Strada
 		}
 	}
 
+	SceneRendererSettings ResolveViewSettings(Scene& scene, glm::vec3 const& cameraPosition, SceneRenderOptions const& options)
+	{
+		if (!options.DrawWorld)
+		{
+			return GetScreenSpaceOnlySettings();
+		}
+		// The scene's post-process volumes change its settings around the camera, then the player's quality lowers them.
+		return ApplyQualityPreset(PostProcessVolumes::Resolve(scene, cameraPosition), options.Quality);
+	}
+
 	void RenderScene(Scene& scene, SceneRenderer& renderer, SceneRendererCamera const& camera, SceneRenderOptions const& options)
 	{
 		ST_PROFILE_SCOPE("Renderer.RenderScene");
@@ -468,9 +478,7 @@ namespace Strada
 		scene.UpdateTransforms();
 		{
 			ST_PROFILE_SCOPE("Renderer.Submit");
-			// The scene's post-process volumes change its settings around the camera.
-			renderer.BeginScene(camera,
-			                    options.DrawWorld ? PostProcessVolumes::Resolve(scene, camera.Position) : GetScreenSpaceOnlySettings());
+			renderer.BeginScene(camera, ResolveViewSettings(scene, camera.Position, options));
 			if (options.DrawWorld)
 			{
 				SubmitMeshes(scene, renderer, options);

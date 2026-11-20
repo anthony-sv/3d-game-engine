@@ -356,11 +356,17 @@ namespace Strada
 
 	void ViewportPanel::Render(EditorContext& context)
 	{
+		RenderScene(context.GetScene(), *m_Renderer, m_Camera.GetRendererCamera(),
+		            MakeRenderOptions(context, ImGui::GetStyle().FontScaleDpi));
+	}
+
+	SceneRenderOptions ViewportPanel::MakeRenderOptions(EditorContext& context, float uiScale)
+	{
 		Scene& scene = context.GetScene();
 		EntitySelection const& selection = context.GetSelection();
 		float const aspectRatio = m_Camera.GetAspectRatio();
-		float const uiScale = ImGui::GetStyle().FontScaleDpi;
 
+		// SceneRenderOptions::Quality stays High: the scene's own settings.
 		SceneRenderOptions options;
 		options.GetPickingId = [this](UUID entity)
 		{
@@ -380,7 +386,7 @@ namespace Strada
 		{
 			return CanvasOverlay::PlaceCanvas(scene, canvas, selection.GetEntities());
 		};
-		options.SubmitOverlays = [&](SceneRenderer& renderer)
+		options.SubmitOverlays = [this, &scene, &selection, uiScale, aspectRatio](SceneRenderer& renderer)
 		{
 			SceneRendererOverlays overlays;
 			overlays.Grid.Enabled = m_Overlays.Grid;
@@ -402,7 +408,7 @@ namespace Strada
 				renderer.SubmitLine(line.From, line.To, line.Color, line.DepthTest);
 			}
 		};
-		RenderScene(scene, *m_Renderer, m_Camera.GetRendererCamera(), options);
+		return options;
 	}
 
 	UUID ViewportPanel::DrawEntityIcons(EditorContext& context, glm::vec2 const& imagePosition, glm::vec2 const& imageSize, bool hovered)

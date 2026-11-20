@@ -14,7 +14,8 @@
 
 // The bindings a player changed while the game runs (Docs/Architecture.md §7.4, "Rebinding"): one table for the process,
 // for the project's InputActions asset, read from its profile in the game data folder (Strada/Asset/InputBindingProfile.h)
-// when the actions load and written there atomically when a binding changes. Scenes compile their actions from the asset
+// when the actions load and written there atomically and durably (FileSystem::WriteTextFileDurably) when a binding
+// changes. Scenes compile their actions from the asset
 // with the table applied (Apply) and compile again when its version moves, so a rebind reaches every running scene at its
 // next frame and outlives scene loads. The asset is never written. Main thread.
 namespace Strada

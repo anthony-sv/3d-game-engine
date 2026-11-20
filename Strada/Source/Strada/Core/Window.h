@@ -115,6 +115,11 @@ namespace Strada
 
 		// Sets the window size in screen coordinates.
 		void SetSize(uint32_t width, uint32_t height);
+		// The size in screen coordinates a window created at this size has (WindowSpecification's Width and Height), on the
+		// window's monitor now: GLFW scales a new window's size by its monitor's content scale where screen coordinates are
+		// pixels (Windows and X11, GLFW_SCALE_TO_MONITOR), truncating as it does, and keeps it where they are not (macOS and
+		// Wayland, whose framebuffer scales instead). SetSize of it sizes the window as one opened at that size.
+		glm::uvec2 GetCreatedSize(glm::uvec2 specifiedSize) const;
 		// Sets the window size so that its framebuffer is this many pixels, whatever the display's scale: the size in screen
 		// coordinates is the framebuffer's scaled as the two compare now (one to one on Windows and X11, so the framebuffer
 		// is exact there; on a display with points of several pixels, it is exact when the sizes divide evenly), as far as

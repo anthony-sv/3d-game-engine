@@ -575,6 +575,32 @@ internal static unsafe class InternalCalls
 	internal static delegate* unmanaged<byte*, int, ulong, void> Telemetry_MarkStep;
 	internal static delegate* unmanaged<byte> Telemetry_IsRecording;
 
+	// Save slots and the player's settings (main thread). Text the engine answers is its own, valid until the next of these
+	// calls. SaveSlot_Read answers the slot's document (its status a SaveSlotStatus) or, of status -1, why the name is
+	// refused; SaveSlot_Write takes the values as a script field map; SaveSlot_GetNames the names joined by '\n';
+	// SaveSlot_ReleaseText frees the text answered last, once a caller of a large one (a slot, a settings value) copied it.
+	internal static delegate* unmanaged<byte*, int, int*, int*, byte*> SaveSlot_Read;
+	internal static delegate* unmanaged<byte*, int, byte*, int, byte> SaveSlot_Write;
+	internal static delegate* unmanaged<byte*, int, byte> SaveSlot_Delete;
+	internal static delegate* unmanaged<int*, byte*> SaveSlot_GetNames;
+	internal static delegate* unmanaged<void> SaveSlot_ReleaseText;
+	internal static delegate* unmanaged<int> Settings_GetQuality;
+	internal static delegate* unmanaged<int, void> Settings_SetQuality;
+	internal static delegate* unmanaged<NativePlayerWindow*, void> Settings_GetWindow;
+	internal static delegate* unmanaged<NativePlayerWindow*, void> Settings_SetWindow;
+	internal static delegate* unmanaged<float> Settings_GetMasterVolume;
+	internal static delegate* unmanaged<float, void> Settings_SetMasterVolume;
+	internal static delegate* unmanaged<byte*, int, float> Settings_GetBusVolume;
+	internal static delegate* unmanaged<byte*, int, float, void> Settings_SetBusVolume;
+	internal static delegate* unmanaged<byte*, int, byte> Settings_IsBusMuted;
+	internal static delegate* unmanaged<byte*, int, byte, void> Settings_SetBusMuted;
+	// A value as { "Type", "Value" }; null when the settings hold none.
+	internal static delegate* unmanaged<byte*, int, int*, byte*> Settings_GetValue;
+	// A one-member script field map; null when the value is kept, else why it is refused.
+	internal static delegate* unmanaged<byte*, int, int*, byte*> Settings_SetValue;
+	internal static delegate* unmanaged<byte*, int, byte> Settings_RemoveValue;
+	internal static delegate* unmanaged<byte> Settings_Save;
+
 	internal static delegate* unmanaged<byte*, int, int> Assets_FindType;
 	internal static delegate* unmanaged<int, int*, byte*> Assets_GetTypeName;
 	internal static delegate* unmanaged<byte*, int, int, ulong> Assets_Load;

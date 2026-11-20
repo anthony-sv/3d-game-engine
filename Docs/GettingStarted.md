@@ -25,6 +25,7 @@ a game that runs without the editor. Strada has no installer or release yet: you
   - [Save](#save)
 - [Test the game](#test-the-game)
 - [Export the game](#export-the-game)
+  - [Where a game keeps its data](#where-a-game-keeps-its-data)
 - [Work with an AI agent](#work-with-an-ai-agent)
 - [Where to go next](#where-to-go-next)
 
@@ -242,6 +243,7 @@ them. Prism Break has no C# scripts and runs at once.
 | `--timestep <seconds>` | Advance the game by this time each frame (default: the frame's real time; 1/60 in tests) |
 | `--hash-step <count>` | End the test summary with the physics state hash after this fixed step instead of the last one, so runs at different time steps compare (only with `--test`). Steps are counted in the scene the run ends in: loading another scene starts the count again |
 | `--headless` | Run without a window, rendering or sound |
+| `--temporary-data` | Keep the game's saves and settings in a new folder removed at exit, not in the game's own data folder (or a project's `.strada/PlayData`), so the run reads none of a player's and leaves none: the editor's smoke test runs exported games so. Test runs always do |
 | `--frames <count>` | Exit after this many frames |
 | `--screenshot <path>` | Save a PNG of the window, in the first frame drawn at or after the last one with `--frames` (otherwise frame 60): a minimized window draws no frame, and a run that saves no screenshot ends with an error line and exit code 1 |
 | `--audio-capture <path>` | Record the game's sound into this WAV file (16-bit PCM, 48 kHz stereo) instead of playing it: after each frame's update the player mixes the sound that frame's time covers, so a run with `--timestep` and `--frames` writes the same bytes every time (600 frames of `--timestep 0.0166667` hold 10 seconds). Works with `--headless` and `--test`; a file that cannot be written ends the run with an error line and exit code 1 |
@@ -250,6 +252,12 @@ them. Prism Break has no C# scripts and runs at once.
 | `--gpu <index>` | Use the GPU with this adapter index |
 | `--validation`, `--no-validation` | Enable or disable Vulkan and NVRHI validation |
 | `--no-vsync` | Present without waiting for vertical sync |
+
+The window opens as the game's window settings say, under the player's own settings (`Settings.json` in the game's
+data folder, which the game's settings screen writes: windowed or fullscreen, the size, vsync); `--resolution` and
+`--no-vsync` win over both. A run with `--profile` logs the graphics quality its frames were drawn at
+(`Profile quality: High`) beside its medians, so measure with `--temporary-data` or a fresh copy of the project to
+measure at the game's defaults.
 
 A windowed run plays its sounds through the machine's playback device unless the environment variable
 `STRADA_AUDIO_OUTPUT` is `null` (the null device, which mixes but plays nothing: what a capture or a session started by a
@@ -571,10 +579,12 @@ Choose File > Open Scene... (Ctrl+O) and open `Scenes/Main.sscene` to go back to
 3. Under **Game**, check the game's **Name**, **Start Scene** and **Window** settings; changes are saved to the project.
 4. Under **Output**, choose the directory: a new or empty directory, or an earlier export, which the new one replaces.
    The default is the project's `Build` folder. **Run a smoke test** runs the exported game headless for a few frames
-   and checks that it exits cleanly.
+   and checks that it exits cleanly; it keeps the game's saves and settings in a temporary folder that is removed
+   afterwards.
 5. Click **Build**. The editor builds the C# scripts in Release and writes the game. The result shows the time, the
-   files and the size, and **Open Folder** and **Run Game** buttons. Scripts that do not compile stop the export and
-   leave an earlier export as it was.
+   files and the size, and **Open Folder** and **Run Game** buttons. **Run Game** runs the game as a player would, with
+   the saves and settings in its own data folder. Scripts that do not compile stop the export and leave an earlier
+   export as it was.
 
 The exported folder holds:
 
@@ -596,13 +606,26 @@ Run the game by starting its executable. It is the player renamed, so it takes t
 `<Name> --scene Scenes/Tests.sscene --test` runs the exported test scene. Visual-script nodes marked Development Only
 are disabled in exported games.
 
+### Where a game keeps its data
+
 On each player's machine the game has a data folder of its own, named by the **Identity** in Project Settings
 (**Company** and **Product**; an empty product uses the game's name, so set an ASCII one for a name in another script):
 `%APPDATA%\<Company>\<Product>` on Windows, `~/Library/Application Support/<Company>/<Product>` on macOS and
-`~/.local/share/<company>-<product>` on Linux. The game logs to `Logs/<Name>.log` there and leaves crash reports in
-`Crashes/`. Playing the game in the editor never touches
-that folder: play mode uses the project's `.strada/PlayData` folder instead
-([Editor.md](Editor.md#where-an-exported-game-keeps-its-data) has the details).
+`~/.local/share/<company>-<product>` on Linux. In it the game keeps:
+
+| Path | What it is |
+|------|------------|
+| `Saves/<slot>.ssave` | Its save slots: what scripts and graphs keep with `SaveSlot` (a best lap, progress), by slot name in lower case |
+| `Settings.json` | The player's settings, which the game's settings screen saves with `Settings.Save`: the window, the quality, the volumes and the game's own options |
+| `Input/<actions>.sinput.json` | The bindings the player changed, by input actions asset |
+| `Logs/<Name>.log`, `Crashes/` | Its log and crash reports |
+
+The game reads its settings before its window opens, so the window, the quality and the volumes start as the player
+left them. A save of a later build of the game is never written over by an earlier one, and a damaged file is kept
+until the game saves that slot again (one the game cannot read at all, such as a folder of that name, is kept and its
+save refused; [Scripting.md](Scripting.md#saves-and-settings) shows the scripting side).
+Playing the game in the editor never touches that folder: play mode uses the project's `.strada/PlayData` folder
+instead, and a test run a temporary one ([Editor.md](Editor.md#where-an-exported-game-keeps-its-data) has the details).
 
 ## Work with an AI agent
 

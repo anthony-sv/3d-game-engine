@@ -144,6 +144,14 @@ component and the whole scripting API.
   and their fields.
 - Attach scripts with a `Script` component: `{"ClassName": "Game.Player", "Fields": {"Speed": {"Type": "Float",
   "Value": 5}}}`. Public fields (and `[SerializeField]` private ones) are stored in the scene.
+- A best score and the player's settings are kept in the game's own data folder, which no script names (the same
+  members are nodes of graphs): `SaveSlot slot = SaveSlot.Open("Best")` once (keep the object; in a graph, a private
+  variable of type `Strada.SaveSlot`), `slot.Get("Lap", 999f)`, `slot.Set("Lap", time)` (numbers, text, vectors,
+  enums, arrays of up to 4,096), and `slot.Save()` at a results screen or a menu, never while playing: it waits for the
+  disk. `slot.Status` says `Missing`, `Present`, `Damaged`, `Newer` or `Unavailable` (no game runs). A settings screen
+  sets `Settings.Quality` (`Low`, `Medium`, `High`), `Settings.SetBusVolume(bus, dB)`, `Settings.MasterVolume`, the
+  window and its own values (`Settings.Set("LinkedBrakes", true)`), each applied at once, then `Settings.Save()`; the
+  next run starts with them. Play mode keeps both in `.strada/PlayData`, `test_run` in a temporary folder.
 
 ## 6. Behavior in visual scripts
 

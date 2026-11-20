@@ -269,6 +269,7 @@ namespace
 		void ReportTestResult(ScriptTestResult const&) override {}
 		void FinishTests() override {}
 		void OnScriptException() override { Exceptions++; }
+		void RequestWindowSettings(PlayerWindowSettings const&) override {}
 
 		uint32_t Exceptions = 0;
 	};
