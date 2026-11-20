@@ -529,6 +529,56 @@ fell or jumped is drawn like that, unless what it stands on is drawn between its
 either way, on a moving platform it stays where it stands on the platform as drawn.
 `OnFixedUpdate` finds the entity where the last step left it, `OnUpdate` where it is drawn.
 
+### Vehicles
+
+A motorcycle is an entity with a dynamic rigid body, a collider (its chassis, low between the wheels) and a
+`VehicleComponent` whose `Definition` names a vehicle definition (`.svehicle`, [Editor](Editor.md#vehicles)); the two
+entities below it that draw its wheels each have a `VehicleWheel` naming the definition's wheel. The vehicle turns and
+steers those entities itself. A rider drives it with `SetDriverInput(throttle, frontBrake, rearBrake, lean)`. The
+throttle and both brakes run from 0 to 1, and the lean from -1 (left) to 1 (right). In a `Manual` gearbox the rider also
+calls `ShiftUp()` and `ShiftDown()`, one gear per call; a Manual gearbox waits in neutral (`Gear` 0) until the first
+`ShiftUp`. An `Automatic` gearbox shifts by itself. The reads are what the last physics step left: `EngineSpeed` (rpm),
+`Gear`, `ForwardSpeed` (m/s), `LeanAngle` (degrees, positive to the right), the inputs the step applied (`Throttle`,
+`FrontBrake`, `RearBrake`, `Lean`) and `GetWheelState(0)` and `GetWheelState(1)`, the front and the rear wheel. Each wheel
+state gives what the wheel stands on (`HasContact`, `Ground`, `Material`, `Surface`), its suspension's length, its spin
+and its slips, which are sizes (never negative, as the physics engine gives them): `Spin` times the wheel's radius against
+`ForwardSpeed` tells a spinning tyre from a braking one. The definition itself reads through the `Vehicle` asset class (`Definition`): its gears, ratios, engine
+speeds and lean limit, for a rev counter or a gear indicator.
+
+Set the inputs in `OnFixedUpdate`: each physics step applies the latest given before it, and a shift asked for in a step
+is in gear at the next. A ride set there as a function of the simulation (its speed, its gear, a count of the steps) is
+the same ride at every frame rate, step for step. Inputs set from `OnUpdate` or from input action overrides depend on the
+frame rate instead, since frames and steps do not line up. A player's ride reads the actions in `OnFixedUpdate`, where
+each press of a button action is seen by exactly one step ([Input actions](#input-actions)):
+
+```csharp
+public class Rider : Script
+{
+	protected override void OnFixedUpdate(float fixedDeltaTime)
+	{
+		VehicleComponent bike = GetComponent<VehicleComponent>()!;
+		bike.SetDriverInput(Input.GetAction("Throttle"), Input.GetAction("FrontBrake"), Input.GetAction("RearBrake"),
+			Input.GetAction("Lean"));
+		if (Input.IsActionPressed("ShiftUp"))
+		{
+			bike.ShiftUp();
+		}
+		if (Input.IsActionPressed("ShiftDown"))
+		{
+			bike.ShiftDown();
+		}
+	}
+}
+```
+
+Give a bike one writer of its inputs: two scripts that both call `SetDriverInput` ride it on whichever ran last. A
+riding script can still serve several drivers: a public field picks whether it reads the player's actions or values
+that an autopilot or a test writes into it. Each brake brakes its own wheel, and the bike's weight moves to the
+front under braking as the rigid body allows. The tyres limit forward and sideways grip apart, so a locked rear wheel does
+not by itself give up sideways grip: trail braking and rear-wheel slides are not simulated. Each tyre grips by the
+`TyreGrip` of the surface under it and is held back by its `RollingResistance` ([Physics materials](#physics-materials)).
+An edit of the definition, or of a curve it names, reaches a playing bike at its next step.
+
 ## Spawning and destroying
 
 Prefabs are entities saved with their children (Create Prefab in the hierarchy's context menu). Spawn them with

@@ -626,8 +626,9 @@ namespace
 		// load is reported, not refused), then the references of the state's script's first variable; graph.set the state's
 		// script's own document; graph.create, every data asset type's create and profiler.capture a file of a name not given
 		// before (the drawn names exist after their first success), a data asset with its type's defaults; audio.meters,
-		// telemetry.start, telemetry.stop and telemetry.channels no parameters; telemetry.read a channel of the newest session
-		// that has one, and telemetry.export that session to a fresh file; project.copy-example
+		// telemetry.start, telemetry.stop and telemetry.channels no parameters, and vehicle.state none (it answers while the
+		// scene plays); telemetry.read a channel of the newest session that has one, and telemetry.export that session to a
+		// fresh file; project.copy-example
 		// the available example into a fresh directory, unopened; graph.palette, whose goals are refusals, the two below;
 		// input.set an override of the project's first action, then a gamepad's button. A request that
 		// still fails (the state can be a few rounds old, the profiler can hold no frames yet) is followed by another at the command's next
@@ -674,7 +675,8 @@ namespace
 			{
 				return std::nullopt;
 			}
-			if (command == "audio.meters" || command == "telemetry.start" || command == "telemetry.stop" || command == "telemetry.channels")
+			if (command == "audio.meters" || command == "telemetry.start" || command == "telemetry.stop" ||
+			    command == "telemetry.channels" || command == "vehicle.state")
 			{
 				return Json::object();
 			}
@@ -2631,6 +2633,15 @@ TEST_CASE("Automation: commands with any parameters answer once, keep the editor
 		CAPTURE(GetAutomationErrorCodeName(code));
 		CHECK((code == AutomationErrorCode::InvalidParams || code == AutomationErrorCode::Unavailable));
 	}
+	// vehicle.state answers, or is refused for its parameters, for the entity it names, or because nothing plays (its own
+	// case below reads a riding bike).
+	for (AutomationErrorCode const code : debugErrors["vehicle.state"])
+	{
+		CAPTURE(GetAutomationErrorCodeName(code));
+		CHECK((code == AutomationErrorCode::InvalidParams || code == AutomationErrorCode::InvalidOperation ||
+		       code == AutomationErrorCode::EntityNotFound || code == AutomationErrorCode::ComponentNotFound ||
+		       code == AutomationErrorCode::Unavailable));
+	}
 	// The agent kit's commands set the project up when confirmed, refuse without the user's consent and answer dry runs.
 	CHECK(outcomes["project.agents"].first > 0);
 	CHECK(outcomes["project.setup-agents"].first > 0);
@@ -2749,6 +2760,106 @@ TEST_CASE("Automation: physics.query answers any parameters while the scene play
 		fixture.Run(command->Name, Json::object({{"kind", "raycast"}, {"origin", {0.0, 0.0, 0.0}}, {"direction", {0.0, -1.0, 0.0}}}));
 	REQUIRE(stopped.IsError());
 	CHECK(stopped.GetError().Code == AutomationErrorCode::Unavailable);
+	fixture.CheckSceneLoads();
+	fixture.CheckHistory();
+}
+
+TEST_CASE("Automation: vehicle.state answers any parameters while a bike rides, and changes nothing")
+{
+	FuzzFixture fixture;
+	// A floor and a bike on it, of a definition with its type's defaults, beside the prefab of everything the project holds.
+	Json const created = fixture.Ok("vehicle.create", Json::object({{"path", "Vehicles/Fuzz Bike.svehicle"}}));
+	std::string const definition = created["vehicle"]["id"].get<std::string>();
+	fixture.Ok("entity.create", Json::object({{"name", "Floor"},
+	                                          {"components",
+	                                           {{"Transform", Json::object({{"Translation", {0.0, -0.5, 0.0}}})},
+	                                            {"BoxCollider", Json::object({{"HalfExtents", {50.0, 0.5, 50.0}}})}}}}));
+	Json const bike = fixture.Ok(
+		"entity.create", Json::object({{"name", "Bike"},
+	                                   {"components",
+	                                    {{"Transform", Json::object({{"Translation", {0.0, 0.05, 0.0}}})},
+	                                     {"RigidBody", Json::object({{"Type", "Dynamic"}, {"Mass", 250.0}})},
+	                                     {"BoxCollider", Json::object({{"HalfExtents", {0.25, 0.5, 0.6}}, {"Offset", {0.0, 0.75, 0.0}}})},
+	                                     {"Vehicle", Json::object({{"Definition", definition}})}}}}));
+	std::string const bikeId = bike["id"].get<std::string>();
+	std::optional<UUID> const bikeUuid = UUID::FromString(bikeId);
+	REQUIRE(bikeUuid);
+	EditorState const state = fixture.ReadState();
+	ParameterGenerator generator(17, state, fixture.Outside, {}, fixture.ProjectDirectory);
+	// The stream's requests, not the one the main case sends until vehicle.state has answered once (SureRequest).
+	generator.SetReached("vehicle.state");
+	CommandDefinition const* const command = fixture.Registry.Find("vehicle.state");
+	REQUIRE(command != nullptr);
+
+	REQUIRE(fixture.Play.Start(EditorPlayState::Simulate, 640, 480).IsOk());
+	fixture.Play.SetPaused(true);
+	fixture.Context.GetScene().ApplyPhysicsChanges();
+	PhysicsScene* const physics = fixture.Context.GetScene().GetPhysicsScene();
+	REQUIRE(physics != nullptr);
+	REQUIRE(physics->HasVehicle(*bikeUuid));
+	VehicleInputs inputs;
+	inputs.Throttle = 0.4f;
+	physics->SetVehicleInputs(*bikeUuid, inputs);
+	int answered = 0;
+	int bikes = 0;
+	std::map<AutomationErrorCode, int> refused;
+	std::optional<uint64_t> readState;
+	int stateChecks = 0;
+	for (int round = 0, rounds = Testing::GetFuzzRounds(300); round < rounds; round++)
+	{
+		// Now and then a frame runs, so the bike rides between the reads.
+		if (round % 25 == 24)
+		{
+			fixture.Play.Advance(1, Timestep(1.0f / 60.0f));
+			readState.reset();
+		}
+		Json const params = round % 10 == 0 ? Json::object({{"entity", bikeId}}) : generator.Generate(command->Name, command->Parameters);
+		std::string const request = params.dump();
+		CAPTURE(round);
+		CAPTURE(request);
+		CommandResult const result = fixture.Run(command->Name, params);
+		// The first read since the last frame applies what changed before it; the reads after it leave the world as it is.
+		if (!readState)
+		{
+			readState = physics->ComputeStateHash();
+		}
+		else
+		{
+			CHECK(physics->ComputeStateHash() == *readState);
+			stateChecks++;
+		}
+		if (result.IsOk())
+		{
+			answered++;
+			for (Json const& vehicle : result.GetValue()["vehicles"])
+			{
+				bikes += vehicle["entity"] == bikeId ? 1 : 0;
+				CHECK(std::isfinite(vehicle["engineSpeed"].get<double>()));
+				CHECK(std::isfinite(vehicle["forwardSpeed"].get<double>()));
+				CHECK(vehicle["wheels"].size() == 2);
+			}
+			continue;
+		}
+		// Refused for its parameters, or for the entity it names: none, one without a Vehicle, or one whose Vehicle makes no
+		// vehicle.
+		refused[result.GetError().Code]++;
+		CHECK_MESSAGE((result.GetError().Code == AutomationErrorCode::InvalidParams ||
+		               result.GetError().Code == AutomationErrorCode::EntityNotFound ||
+		               result.GetError().Code == AutomationErrorCode::ComponentNotFound ||
+		               result.GetError().Code == AutomationErrorCode::InvalidOperation),
+		              result.GetError().Message);
+	}
+	CHECK(answered > 0);
+	CHECK(bikes > 0);
+	CHECK(stateChecks > 0);
+	CHECK(refused[AutomationErrorCode::InvalidParams] + refused[AutomationErrorCode::EntityNotFound] +
+	          refused[AutomationErrorCode::ComponentNotFound] >
+	      0);
+	// Stopped, it refuses; the scene the editor edits comes back as it was.
+	fixture.Play.Stop();
+	CommandResult const stopped = fixture.Run(command->Name, Json::object());
+	REQUIRE(stopped.IsError());
+	CHECK(stopped.GetError().Code == AutomationErrorCode::InvalidOperation);
 	fixture.CheckSceneLoads();
 	fixture.CheckHistory();
 }

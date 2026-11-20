@@ -888,6 +888,60 @@
 						"14578883764489122022",
 						"748496418618621722"
 					]
+				},
+				"RigidBody": {
+					"Type": "Dynamic",
+					"Mass": 262.0,
+					"LinearDamping": 0.025499999523162842,
+					"AngularDamping": 0.05000000074505806,
+					"GravityFactor": 1.0,
+					"Layer": 0,
+					"LockTranslation": [
+						false,
+						false,
+						false
+					],
+					"LockRotation": [
+						false,
+						false,
+						false
+					],
+					"ContinuousCollision": false,
+					"AllowSleep": true,
+					"Interpolation": "Interpolate",
+					"InitialLinearVelocity": [
+						0.0,
+						0.0,
+						0.0
+					],
+					"InitialAngularVelocity": [
+						0.0,
+						0.0,
+						0.0
+					]
+				},
+				"BoxCollider": {
+					"HalfExtents": [
+						0.15000000596046448,
+						0.30000001192092896,
+						0.550000011920929
+					],
+					"Offset": [
+						0.0,
+						0.550000011920929,
+						0.0
+					],
+					"IsTrigger": false,
+					"Material": "0",
+					"Friction": 0.5,
+					"Restitution": 0.0
+				},
+				"Vehicle": {
+					"Definition": "6686585092897306527"
+				},
+				"VisualScript": {
+					"Graph": "9964485574798592623",
+					"Variables": {}
 				}
 			}
 		},
@@ -1011,6 +1065,9 @@
 					],
 					"CastShadows": true,
 					"Visible": true
+				},
+				"VehicleWheel": {
+					"Wheel": "Front"
 				}
 			}
 		},
@@ -1051,6 +1108,9 @@
 					],
 					"CastShadows": true,
 					"Visible": true
+				},
+				"VehicleWheel": {
+					"Wheel": "Rear"
 				}
 			}
 		},

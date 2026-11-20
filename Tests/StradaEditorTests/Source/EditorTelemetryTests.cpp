@@ -14,6 +14,7 @@
 
 #include "Strada/Core/FileSystem.h"
 #include "Strada/Core/Telemetry.h"
+#include "Strada/Scene/Entity.h"
 #include "Strada/Scene/Scene.h"
 #include "Strada/Serialization/JsonSerialization.h"
 #include "Strada/Serialization/TelemetryCsv.h"
@@ -562,6 +563,23 @@ TEST_CASE("TelemetryCommands: a playing FeatureTest scene is recorded, read back
 	}
 	CHECK(std::find(channels.begin(), channels.end(), "FeatureTest.Distance") != channels.end());
 	CHECK(std::find(channels.begin(), channels.end(), "Features.FixedSteps") != channels.end());
+	// The engine's channels of its bike, a value at every step, each naming the entity they belong to.
+	Entity const bike = fixture.Context.GetScene().FindEntityByName("Bike");
+	REQUIRE(bike);
+	std::string const prefix = "Vehicle." + std::to_string(bike.GetUUID().GetValue()) + ".";
+	size_t vehicleChannels = 0;
+	for (Json const& channel : session["channels"])
+	{
+		if (channel["name"].get<std::string>().starts_with(prefix))
+		{
+			CAPTURE(channel.dump());
+			CHECK(channel["values"] == rows);
+			CHECK(channel["entity"] == Json::object({{"id", std::to_string(bike.GetUUID().GetValue())}, {"name", "Bike"}}));
+			vehicleChannels++;
+		}
+	}
+	CHECK(vehicleChannels == VehicleChannelCount);
+	CHECK(std::find(channels.begin(), channels.end(), prefix + "Front.LongitudinalSlip") != channels.end());
 	// The script's laps; the graph's marks and the contact handlers' are no laps.
 	REQUIRE(session["laps"].size() == 3);
 	CHECK(session["laps"][0]["firstStep"] == 1);

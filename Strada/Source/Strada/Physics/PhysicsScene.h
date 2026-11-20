@@ -135,6 +135,15 @@ namespace Strada
 		// (what ComposeVehicleWheelTransform composes from VehicleWheelState); empty for an entity without a vehicle or an
 		// index past the wheels.
 		std::optional<glm::mat4> GetVehicleWheelTransform(UUID entity, size_t wheel) const;
+		// The values the vehicle runs with (AddVehicle's or the latest SetVehicleSettings'), its directions normalized and its
+		// Forward made square to its Up (NormalizeVehicleAxes): what the editor's overlay draws its wheels with. Null for an
+		// entity without a vehicle; valid until the vehicle is made again, given new values or removed.
+		VehicleDesc const* FindVehicleSettings(UUID entity) const;
+		// The chassis's roll inertia about its front (kg m²: 1 over the front's component of the body's inverse inertia along
+		// the front), which the lean spring's impulse turns (Architecture.md section 8, "Vehicles": its iterations settle only
+		// while LeanSpringDamping times the collision step stays below it). Empty for an entity without a vehicle, or a body
+		// that cannot roll about its front.
+		std::optional<float> GetVehicleRollInertia(UUID entity) const;
 
 		// --- Simulation ---
 
@@ -199,9 +208,11 @@ namespace Strada
 		// Gives every collider and submesh surface whose ColliderSurface::Material is this material the material's friction,
 		// restitution and modes, rolling resistance and tyre grip (an edit of the material while the world runs): their
 		// contacts and the wheels on them use them from the next step,
-		// contacts that persist included, and the bodies keep everything else. When the values differ from what a body had,
-		// it wakes (a sleeping body has no contacts to take them), and so does every non-static body whose bounds meet a
-		// static one's; in entity order. Returns how many surfaces name the material. Between steps: Jolt's worker threads
+		// contacts that persist included, and the bodies keep everything else. When the values contacts read differ from what
+		// a body had, it wakes (a sleeping body has no contacts to take them), and so does every non-static body whose bounds
+		// meet a static one's; when the tyre grip or the rolling resistance differ, the chassis of every vehicle one of whose
+		// wheels touched the material at its last step wakes, and no other body; in entity order. Returns how many surfaces
+		// name the material. Between steps: Jolt's worker threads
 		// read the surfaces during a step.
 		size_t SetMaterialValues(AssetHandle material, PhysicsMaterial const& values);
 

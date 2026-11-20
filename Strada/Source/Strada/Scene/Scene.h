@@ -38,6 +38,31 @@ namespace Strada
 	class AudioScene;
 	class Entity;
 
+	// The telemetry channels a running scene records for each of its vehicles while a recording runs (Docs/Architecture.md
+	// §8, "Telemetry channels"), each named "Vehicle.<entity's UUID in decimal>.<quantity>", in this order: the inputs the
+	// step applied, the engine's speed (rpm), the gear (0 neutral), the speed along the chassis's front (m/s), the lean
+	// (degrees, positive to the right), and for each wheel, front then rear, its longitudinal slip ratio and its slip angle
+	// (degrees; both sizes, never negative), its suspension's length (m) and the tyre grip of the surface under it.
+	inline constexpr std::array<std::string_view, 16> VehicleChannelQuantities = {
+		"Throttle",
+		"FrontBrake",
+		"RearBrake",
+		"Lean",
+		"EngineSpeed",
+		"Gear",
+		"ForwardSpeed",
+		"LeanAngle",
+		"Front.LongitudinalSlip",
+		"Front.LateralSlip",
+		"Front.Suspension",
+		"Front.Grip",
+		"Rear.LongitudinalSlip",
+		"Rear.LateralSlip",
+		"Rear.Suspension",
+		"Rear.Grip",
+	};
+	inline constexpr size_t VehicleChannelCount = VehicleChannelQuantities.size();
+
 	struct ScenePhysicsSettings
 	{
 		glm::vec3 Gravity = {0.0f, -9.81f, 0.0f};
@@ -623,6 +648,9 @@ namespace Strada
 		// GetFixedStepCount and step); idle, it returns after one branch. It reads the simulation and changes nothing the
 		// state hash or a snapshot holds.
 		void SampleTelemetry(float step);
+		// The vehicles' part of it: every made vehicle's channels (VehicleChannelQuantities), in the order of their UUIDs, with
+		// the values its step left (PhysicsScene::GetVehicleState).
+		void SampleVehicleTelemetry();
 		// Syncs the physics materials (SyncPhysicsMaterials) and the vehicles' definitions (SyncVehicles), then rebuilds the
 		// bodies, characters, vehicles and joints that changed, in that order (Docs/Architecture.md §8, "Vehicles").
 		void RebuildChangedBodies();
@@ -682,8 +710,18 @@ namespace Strada
 		// component names another definition or its definition's Up or Forward changed; given the new values in place
 		// (PhysicsScene::SetVehicleSettings) when only values changed; left alone when the world already carried it over to a
 		// rebuilt body. An entity whose Vehicle cannot make one (no definition that loads, no dynamic body, values the world
-		// refuses) is no vehicle, said once for each reason.
+		// refuses) is no vehicle, said once for each reason. A vehicle made again for an edit of its definition says so once
+		// for the edit, and one whose chassis's roll inertia the lean spring's damping cannot settle is warned of once each time
+		// it comes to that (CheckVehicleLeanSpring).
 		void UpdateVehicle(entt::entity handle);
+		struct VehicleSyncState;
+		// Warns when a made vehicle's lean spring cannot settle its chassis (PhysicsScene::GetVehicleRollInertia at or below
+		// LeanSpringDamping times the collision step), once each time it comes to that: when it is made, or its values or its
+		// body change into it. Changes no value.
+		void CheckVehicleLeanSpring(Entity entity, VehicleSyncState& state);
+		// Every entity with a vehicle entry (made or not), in the order of their UUIDs; rebuilt only after an entry was added or
+		// removed.
+		std::vector<entt::entity> const& GetVehicleOrder();
 		// When the data asset registry's epoch moved: marks for UpdateVehicle the vehicles whose definition or curves changed
 		// version (an edit, a reload, a file that starts or stops loading), in the order of their UUIDs.
 		void SyncVehicles();
@@ -1028,8 +1066,15 @@ namespace Strada
 			glm::vec3 Forward = glm::vec3(0.0f, 0.0f, -1.0f);
 			std::array<std::string, VehicleWheelCount> WheelNames{};
 			ScenePhysicsSnapshot::WheelDrawing Wheels;
+			// Its telemetry channels' names (VehicleChannelQuantities after "Vehicle.<UUID>."), built when it is first made.
+			std::array<std::string, VehicleChannelCount> ChannelNames{};
+			// The lean spring's warning was given and its cause stands (CheckVehicleLeanSpring).
+			bool LeanSpringWarned = false;
 		};
 		std::unordered_map<entt::entity, VehicleSyncState> m_Vehicles;
+		// GetVehicleOrder's list, and whether an entry of m_Vehicles was added or removed since it was made.
+		std::vector<entt::entity> m_VehicleOrder;
+		bool m_VehicleOrderChanged = false;
 		// What was last said about each VehicleWheel entity (SayVehicleWheelProblem); an entry goes with its VehicleWheel.
 		std::unordered_map<entt::entity, VehicleWheelSaid> m_VehicleWheelsSaid;
 		// Entities whose Vehicle, body, definition or curves changed while running; their vehicles are updated before the next

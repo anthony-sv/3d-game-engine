@@ -67,8 +67,9 @@ public sealed class EditorIntegrationTests
 			{
 				Assert.Contains(tools, tool => tool!["name"]!.GetValue<string>() == telemetryTool);
 			}
-			// The playing scene's physics queries.
+			// The playing scene's physics queries, and its vehicles' state.
 			Assert.Contains(tools, tool => tool!["name"]!.GetValue<string>() == "physics_query");
+			Assert.Contains(tools, tool => tool!["name"]!.GetValue<string>() == "vehicle_state");
 			// The mix's meters.
 			Assert.Contains(tools, tool => tool!["name"]!.GetValue<string>() == "audio_meters");
 			// The engine's data asset types' tools, generated from their registrations: curves, input actions, mixers, physics

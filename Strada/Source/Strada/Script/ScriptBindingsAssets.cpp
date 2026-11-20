@@ -8,7 +8,10 @@
 #include "Strada/Asset/MaterialAsset.h"
 #include "Strada/Asset/MixerAsset.h"
 #include "Strada/Asset/PhysicsMaterialAsset.h"
+#include "Strada/Asset/Vehicle.h"
+#include "Strada/Asset/VehicleAsset.h"
 
+#include <algorithm>
 #include <array>
 #include <cstddef>
 #include <limits>
@@ -158,6 +161,45 @@ namespace Strada::ScriptGlue
 			Read = 2
 		};
 
+		// Strada.Interop.NativeVehicle: a vehicle definition's values as Vehicle_Read copies them, its gears' ratios apart. The
+		// wheels' names point into the asset's data, which the caller copies at once.
+		struct VehicleValues
+		{
+			// The asset's version (DataAsset::GetVersion), never 0.
+			uint64_t Version;
+			char const* FrontName;
+			char const* RearName;
+			// The lengths in bytes of the UTF-8 names.
+			int32_t FrontNameLength;
+			int32_t RearNameLength;
+			float MaxTorque;
+			float MinRPM;
+			float MaxRPM;
+			float ShiftUpRPM;
+			float ShiftDownRPM;
+			float FinalDrive;
+			float MaxLeanAngle;
+			// A VehicleTransmissionMode value.
+			int32_t TransmissionMode;
+			int32_t GearCount;
+			int32_t Reserved;
+		};
+
+		static_assert(sizeof(VehicleValues) == 72 && offsetof(VehicleValues, FrontNameLength) == 24 &&
+		              offsetof(VehicleValues, MaxTorque) == 32 && offsetof(VehicleValues, TransmissionMode) == 60 &&
+		              offsetof(VehicleValues, GearCount) == 64);
+
+		// Vehicle_Read's answers (Strada.Interop.VehicleReadStatus).
+		enum class VehicleReadStatus : int32_t
+		{
+			// Logged; the values and the ratios are left as they were.
+			Failed = 0,
+			// The asset's version is the one held: only the values' Version is written.
+			Unchanged = 1,
+			// The values and GearCount ratios are written.
+			Read = 2
+		};
+
 		// InputActions_Read's answers (Strada.Interop.InputActionsReadStatus).
 		enum class InputActionsReadStatus : int32_t
 		{
@@ -262,7 +304,8 @@ namespace Strada::ScriptGlue
 				return static_cast<AssetType>(type) == TypedDataAsset<Curve>::GetStaticType() ||
 				       static_cast<AssetType>(type) == TypedDataAsset<InputActionMap>::GetStaticType() ||
 				       static_cast<AssetType>(type) == TypedDataAsset<Mixer>::GetStaticType() ||
-				       static_cast<AssetType>(type) == TypedDataAsset<PhysicsMaterial>::GetStaticType();
+				       static_cast<AssetType>(type) == TypedDataAsset<PhysicsMaterial>::GetStaticType() ||
+				       static_cast<AssetType>(type) == TypedDataAsset<Vehicle>::GetStaticType();
 			}
 			switch (static_cast<AssetType>(type))
 			{
@@ -411,6 +454,51 @@ namespace Strada::ScriptGlue
 			values->SurfaceLength = static_cast<int32_t>(data.Surface.size());
 			*surface = data.Surface.data();
 			return static_cast<int32_t>(PhysicsMaterialReadStatus::Read);
+		}
+
+		// Copies a vehicle definition's values (not its wheels' geometry or its curves) for the scripting runtime's copy of it
+		// (Strada.Vehicle), loading the asset on first use; nothing but the version when the runtime holds the asset's current
+		// version already (heldVersion; 0 for none). The gears' ratios go to gearRatios, at most capacity of them (a definition
+		// that loads has at most MaxVehicleGears); the names point into the asset's data, which the caller copies at once.
+		int32_t Vehicle_Read(uint64_t vehicle, uint64_t heldVersion, VehicleValues* values, float* gearRatios, int32_t capacity)
+		{
+			if (!AssetManager::IsInitialized())
+			{
+				Log::GetScriptLogger().error("Vehicle: assets are unavailable");
+				return static_cast<int32_t>(VehicleReadStatus::Failed);
+			}
+			Result<Ref<TypedDataAsset<Vehicle>>> asset = AssetManager::TryGetAsset<TypedDataAsset<Vehicle>>(ToHandle(vehicle));
+			if (!asset)
+			{
+				Log::GetScriptLogger().error("Vehicle: {}", asset.GetError());
+				return static_cast<int32_t>(VehicleReadStatus::Failed);
+			}
+			TypedDataAsset<Vehicle> const& vehicleAsset = *asset.GetValue();
+			values->Version = vehicleAsset.GetVersion();
+			if (values->Version == heldVersion)
+			{
+				return static_cast<int32_t>(VehicleReadStatus::Unchanged);
+			}
+			Vehicle const& data = vehicleAsset.GetData();
+			std::string_view const front = !data.Wheels.empty() ? std::string_view(data.Wheels[0].Name) : std::string_view();
+			std::string_view const rear = data.Wheels.size() > 1 ? std::string_view(data.Wheels[1].Name) : std::string_view();
+			values->FrontName = front.data();
+			values->RearName = rear.data();
+			values->FrontNameLength = static_cast<int32_t>(front.size());
+			values->RearNameLength = static_cast<int32_t>(rear.size());
+			values->MaxTorque = data.Engine.MaxTorque;
+			values->MinRPM = data.Engine.MinRPM;
+			values->MaxRPM = data.Engine.MaxRPM;
+			values->ShiftUpRPM = data.Transmission.ShiftUpRPM;
+			values->ShiftDownRPM = data.Transmission.ShiftDownRPM;
+			values->FinalDrive = data.Transmission.FinalDrive;
+			values->MaxLeanAngle = data.Lean.MaxLeanAngle;
+			values->TransmissionMode = static_cast<int32_t>(data.Transmission.Mode);
+			size_t const gears = std::min(data.Transmission.GearRatios.size(), static_cast<size_t>(std::max(capacity, 0)));
+			values->GearCount = static_cast<int32_t>(gears);
+			values->Reserved = 0;
+			std::copy_n(data.Transmission.GearRatios.begin(), gears, gearRatios);
+			return static_cast<int32_t>(VehicleReadStatus::Read);
 		}
 
 		// Copies a mixer asset's buses (their names, parents, volumes and mutes; not their effects) for the scripting runtime's
@@ -649,5 +737,6 @@ namespace Strada::ScriptGlue
 		table.Add("Material_IsRuntime", &Material_IsRuntime);
 		table.Add("Mixer_Read", &Mixer_Read);
 		table.Add("PhysicsMaterial_Read", &PhysicsMaterial_Read);
+		table.Add("Vehicle_Read", &Vehicle_Read);
 	}
 }

@@ -1,15 +1,20 @@
 """Moto's controls: the project's input actions (Input/Moto.sinput, which Moto.sproj names), written by Author.py's input
 part. Each action is bound on the keyboard and on any gamepad. Graphs read them by name (Event.ActionPressed, Get Action)
-and never a key, so a player's bindings can change without a change to a graph.
+and never a key, so a player's bindings can change without a change to a graph. The actions come in groups, one for each
+graph that reads them, each registered by one line of GROUPS; no control is bound to two actions.
 
-- Throttle and Brake (axes, 0 to 1): W and S, the right and the left trigger.
-- Lean (an axis, -1 left to 1 right): A and D, the left stick's X.
-- ShiftUp and ShiftDown (buttons): E and Q, the right and the left bumper.
+- Riding (the bike's riding graph, Vehicle.py):
+  - Throttle (an axis, 0 to 1): W, the right trigger.
+  - FrontBrake and RearBrake (axes, 0 to 1): S and the left trigger for the front brake, Space and the gamepad's X for the
+    rear one, each wheel braked by its own (a bike's two brakes).
+  - Lean (an axis, -1 left to 1 right): A and D, the left stick's X.
+  - ShiftUp and ShiftDown (buttons): E and Q, the right and the left bumper.
 - Pause (a button): Escape, the gamepad's Start. The audio director blends the mix to the Paused snapshot and back.
 - NextCamera and ResetCamera (buttons): C and R, the gamepad's Y and Back. The camera director cuts to the next trackside
   camera, and back to the tour.
 
-The riding actions wait for the ridden bike (slice 4); the last three are used now.
+A player's profile written before the two brakes (it names Brake, which the actions no longer have) loses that entry,
+with one line in the log, when the game loads its actions; the rest of the profile holds.
 """
 
 INPUT_ACTIONS = "Input/Moto.sinput"
@@ -27,16 +32,40 @@ def action(name, kind, *bindings):
     return {"Name": name, "Type": kind, "PressThreshold": 0.5, "ReleaseThreshold": 0.4, "Bindings": list(bindings)}
 
 
-ACTIONS = (
+RIDING = (
     action("Throttle", "Axis", binding("Key/W"), binding("Gamepad/RightTrigger", TRIGGER_DEAD_ZONE)),
-    action("Brake", "Axis", binding("Key/S"), binding("Gamepad/LeftTrigger", TRIGGER_DEAD_ZONE)),
+    action("FrontBrake", "Axis", binding("Key/S"), binding("Gamepad/LeftTrigger", TRIGGER_DEAD_ZONE)),
+    action("RearBrake", "Axis", binding("Key/Space"), binding("Gamepad/X")),
     action("Lean", "Axis", binding("Key/A Key/D"), binding("Gamepad/LeftX", STICK_DEAD_ZONE)),
     action("ShiftUp", "Button", binding("Key/E"), binding("Gamepad/RightBumper")),
     action("ShiftDown", "Button", binding("Key/Q"), binding("Gamepad/LeftBumper")),
+)
+PAUSE = (
     action("Pause", "Button", binding("Key/Escape"), binding("Gamepad/Start")),
+)
+CAMERAS = (
     action("NextCamera", "Button", binding("Key/C"), binding("Gamepad/Y")),
     action("ResetCamera", "Button", binding("Key/R"), binding("Gamepad/Back")),
 )
+
+# The groups of actions, one line each: (the graph that reads them, its actions), in the order the asset lists them.
+GROUPS = (
+    ("the bike's riding graph", RIDING),
+    ("the audio director", PAUSE),
+    ("the camera director", CAMERAS),
+)
+ACTIONS = tuple(action for _, actions in GROUPS for action in actions)
+
+
+def check():
+    """No two actions read one control: every key and gamepad control is bound once. Returns a summary."""
+    seen = {}
+    for entry in ACTIONS:
+        for bound in entry["Bindings"]:
+            for control in bound["Controls"].split():
+                assert control not in seen, f"{control} is bound to both {seen[control]} and {entry['Name']}"
+                seen[control] = entry["Name"]
+    return f"{len(ACTIONS)} actions in {len(GROUPS)} groups, {len(seen)} controls, each bound once"
 
 
 def input_actions():

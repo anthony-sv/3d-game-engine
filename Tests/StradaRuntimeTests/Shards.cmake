@@ -11,11 +11,15 @@
 set(STRADA_RUNTIME_TEST_SAMPLE_FILES "*StradaRuntimeTests?Source?SampleTests.cpp,*StradaRuntimeTests?Source?SaveGameTests.cpp")
 # The repository's templates, each through a project made from it.
 set(STRADA_RUNTIME_TEST_TEMPLATE_FILES "*StradaRuntimeTests?Source?TemplateTests.cpp")
+# Moto's ride test scene: the ridden bike's checks, played at several frame rates.
+set(STRADA_RUNTIME_TEST_RIDE_FILES "*StradaRuntimeTests?Source?MotoRideTests.cpp")
 
-set(STRADA_TEST_SHARDS Samples Templates Core)
+set(STRADA_TEST_SHARDS Samples Templates Ride Core)
 
 set(STRADA_TEST_SHARD_Samples "--source-file=${STRADA_RUNTIME_TEST_SAMPLE_FILES}")
 set(STRADA_TEST_SHARD_Templates "--source-file=${STRADA_RUNTIME_TEST_TEMPLATE_FILES}")
+set(STRADA_TEST_SHARD_Ride "--source-file=${STRADA_RUNTIME_TEST_RIDE_FILES}")
 # Everything else: the player's command line, test runs, exported games, windows and screenshots, profiles and logs, and
 # Moto's sound captures (MotoSoundTests.cpp: five runs of the sample's game, kept out of Samples for its time).
-set(STRADA_TEST_SHARD_Core "--source-file-exclude=${STRADA_RUNTIME_TEST_SAMPLE_FILES},${STRADA_RUNTIME_TEST_TEMPLATE_FILES}")
+set(STRADA_TEST_SHARD_Core
+    "--source-file-exclude=${STRADA_RUNTIME_TEST_SAMPLE_FILES},${STRADA_RUNTIME_TEST_TEMPLATE_FILES},${STRADA_RUNTIME_TEST_RIDE_FILES}")

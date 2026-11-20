@@ -18,6 +18,10 @@
 #include "Strada/Asset/InputBindingProfile.h"
 #include "Strada/Asset/InputRebinding.h"
 #include "Strada/Asset/MaterialAsset.h"
+#include "Strada/Asset/PhysicsMaterial.h"
+#include "Strada/Asset/PhysicsMaterialAsset.h"
+#include "Strada/Asset/Vehicle.h"
+#include "Strada/Asset/VehicleAsset.h"
 #include "Strada/Asset/VisualScriptAsset.h"
 #include "Strada/Asset/VisualScriptSerializer.h"
 #include "Strada/Audio/AudioEngine.h"
@@ -28,6 +32,7 @@
 #include "Strada/Core/InputActions.h"
 #include "Strada/Core/InputCapture.h"
 #include "Strada/Core/Log.h"
+#include "Strada/Physics/PhysicsScene.h"
 #include "Strada/Physics/PhysicsTypes.h"
 #include "Strada/Project/PlayerWindow.h"
 #include "Strada/Renderer/QualityPresets.h"
@@ -53,6 +58,7 @@
 #include <cstdint>
 #include <filesystem>
 #include <limits>
+#include <memory>
 #include <optional>
 #include <span>
 #include <string>
@@ -1135,12 +1141,12 @@ TEST_CASE("PlayMode: after an entity drop, deleting its graph keeps the step, wh
 	CHECK(variables() == ScriptFieldMap{{"Door", ScriptFieldValue::FromEntity(door)}});
 }
 
-TEST_CASE("PlayCommands: every play, input, physics and test command is documented in Docs/Automation.md")
+TEST_CASE("PlayCommands: every play, input, physics, vehicle and test command is documented in Docs/Automation.md")
 {
 	PlayFixture fixture;
 	Result<std::string> reference = FileSystem::ReadTextFile(STRADA_AUTOMATION_DOC_PATH);
 	REQUIRE(reference.IsOk());
-	CHECK(fixture.Registry.GetCommandCount() == 11);
+	CHECK(fixture.Registry.GetCommandCount() == 12);
 	for (CommandDefinition const* command : fixture.Registry.GetCommands())
 	{
 		CAPTURE(command->Name);
@@ -2417,7 +2423,9 @@ TEST_CASE("PlayCommands: Prism Break's title rebinds Launch to the key the playe
 }
 
 TEST_CASE("PlayCommands: play mode flies the Moto sample's camera tour, a graph's timeline, from the home view, its actions cut "
-          "to a trackside camera and back and muffle the mix, and stopping brings the camera back; with PlayOnStart off the "
+          "to a trackside camera and back and muffle the mix, and stopping brings the camera back; an injected gamepad rides "
+          "the grid bike off, leans it each way, slows it on each brake and shifts it back to neutral, and stopping brings "
+          "it back; with PlayOnStart off the "
           "camera stays home; a start on a camera that does not exist is warned of, and one on a trackside camera follows the "
           "ghost")
 {
@@ -2510,6 +2518,98 @@ TEST_CASE("PlayCommands: play mode flies the Moto sample's camera tour, a graph'
 	CHECK(findCamera().GetComponent<TransformComponent>().Translation == home);
 	CHECK(shows("Main Camera"));
 	CHECK_FALSE(shows("Start Line Camera"));
+
+	// The grid bike ridden on an injected gamepad, as a player rides it through the project's actions: it waits in neutral,
+	// so the right bumper (ShiftUp) shifts it into first; the right trigger (Throttle) takes it off the grid, the left stick
+	// (Lean) leans it each way, the left trigger (FrontBrake) alone slows it, then the X button (RearBrake) alone, and the
+	// left bumper (ShiftDown) shifts it into neutral; stopping brings it back to the grid.
+	auto const bikeAt = [&fixture]
+	{
+		Entity const found = fixture.Context.GetScene().FindEntityByName("Bike");
+		REQUIRE(found);
+		return found.GetComponent<TransformComponent>().Translation;
+	};
+	glm::vec3 const grid = bikeAt();
+	auto const pad = [&fixture](Json state)
+	{
+		fixture.Ok("input.set", Json::object({{"gamepads", Json::object({{"0", std::move(state)}})}}));
+	};
+	auto const ridden = [&fixture]
+	{
+		Json const vehicles = fixture.Ok("vehicle.state")["vehicles"];
+		REQUIRE(vehicles.size() == 1);
+		return vehicles[0];
+	};
+	CHECK(fixture.Ok("play.start")["state"] == "play");
+	fixture.Ok("play.pause");
+	CHECK(ridden()["gear"] == 0);
+	pad(Json::object({{"buttons", Json::object({{"RightBumper", true}})}}));
+	fixture.Ok("play.advance", Json::object({{"frames", 1}}));
+	pad(Json::object({{"buttons", Json::object({{"RightBumper", false}})}}));
+	fixture.Ok("play.advance", Json::object({{"frames", 1}}));
+	CHECK(ridden()["gear"] == 1);
+	// Two seconds of full throttle in first gear: Tools/Vehicle.py's launch gives about 13 m/s.
+	pad(Json::object({{"axes", Json::object({{"RightTrigger", 1.0}})}}));
+	fixture.Ok("play.advance", Json::object({{"frames", 120}}));
+	Json const launched = ridden();
+	CAPTURE(launched.dump());
+	CHECK(launched["applied"]["throttle"].get<float>() >= 0.99f);
+	CHECK(launched["applied"]["frontBrake"] == 0.0);
+	float const launchSpeed = launched["forwardSpeed"].get<float>();
+	CHECK(launchSpeed > 8.0f);
+	CHECK(glm::distance(bikeAt(), grid) > 8.0f);
+	// The left stick (Lean), the throttle let go: half a second to the left leans the bike to the left, then three quarters
+	// of a second to the right lean it to the right (the lean angle is positive to the right), each short enough that the
+	// bike stays on the straight; then half a second with the stick at rest.
+	pad(Json::object({{"axes", Json::object({{"RightTrigger", -1.0}, {"LeftX", -1.0}})}}));
+	fixture.Ok("play.advance", Json::object({{"frames", 30}}));
+	Json const leftLean = ridden();
+	CAPTURE(leftLean.dump());
+	CHECK(leftLean["applied"]["throttle"] == 0.0);
+	CHECK(leftLean["applied"]["lean"].get<float>() <= -0.99f);
+	CHECK(leftLean["leanAngle"].get<float>() < -1.0f);
+	pad(Json::object({{"axes", Json::object({{"LeftX", 1.0}})}}));
+	fixture.Ok("play.advance", Json::object({{"frames", 45}}));
+	Json const rightLean = ridden();
+	CAPTURE(rightLean.dump());
+	CHECK(rightLean["applied"]["lean"].get<float>() >= 0.99f);
+	CHECK(rightLean["leanAngle"].get<float>() > 1.0f);
+	pad(Json::object({{"axes", Json::object({{"LeftX", 0.0}})}}));
+	fixture.Ok("play.advance", Json::object({{"frames", 30}}));
+	Json const upright = ridden();
+	CAPTURE(upright.dump());
+	CHECK(upright["applied"]["lean"] == 0.0);
+	CHECK(upright["gear"] == 1);
+	float const brakeFrom = upright["forwardSpeed"].get<float>();
+	CHECK(brakeFrom > 4.0f);
+	// A second on the front brake alone (the left trigger), still in first gear: the bike loses about 4 m/s (in gear the
+	// engine's inertia rides on with it, so it slows about half as fast as in neutral, Tools/Vehicle.py).
+	pad(Json::object({{"axes", Json::object({{"LeftTrigger", 1.0}})}}));
+	fixture.Ok("play.advance", Json::object({{"frames", 60}}));
+	Json const braked = ridden();
+	CAPTURE(braked.dump());
+	CHECK(braked["applied"]["throttle"] == 0.0);
+	CHECK(braked["applied"]["frontBrake"].get<float>() >= 0.99f);
+	CHECK(braked["applied"]["rearBrake"] == 0.0);
+	float const frontBraked = braked["forwardSpeed"].get<float>();
+	CHECK(frontBraked < brakeFrom - 2.0f);
+	// A second on the rear brake alone (the X button), the left trigger let go: the bike slows on.
+	pad(Json::object({{"buttons", Json::object({{"X", true}})}, {"axes", Json::object({{"LeftTrigger", -1.0}})}}));
+	fixture.Ok("play.advance", Json::object({{"frames", 60}}));
+	Json const rearBraked = ridden();
+	CAPTURE(rearBraked.dump());
+	CHECK(rearBraked["applied"]["frontBrake"] == 0.0);
+	CHECK(rearBraked["applied"]["rearBrake"].get<float>() >= 0.99f);
+	CHECK(rearBraked["forwardSpeed"].get<float>() < frontBraked - 0.5f);
+	// The left bumper (ShiftDown) shifts first gear down into neutral.
+	pad(Json::object({{"buttons", Json::object({{"X", false}, {"LeftBumper", true}})}}));
+	fixture.Ok("play.advance", Json::object({{"frames", 1}}));
+	pad(Json::object({{"buttons", Json::object({{"LeftBumper", false}})}}));
+	fixture.Ok("play.advance", Json::object({{"frames", 1}}));
+	CHECK(ridden()["gear"] == 0);
+	pad(nullptr);
+	CHECK(fixture.Ok("play.stop")["state"] == "edit");
+	CHECK(bikeAt() == grid);
 
 	// The camera's PlayOnStart off, as a graph that starts the tour itself would set it: the camera waits at the home view.
 	Entity const camera = findCamera();
@@ -3423,4 +3523,163 @@ TEST_CASE("PlayCommands: physics.query is Unavailable while nothing plays or wit
 		fixture.Ok("play.stop");
 	}
 	CHECK(row.Ground.IsValid());
+}
+
+namespace
+{
+	// A ground of Asphalt and a bike on it (a dynamic 250 kg chassis box with its Vehicle on a new definition), an entity with
+	// a Vehicle that makes no vehicle (no body), and one without a Vehicle; the definition and the material are memory assets.
+	struct VehicleScene
+	{
+		AssetHandle Definition;
+		AssetHandle Asphalt;
+		UUID Ground;
+		UUID Bike;
+		UUID Unmade;
+		UUID Plain;
+
+		explicit VehicleScene(PlayFixture& fixture)
+		{
+			TypedDataAssetType<Vehicle> const* vehicleType = DataAssetRegistry::Find<Vehicle>();
+			REQUIRE(vehicleType != nullptr);
+			Definition = AssetManager::AddMemoryAsset(vehicleType->CreateAsset(), "Bike.svehicle");
+			TypedDataAssetType<PhysicsMaterial> const* materialType = DataAssetRegistry::Find<PhysicsMaterial>();
+			REQUIRE(materialType != nullptr);
+			Ref<TypedDataAsset<PhysicsMaterial>> const material =
+				std::static_pointer_cast<TypedDataAsset<PhysicsMaterial>>(materialType->CreateAsset());
+			PhysicsMaterial asphalt;
+			asphalt.Surface = "Asphalt";
+			asphalt.TyreGrip = 0.9f;
+			REQUIRE(material->SetData(asphalt).IsOk());
+			Asphalt = AssetManager::AddMemoryAsset(material, "Asphalt.sphysmat");
+			Ground = fixture.Create(
+				"Ground",
+				Json::object({{"Transform", Json::object({{"Translation", {0.0, -0.5, 0.0}}})},
+			                  {"BoxCollider", Json::object({{"HalfExtents", {50.0, 0.5, 50.0}}, {"Material", Asphalt.ToString()}})}}));
+			Bike = fixture.Create(
+				"Bike", Json::object({{"Transform", Json::object({{"Translation", {0.0, 0.05, 0.0}}})},
+			                          {"RigidBody", Json::object({{"Type", "Dynamic"}, {"Mass", 250.0}, {"AllowSleep", false}})},
+			                          {"BoxCollider", Json::object({{"HalfExtents", {0.25, 0.5, 0.6}}, {"Offset", {0.0, 0.75, 0.0}}})},
+			                          {"Vehicle", Json::object({{"Definition", Definition.ToString()}})}}));
+			Unmade = fixture.Create("Unmade", Json::object({{"Vehicle", Json::object({{"Definition", Definition.ToString()}})}}));
+			Plain = fixture.Create("Plain");
+		}
+	};
+}
+
+TEST_CASE("PlayCommands: vehicle.state reads the playing vehicles as their last step left them, read-only")
+{
+	Testing::AssetManagerScope const assets;
+	Testing::PhysicsSystemScope physics;
+	PlayFixture fixture;
+	VehicleScene const bike(fixture);
+	CommandDefinition const* const command = fixture.Registry.Find("vehicle.state");
+	REQUIRE(command != nullptr);
+	CHECK(command->ReadOnly);
+
+	fixture.Ok("play.start", Json::object({{"mode", "simulate"}, {"paused", true}}));
+	size_t const steps = fixture.Context.GetHistory().GetUndoCount();
+	bool const dirty = fixture.Context.IsDirty();
+	Scene& scene = fixture.Context.GetScene();
+	scene.ApplyPhysicsChanges();
+	REQUIRE(scene.GetPhysicsScene() != nullptr);
+	VehicleInputs inputs;
+	inputs.Throttle = 0.5f;
+	inputs.RearBrake = 0.25f;
+	scene.GetPhysicsScene()->SetVehicleInputs(bike.Bike, inputs);
+	fixture.Ok("play.advance", Json::object({{"frames", 30}}));
+
+	// Every vehicle (the one that makes none is left out), and the one an entity names: the same answer.
+	Json const all = fixture.Ok("vehicle.state");
+	CHECK(all["state"] == "simulate");
+	CHECK(all["step"] == 30);
+	REQUIRE(all["vehicles"].size() == 1);
+	Json const one = fixture.Ok("vehicle.state", Json::object({{"entity", bike.Bike.ToString()}}));
+	CHECK(one["vehicles"] == all["vehicles"]);
+	Json const& vehicle = one["vehicles"][0];
+	std::optional<VehicleState> const state = scene.GetPhysicsScene()->GetVehicleState(bike.Bike);
+	REQUIRE(state);
+	CHECK(vehicle["entity"] == bike.Bike.ToString());
+	CHECK(vehicle["name"] == "Bike");
+	CHECK(vehicle["definition"] == AssetManager::GetReference(bike.Definition));
+	CHECK(vehicle["inputs"] == Json::object({{"throttle", 0.5}, {"frontBrake", 0.0}, {"rearBrake", 0.25}, {"lean", 0.0}}));
+	CHECK(vehicle["applied"] == vehicle["inputs"]);
+	CHECK(vehicle["engineSpeed"].get<float>() == state->EngineSpeed);
+	CHECK(vehicle["engineTorque"].get<float>() == state->EngineTorque);
+	CHECK(vehicle["gear"] == state->Gear);
+	CHECK(vehicle["clutch"].get<float>() == state->ClutchFriction);
+	CHECK(vehicle["shifting"] == state->IsShifting);
+	CHECK(vehicle["forwardSpeed"].get<float>() == state->ForwardSpeed);
+	CHECK(vehicle["forwardSpeed"].get<float>() > 0.1f);
+	CHECK(vehicle["leanAngle"].get<float>() == glm::degrees(state->LeanAngle));
+	CHECK(vehicle["targetLeanAngle"].get<float>() == glm::degrees(state->TargetLeanAngle));
+	REQUIRE(vehicle["wheels"].size() == 2);
+	for (size_t index = 0; index < 2; index++)
+	{
+		CAPTURE(index);
+		Json const& wheel = vehicle["wheels"][index];
+		VehicleWheelState const& expected = state->Wheels[index];
+		CHECK(wheel["index"] == index);
+		CHECK(wheel["name"] == (index == 0 ? "Front" : "Rear"));
+		CHECK(wheel["contact"] == Json::object({{"entity", bike.Ground.ToString()}, {"name", "Ground"}}));
+		CHECK(wheel["surface"] == AssetManager::GetReference(bike.Asphalt));
+		CHECK(wheel["surfaceName"] == "Asphalt");
+		CHECK(wheel["tyreGrip"].get<float>() == 0.9f);
+		CHECK(wheel["rollingResistance"].get<float>() == expected.RollingResistance);
+		CHECK(wheel["suspensionLength"].get<float>() == expected.SuspensionLength);
+		CHECK(wheel["spin"].get<float>() == expected.AngularVelocity);
+		CHECK(wheel["steerAngle"].get<float>() == glm::degrees(expected.SteerAngle));
+		CHECK(wheel["longitudinalSlip"].get<float>() == expected.LongitudinalSlip);
+		CHECK(wheel["lateralSlip"].get<float>() == glm::degrees(expected.LateralSlip));
+		CheckVector(wheel["contactPoint"], expected.ContactPoint);
+		CheckVector(wheel["contactNormal"], expected.ContactNormal);
+	}
+	// Reading changes nothing: no undo step, the scene as dirty as it was, the world at the same step.
+	CHECK(fixture.Context.GetHistory().GetUndoCount() == steps);
+	CHECK(fixture.Context.IsDirty() == dirty);
+	CHECK(fixture.Ok("vehicle.state")["step"] == 30);
+	fixture.Ok("play.stop");
+}
+
+TEST_CASE("PlayCommands: vehicle.state refuses while nothing plays, and names what an entity lacks")
+{
+	Testing::AssetManagerScope const assets;
+	PlayFixture fixture;
+	VehicleScene const bike(fixture);
+	// While editing: InvalidOperation, whatever entity is named; the schema refuses before the state is read.
+	CommandResult const editing = fixture.Run("vehicle.state");
+	REQUIRE(editing.IsError());
+	CHECK(editing.GetError().Code == AutomationErrorCode::InvalidOperation);
+	CHECK(editing.GetError().Message.find("play.start") != std::string::npos);
+	CHECK(fixture.Fails("vehicle.state", Json::object({{"entity", bike.Bike.ToString()}})) == AutomationErrorCode::InvalidOperation);
+	CHECK(fixture.Fails("vehicle.state", Json::object({{"entity", 7}})) == AutomationErrorCode::InvalidParams);
+	CHECK(fixture.Fails("vehicle.state", Json::object({{"unexpected", 1}})) == AutomationErrorCode::InvalidParams);
+
+	SUBCASE("without the physics system the playing scene has no world")
+	{
+		fixture.Ok("play.start", Json::object({{"mode", "simulate"}, {"paused", true}}));
+		CommandResult const result = fixture.Run("vehicle.state");
+		REQUIRE(result.IsError());
+		CHECK(result.GetError().Code == AutomationErrorCode::Unavailable);
+		fixture.Ok("play.stop");
+	}
+
+	SUBCASE("while playing, each entity is checked")
+	{
+		Testing::PhysicsSystemScope physics;
+		fixture.Ok("play.start", Json::object({{"mode", "simulate"}, {"paused", true}}));
+		CommandResult const notAnId = fixture.Run("vehicle.state", Json::object({{"entity", "bike"}}));
+		REQUIRE(notAnId.IsError());
+		CHECK(notAnId.GetError().Code == AutomationErrorCode::InvalidParams);
+		CHECK(notAnId.GetError().Data == Json::object({{"path", "entity"}}));
+		CHECK(fixture.Fails("vehicle.state", Json::object({{"entity", "12345"}})) == AutomationErrorCode::EntityNotFound);
+		CHECK(fixture.Fails("vehicle.state", Json::object({{"entity", bike.Plain.ToString()}})) == AutomationErrorCode::ComponentNotFound);
+		CommandResult const unmade = fixture.Run("vehicle.state", Json::object({{"entity", bike.Unmade.ToString()}}));
+		REQUIRE(unmade.IsError());
+		CHECK(unmade.GetError().Code == AutomationErrorCode::InvalidOperation);
+		CHECK(unmade.GetError().Message.find("makes no vehicle") != std::string::npos);
+		CHECK(fixture.Ok("vehicle.state", Json::object({{"entity", bike.Bike.ToString()}}))["vehicles"].size() == 1);
+		fixture.Ok("play.stop");
+	}
+	CHECK(fixture.Fails("vehicle.state") == AutomationErrorCode::InvalidOperation);
 }

@@ -824,6 +824,9 @@ namespace Strada
 			ImGui::SetItemTooltip("Each canvas's UI in its entity's plane, faint until the canvas or one of its elements is selected");
 			ImGui::Checkbox("Contacts (while playing)", &m_Overlays.Contacts);
 			ImGui::SetItemTooltip("Points and normals of the contacts that began in the last frame (triggers in blue)");
+			ImGui::Checkbox("Vehicles (while playing)", &m_Overlays.Vehicles);
+			ImGui::SetItemTooltip("Each vehicle's suspensions, contacts and slips, and its lean against the target lean, as its last "
+			                      "step left them");
 			ImGui::EndPopup();
 		}
 		ImGui::Dummy(ImVec2(0.0f, 2.0f));

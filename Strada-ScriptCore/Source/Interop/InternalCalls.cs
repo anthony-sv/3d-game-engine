@@ -239,6 +239,11 @@ internal static unsafe class InternalCalls
 	internal static delegate* unmanaged<ulong, byte> CharacterControllerComponent_IsGrounded;
 	internal static delegate* unmanaged<ulong, Vector3*, void> CharacterControllerComponent_GetGroundNormal;
 	internal static delegate* unmanaged<ulong, Vector3*, void> CharacterControllerComponent_Teleport;
+	internal static delegate* unmanaged<ulong, ulong*, void> VehicleComponent_GetDefinition;
+	internal static delegate* unmanaged<ulong, ulong*, void> VehicleComponent_SetDefinition;
+	internal static delegate* unmanaged<ulong, NativeVehicleState*, void> VehicleComponent_GetState;
+	internal static delegate* unmanaged<ulong, float, float, float, float, void> VehicleComponent_SetDriverInput;
+	internal static delegate* unmanaged<ulong, int, void> VehicleComponent_Shift;
 
 	internal static delegate* unmanaged<ulong, ulong*, void> AudioSourceComponent_GetClip;
 	internal static delegate* unmanaged<ulong, ulong*, void> AudioSourceComponent_SetClip;
@@ -616,6 +621,7 @@ internal static unsafe class InternalCalls
 	internal static delegate* unmanaged<ulong, byte> Material_IsRuntime;
 	internal static delegate* unmanaged<ulong, ulong, NativeMixerHeader*, NativeMixerBus*, int, int> Mixer_Read;
 	internal static delegate* unmanaged<ulong, ulong, NativePhysicsMaterial*, byte**, int> PhysicsMaterial_Read;
+	internal static delegate* unmanaged<ulong, ulong, NativeVehicle*, float*, int, int> Vehicle_Read;
 
 	internal static delegate* unmanaged<byte> Application_IsEditor;
 	internal static delegate* unmanaged<void> Application_Quit;

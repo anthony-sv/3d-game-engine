@@ -450,6 +450,11 @@
 			"Path": "Scenes/Main.sscene"
 		},
 		{
+			"Handle": "16284700388366357047",
+			"Type": "Scene",
+			"Path": "Scenes/Ride.sscene"
+		},
+		{
 			"Handle": "758468017170119869",
 			"Type": "Scene",
 			"Path": "Scenes/Tests.sscene"
@@ -458,6 +463,11 @@
 			"Handle": "15368667258106452273",
 			"Type": "VisualScript",
 			"Path": "Scripts/AudioDirector.sgraph"
+		},
+		{
+			"Handle": "9964485574798592623",
+			"Type": "VisualScript",
+			"Path": "Scripts/Bike.sgraph"
 		},
 		{
 			"Handle": "6519852673991122007",
@@ -478,6 +488,11 @@
 			"Handle": "10119309049923292088",
 			"Type": "VisualScript",
 			"Path": "Scripts/Ghost.sgraph"
+		},
+		{
+			"Handle": "4025246513693565950",
+			"Type": "VisualScript",
+			"Path": "Scripts/RideTests.sgraph"
 		},
 		{
 			"Handle": "7930426497277894226",
@@ -568,6 +583,16 @@
 			"Handle": "11890263462930504271",
 			"Type": "Texture",
 			"Path": "Textures/TimingLines.png"
+		},
+		{
+			"Handle": "1015757436819593749",
+			"Type": "Curve",
+			"Path": "Vehicles/EngineTorque.scurve"
+		},
+		{
+			"Handle": "6686585092897306527",
+			"Type": "Vehicle",
+			"Path": "Vehicles/Moto.svehicle"
 		}
 	]
 }

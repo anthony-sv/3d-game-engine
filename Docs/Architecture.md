@@ -469,9 +469,9 @@ every configuration, Dist included (it has no macros); only the editor starts it
   nothing it touches is in the state hash or a snapshot (§8), so recording leaves every hash as it is.
 - **The engine's channels.** The scene records its own channels inside the named call, before `EndStep`, and only while
   recording: each subsystem that has channels adds one call there, in a fixed order, and records its entities in UUID
-  order with names it builds when the entity starts running, never per step. The first are to be the vehicles': each
-  vehicle's inputs as applied, engine speed, gear, forward speed and lean, and each wheel's slips, suspension and grip
-  factor, about 16 channels for a bike. Channels are numbers: a surface's name is read through the vehicle's scripting
+  order with names it builds when the entity starts running, never per step. The first are the vehicles' (§8, "Telemetry
+  channels"): each vehicle's inputs as applied, engine speed, gear, forward speed and lean, and each wheel's slips,
+  suspension and grip factor, 16 channels a vehicle. Channels are numbers: a surface's name is read through the vehicle's scripting
   API, not recorded.
 - **The recorder and its threads.** Any thread may record: the main thread (the scene, scripts and graphs), a C#
   script's own tasks, and any other thread the engine or a game runs. The main thread (the one that called
@@ -2782,8 +2782,9 @@ joints stay; contacts that persist take the new values at the next step (Jolt ca
 A sleeping body has no contacts to take them (Jolt drops them until it wakes), so when an edit changes a body's surface
 values, `SetMaterialValues` wakes the body and, for a static one, every non-static body whose bounds meet its own
 (widened by Jolt's speculative contact distance), in entity order: a box asleep on a slope slides at the next step after
-its material, or the slope's, loses its grip. An edit that changes no value (a `Surface` text, a rolling resistance, a
-`set` of the same values) wakes nothing. A material that starts or stops applying (its file breaks and is reloaded or
+its material, or the slope's, loses its grip. An edit that changes no value contacts read (a `Surface` text, a `set` of
+the same values) wakes nothing; one of the rolling resistance or the tyre grip wakes only the vehicles whose wheels touched
+the material (§8, "Vehicles"). A material that starts or stops applying (its file breaks and is reloaded or
 refreshed, or loads again, or the asset is dropped) makes the bodies naming it again, which keep their velocities: what
 is not a loadable physics material counts as unset. A refresh of the asset directory that retries a failed load or
 finds a missing file again moves the data asset epoch (§6.4), so a material fixed on disk while the scene plays applies
@@ -3181,8 +3182,8 @@ wheel all of its torque).
   at 60 steps a second, a roll inertia above 16.7 kg m²; more collision steps a step lower the bound). A case of the
   engine's tests stands on each side of it: a 250 kg chassis box 0.5 m wide and 1 m high (26 kg m²) stands and rides,
   and a 200 kg one 0.3 m wide and 0.5 m high (5.7 kg m²) is thrown over at its first contact, spinning at Jolt's largest
-  angular velocity, yet stands with a damping of 200. A chassis whose roll inertia is too low takes less damping; nothing
-  checks or warns of it when a vehicle is made.
+  angular velocity, yet stands with a damping of 200. A chassis whose roll inertia is too low takes less damping; the scene
+  warns of it, and changes no value (below, "The lean spring's warning").
   **Order.** Jolt removes a constraint by moving the last one into its slot
   (`ConstraintManager.cpp:49-59`) and solves the constraints of an island in the order of their priority and then their
   index (`:103-115`), so after any change to the vehicles the world takes every vehicle's constraint and every joint out
@@ -3236,9 +3237,11 @@ wheel all of its torque).
   body, not its sub-shape), and the wheel's surface is found from that sub-shape.
 - **Grip and rolling drag from the surface under each wheel.** A physics material gains `TyreGrip` (at least 0, default
   1), read by vehicles alone; `ColliderSurface` carries it with the material's `RollingResistance`, given by
-  `SetMaterialValues` like the other values. An edit of these two alone wakes nothing (only the values contacts read
-  wake what a surface touches): a vehicle's wheels read them at every step the vehicle moves in, and a vehicle asleep is
-  at rest, where neither acts. A
+  `SetMaterialValues` like the other values. An edit that changes these two alone wakes no body but the chassis of each
+  vehicle one of whose wheels touched a surface of that material at its last step (the material its wheel's slot holds),
+  woken in the order of the entities' UUIDs with the bodies the other values wake: a vehicle asleep across a slope is
+  held there by its tyres' grip, so a lower grip must reach it, while no other body reads either value. A world without
+  vehicles therefore wakes nothing on such an edit, and its hash stays as it was. A
   collider without a material, and a sub-shape without a collider entry (a character's inner body), has a grip of 1 and no
   rolling resistance. A tyre's grip cannot be the surface's `Friction`: a sample's gravel has the higher friction, combined
   by `Maximum`, so that blocks slow on it (`Projects/Moto/Assets/Surfaces/Gravel.sphysmat`). In the post-collide callback
@@ -3298,7 +3301,21 @@ wheel all of its torque).
   counting down, the next ones count; from neutral, the release alone); a request during a shift starts again from the
   gear it reached, and a sum that moves no gear (down in neutral, up in top gear) changes nothing. The manual gearbox
   starts in neutral. The throttle does not lift during a manual shift, so the engine revs freely while the clutch is open
-  (Jolt cuts the throttle by the clutch in `Automatic` mode only, `WheeledVehicleController.cpp:282-284`). **The gear
+  (Jolt cuts the throttle by the clutch in `Automatic` mode only, `WheeledVehicleController.cpp:282-284`). **A closed
+  throttle never lets the idling engine push the bike**: Jolt holds the engine at `MinRPM` (`VehicleEngine.cpp:57`, `:67`),
+  so a closed clutch in gear would roll the bike at that gear's idle speed whatever its brakes do; in `Manual` mode the
+  clutch is therefore open, whatever the shift's ramp, in every collision step whose throttle is 0 while the rear wheel
+  turns the gear slower than the engine idles (its spin times the gear's ratio and `FinalDrive`, as the last collision
+  step left it, below `MinRPM`), as a rider holds the lever. The bike rolls free there and stops on its brakes; above that
+  speed the clutch stays closed and the engine turns with the wheels (its `AngularDamping` is the only engine braking
+  Jolt's engine has: at a closed throttle it gives no torque, and its inertia rides on with the bike), and any throttle
+  closes the clutch at once (from rest the bike sets off).
+  The rule reads only the step's inputs and the wheel's spin, so it adds nothing to the state, the hash or the snapshot.
+  It has no hysteresis: each collision step judges it afresh against `MinRPM` itself, with no band. So the engine's
+  braking in gear ends at the speed at which the gear turns the engine at `MinRPM` (in Moto's first gear about 4.6 m/s),
+  and a bike that rolls in gear with the throttle closed at about that speed (down a slope, say) may have its clutch open
+  in one collision step and closed in the next.
+  **The gear
   stays within the gears the definition has.** Jolt reads a gear's ratio without checking its index
   (`VehicleTransmission::GetCurrentRatio`, `VehicleTransmission.cpp:131-139`), so whenever the gears can change under a
   running vehicle, the world brings the gear back within them: `SetVehicleSettings` takes Jolt's gear and Strada's
@@ -3370,8 +3387,11 @@ wheel all of its torque).
   drive's settings through the controller's writable engine, transmission and differentials, keeping their running
   state; the lean through the controller's setters, and its largest angle, which Jolt has no setter for, through the
   controller subclass; the largest pitch and roll through the constraint's setter), except the chassis's `Up` and
-  `Forward`, which Jolt's constraint takes when it is made, so an
-  edit of those makes the vehicle again and moves the structure version. **Curves** are references to `.scurve` assets,
+  `Forward`, which Jolt's constraint takes when it is made, so an edit of those makes the vehicle again, moves the
+  structure version (a snapshot taken before is refused) and says so in one line of the log for the edit ("the Vehicle of
+  'Bike' is made again: its definition's Up or Forward changed, ..."). Every way an edit arrives goes this one way: a
+  command (`vehicle.set`, `curve.set`, their undo and redo), the asset editor, and a file changed on disk that a refresh
+  reloads (the editor refreshes when its window gains focus, and `asset.refresh`). **Curves** are references to `.scurve` assets,
   sampled into Jolt's piecewise linear curves (`LinearCurve`) when the vehicle is made or a curve changes: at each key, and
   at 15 points between each two keys of different times (`Curve::Evaluate` there; a jump keeps both values at its time),
   at most 16,384 points (`SampleVehicleCurve`), each value kept within 0 and 100 (a friction or a torque below 0 is none,
@@ -3419,6 +3439,76 @@ wheel all of its torque).
   and outside the physics block, so that it runs with and without physics, sees `GetFixedStepCount()` as the number of the
   step that just ended (as `ContactEvent::Step` counts), and reads every body, character, vehicle and wheel where that
   step left them; the vehicles add nothing after it.
+- **Scripts and graphs** (`VehicleComponent`, §10.4). `Definition` is the component's field (a `Vehicle`). While the
+  scene simulates the entity's vehicle, `SetDriverInput(throttle, frontBrake, rearBrake, lean)` gives
+  `PhysicsScene::SetVehicleInputs` the four values (the world clamps them, so a value out of its range is its nearest
+  end; a value that is not finite is a script error naming the member, and the call does nothing, as every binding
+  refuses one); `ShiftUp()` and `ShiftDown()` give `RequestVehicleShift` +1 and -1 (requests before a step add up; an
+  Automatic gearbox ignores them). The reads are the vehicle as its last step left it (`GetVehicleState`): `EngineSpeed`
+  (rpm), `Gear` (0 neutral), `ForwardSpeed` (m/s along the chassis's front), `LeanAngle` (degrees from the world's up
+  around the front, positive to the right, as the lean input), the inputs that step applied (`Throttle`, `FrontBrake`,
+  `RearBrake`, `Lean`), and `GetWheelState(index)` (0 the front, 1 the rear; any other index throws
+  `ArgumentOutOfRangeException`, a programming mistake), a `VehicleWheelState` of public fields that graphs Make and
+  Break: `HasContact`, `Ground` (the entity under the wheel), `Material` (its `PhysicsMaterial`, one shared reference per
+  material, as a raycast hit's), `ContactPoint`, `ContactNormal`, `SuspensionLength` (m), `Spin` (rad/s, positive rolling
+  forward), `LongitudinalSlip` (the ratio) and `LateralSlip` (the slip angle in degrees, the unit of the lateral friction
+  curve), with the getter `Surface` (the material's surface name, empty for none). **Both slips are sizes, as Jolt
+  computes them** (`WheeledVehicleController.cpp:120`, `:125`): the ratio is 0 when the tyre rolls with the ground and
+  grows as it spins or slides either way (1 locked, large for a wheel that turns while the bike barely moves), and the
+  angle runs from 0 to 90 degrees whichever side the tyre slides to; neither is ever negative. The API gives them as
+  Jolt does and adds no signed slip: what tells a spinning tyre from a braking one is `Spin` times the wheel's radius
+  against `ForwardSpeed` (faster when it spins, slower when it brakes), and a graph takes the radius from its own
+  definition (Moto's from `Tools/Vehicle.py`; the `Vehicle` class reads no wheel geometry). The reads are one binding
+  (`VehicleComponent_GetState`, the layout `NativeVehicleState`) that applies pending physics changes first, as the
+  character's reads do; without a simulated vehicle (the scene does not play, the entity has no dynamic body or no
+  definition that loads, or physics is unavailable) they are a vehicle at rest in neutral and a wheel without contact,
+  silently, while the inputs and the shifts are script errors naming the member and do nothing. What a script sets in
+  `OnFixedUpdate` (a graph: `Event.FixedUpdate`) reaches the step that follows it; set in `OnUpdate`, the latest before a
+  step reaches it, so a ride compared across frame rates sets its inputs in the fixed step as a function of the
+  simulation. Every member is a node: the methods impure but `GetWheelState`, a `[PureNode]` query, and the getters
+  pure. The node coverage runs them on a chassis of FeatureTest's proportions (250 kg, the 0.25 by 0.5 by 0.6 m box)
+  with FeatureTest's definition, in a scene with physics (`MemberTypeRecipes`). The `Vehicle` asset class reads the
+  definition (`TransmissionMode`, `GearCount`, `GetGearRatio(gear)`, `FinalDrive`, `MaxTorque`, `MinRPM`, `MaxRPM`,
+  `ShiftUpRPM`, `ShiftDownRPM`, `MaxLeanAngle`, `GetWheelName(index)`) from the runtime's copy of its values
+  (`Vehicle_Read`, `VehicleCache`, read again when the asset's version changes, §6.4).
+- **Agents.** `vehicle.state` (read-only, not an undo step) answers a playing scene's vehicles (play or simulate, paused
+  or not) as `GetVehicleState` gives them, every vehicle in the order of its entity's UUID or the one `entity` names: its
+  latest and applied inputs, engine speed and torque, gear, clutch, whether it shifts, forward speed, lean and target
+  lean (degrees), and each wheel's name (the definition's), contact entity, surface (the material's reference and its
+  name), tyre grip and rolling resistance, suspension length, spin, steering angle (degrees), slips (the slip angle in
+  degrees) and contact point and normal. It refuses with InvalidOperation while nothing plays and for an entity whose
+  `Vehicle` makes no vehicle, EntityNotFound for no entity, ComponentNotFound for an entity without a `Vehicle`, and
+  Unavailable when the playing scene has no physics world. `vehicle.create`, `vehicle.get` and `vehicle.set` edit the
+  definitions (§7.3).
+- **The overlay** (`ViewportOverlays::AppendVehicleLines`, the scene view's Overlays menu and `viewport.overlays`'
+  `vehicles`, off by default as the contacts are). With it on, each vehicle of the scene the viewport shows, in the order
+  of its entity's UUID, is drawn through `SceneRenderer::SubmitLine` from what its last step left and nothing else
+  (`GetVehicleState`, its values `PhysicsScene::FindVehicleSettings`, the chassis where the step put its body), over
+  everything, since a suspension lies inside the bike's model: each wheel's suspension from its attachment to the wheel's
+  center (`ComposeVehicleWheelTransform`'s, which is Jolt's wheel transform), and while the wheel touches the ground its
+  contact (a cross and the normal, as the contacts overlay draws one), its longitudinal slip from the contact along the
+  tyre's front (the chassis's front turned by the steering about the steering axis, in the contact's plane) and its slip
+  angle across it to the tyre's right, half a metre per slip ratio of 1 and 5 cm a degree, each at most a metre (Jolt's
+  slips are sizes, not directions); then, from between the wheels' centers, the chassis's lean and the lean controller's
+  target lean, a metre each, tilted from the world's up around the chassis's front by their angles (positive to its
+  right). Nothing while the overlay is off and nothing for a scene that does not simulate; the lines follow the steps,
+  so between steps they are where the last step left the bike, up to a step behind its drawn pose.
+- **Telemetry channels** (§4.5). While a recording runs, `Scene::SampleTelemetry` records for every vehicle, in UUID
+  order (`Scene::SampleVehicleTelemetry`), the channels `Vehicle.<entity's UUID in decimal>.<Quantity>`
+  (`VehicleChannelQuantities` in `Scene.h`): `Throttle`, `FrontBrake`, `RearBrake` and `Lean` as applied, `EngineSpeed`,
+  `Gear`, `ForwardSpeed`, `LeanAngle` (degrees), and for the wheels `Front.` and `Rear.` with `LongitudinalSlip`,
+  `LateralSlip` (degrees), `Suspension` (m) and `Grip` (the surface's tyre grip): sixteen a vehicle, one row a fixed step,
+  each the value `GetVehicleState` reads after that step. The names are made when the vehicle is first made and the
+  vehicles' order only when one comes or goes, so a step formats, sorts and allocates nothing for them; a vehicle removed
+  records no more. Channels are numbers: a surface's name is read through `GetWheelState`. Recording reads the state and
+  changes nothing, so the hashes are the same recorded or not.
+- **The lean spring's warning** (`Scene::CheckVehicleLeanSpring`). When a vehicle is made, or its values or its body
+  change, and its chassis's roll inertia about its front (`PhysicsScene::GetVehicleRollInertia`: 1 over the front's
+  component of the body's inverse inertia along the front, what the spring's angular impulse turns) is at or below
+  `LeanSpringDamping` times the collision step (the fixed step over the collision steps), the scene warns, naming the
+  entity, the inertia, the damping, the collision step and the damping below which the spring settles it. It warns once
+  each time the vehicle comes to that: not again while it stays there, and again after an edit or a body that settled it
+  is undone. It changes no value of the author's. FeatureTest's chassis clears it (26 kg m² against 800 times 1/60 s).
 - **Profiler zones** (§4.4): `Physics.Vehicles` around the world's step listener, once per collision step on the thread
   that runs it; the inputs and shifts reach the controllers inside `Physics.Step`; `Scene.SyncVehicles` only in the frames
   after a data asset changed or a vehicle's component or body changed; the wheels are recorded inside `Scene.SyncFromPhysics`, drawn inside `Scene.Interpolate` and
@@ -4231,7 +4321,10 @@ editor's Simulate mode runs neither kind.
   `AddTorque(Vector3, ForceMode)`, `MoveKinematic(Vector3, Quaternion)`, `Teleport(Vector3, Quaternion)`, `IsSleeping`, `WakeUp()`),
   `BoxColliderComponent`, `SphereColliderComponent`, `CapsuleColliderComponent`, `MeshColliderComponent`,
   `JointComponent`, `CharacterControllerComponent` (every field, `Move(Vector3 velocity)`, `Velocity`, `IsGrounded`,
-  `GroundNormal`, `Teleport(Vector3)`),
+  `GroundNormal`, `Teleport(Vector3)`), `VehicleComponent` (`Definition`, `SetDriverInput(throttle, frontBrake,
+  rearBrake, lean)`, `ShiftUp()`, `ShiftDown()`, `EngineSpeed` (rpm), `Gear`, `ForwardSpeed` (m/s), `LeanAngle` (deg,
+  positive to the right), the inputs the last step applied (`Throttle`, `FrontBrake`, `RearBrake`, `Lean`) and
+  `GetWheelState(index)`, a `VehicleWheelState`; §8 "Vehicles", "Scripts and graphs"),
   `AudioSourceComponent` (`Play()`, `Stop()`, `Pause()`, `IsPlaying`, `Volume`, `Pitch`, `Loop`, `Clip`, `Stream`,
   `PlayOneShot(volume)`, `PlayOneShot(clip, volume)`, `Bus`, `Priority`, `MaxVoices`; §9.3; `DopplerLevel`, §9.8),
   `AudioListenerComponent`, `ReverbZoneComponent` (every field; `Shape` is a `ReverbZoneShape`, §9.8), `TextComponent`, `SpriteRendererComponent`, `ParticleSystemComponent` (every field,
@@ -4277,7 +4370,7 @@ editor's Simulate mode runs neither kind.
 - `Log`: `Trace/Info/Warn/Error`. `Debug`: `DrawLine(from, to, color, duration)`.
 - `SceneManager`: `LoadScene(path)`, `CurrentSceneName`. `Application`: `Quit()`, `WindowWidth/Height`, `IsEditor`.
 - `Assets`: `Load<T>(path)` for `Prefab`, `Material`, `Mesh`, `AudioClip`, `Texture`, `Font`, `EnvironmentMap`,
-  `VisualScript`, `Curve`, `InputActions`, `Mixer`, `PhysicsMaterial`.
+  `VisualScript`, `Curve`, `InputActions`, `Mixer`, `PhysicsMaterial`, `Vehicle`.
 - `Curve` (a `.scurve` asset, §6.5): `Evaluate(time)`, a pure node, evaluated by the runtime's copy of the keys.
 - `InputActions` (a `.sinput` asset, §7.4): `ActionNames`, the names of its actions in its order (a new array on each
   read, from the runtime's copy of the names, read again when the asset's version changes).
@@ -4292,6 +4385,10 @@ editor's Simulate mode runs neither kind.
 - `PhysicsMaterial` (a `.sphysmat` asset, §8): `Friction`, `Restitution`, `FrictionCombine`, `RestitutionCombine`
   (`PhysicsMaterialCombine`), `RollingResistance`, `Surface`, `ImpactSound` (`AudioClip`), `ImpactParticles` (`Prefab`):
   read-only properties, so pure nodes, read from the runtime's copy of the values.
+- `Vehicle` (a `.svehicle` asset, §8 "Vehicles"): `TransmissionMode` (`VehicleTransmissionMode`), `GearCount`,
+  `GetGearRatio(gear)`, `FinalDrive`, `MaxTorque`, `MinRPM`, `MaxRPM`, `ShiftUpRPM`, `ShiftDownRPM`, `MaxLeanAngle`,
+  `GetWheelName(index)`: the definition's own values, read from the runtime's copy of them (`Vehicle_Read`,
+  `VehicleCache`; curves are not copied); every member a pure node.
 - `Telemetry` (§4.5): `Record(channel, value)`, `Mark(label)` and `MarkStep(label, step)`, impure nodes, and
   `IsRecording`, a pure node (a getter). Any thread may call them; null throws, and while nothing records each returns
   after the one native call `IsRecording` makes, so a name is encoded (on the stack up to 256 bytes) only for a
@@ -4341,12 +4438,14 @@ velocities, forces, sleep, `MoveKinematic` and `Teleport` act on the simulated b
 frame are created first; `Type`, `Mass` and `Layer` rebuild it), `CharacterControllerComponent.Move` (the walking
 velocity of the next physics step; call it from `OnFixedUpdate`), `Velocity` (the character's own: falling, jumping),
 `IsGrounded`, `GroundNormal` and `Teleport` act on the entity's character (fields change it before the next step;
-without a simulated character the reads are a character at rest and `Move` and setting `Velocity` are logged), and
+without a simulated character the reads are a character at rest and `Move` and setting `Velocity` are logged),
+`VehicleComponent`'s inputs, shifts and reads act on the entity's vehicle (without a simulated vehicle the reads are a
+vehicle at rest in neutral and the inputs and shifts are logged), and
 `AudioSourceComponent` playback acts on the entity's sound, brought up to date with the component first. Entity
 lookups (`FindByName`, `FindByID`, `Parent`, `Children`, contacts, raycast hits) return the script instance of scripted
 entities. `Time.TimeScale` scales script and physics time, not sounds. Asset references are typed (`Mesh`, `Material`,
 `Texture`, `AudioClip`, `Font`, `EnvironmentMap` (not `Environment`, which clashes with `System.Environment`),
-`Prefab`, `VisualScript`, `Curve`, `InputActions`, `Mixer`, `PhysicsMaterial`). Calls without a running scene
+`Prefab`, `VisualScript`, `Curve`, `InputActions`, `Mixer`, `PhysicsMaterial`, `Vehicle`). Calls without a running scene
 or on missing entities and components log a script error and do nothing; values from scripts are checked (non-finite
 numbers and unknown enumerators are rejected and logged, rotations are normalized), and null arguments throw.
 `Entity.Instantiate` places the prefab's root at a world position and rotation (keeping its scale) and starts the
@@ -6644,10 +6743,13 @@ graphs alone keeps its best lap and its settings screen, and none exposes a path
   snapshot over `Seconds` (0.5), or back to the mixer's own values, and keeps the read-out `Paused`; with `StartPaused`
   on it sends itself `TogglePause` when the scene starts (a game that opens paused; the sound test below starts muffled
   that way); nothing else pauses yet. **The input actions** (`Tools/Controls.py`, the `input` part; `Input/Moto.sinput`,
-  named by `Moto.sproj`): `Throttle` and `Brake` (axes: W and S, the right and the left trigger), `Lean` (A and D, the
-  left stick's X), `ShiftUp` and `ShiftDown` (E and Q, the bumpers), `Pause` (Escape, Start), `NextCamera` (C, Y) and
-  `ResetCamera` (R, Back), each on the keyboard and any gamepad; the directors use the last three, and the riding
-  actions wait for the ridden bike. **The test scene** (`Scenes/Tests.sscene`, the main scene without its props, which
+  named by `Moto.sproj`): `Throttle` (an axis: W, the right trigger), `FrontBrake` and `RearBrake` (axes: S and the left
+  trigger, Space and the gamepad's X), `Lean` (A and D, the left stick's X), `ShiftUp` and `ShiftDown` (E and Q, the
+  bumpers), `Pause` (Escape, Start), `NextCamera` (C, Y) and `ResetCamera` (R, Back), each on the keyboard and any gamepad
+  and no control bound twice, in a group per graph that reads them (`Controls.py`'s `GROUPS`, one line each); the directors
+  use the last three, the bike's riding graph the others. A player's profile that still names `Brake` (from before the two
+  brakes) loses that entry, with one log line, as the actions load (§7.4, "Rebinding"). **The test scene**
+  (`Scenes/Tests.sscene`, the main scene without its props, which
   stand clear of all it checks, with a crate over the road, two blocks sent sliding with the scene, the `Waiting Tour`,
   the ghost set out 30 s into its lap and the `Tests` entity) holds 24 checks, all graphs (`Tests.sgraph`, a latent
   function per check called in order from a Sequence, reporting through the `Checks` library): rays down at points of
@@ -6697,6 +6799,69 @@ graphs alone keeps its best lap and its settings screen, and none exposes a path
   checking every graph (no diagnostic, every node in one box, every box arranged), by a test run that must pass every
   check, by playing the main scene for 10 s in play mode, where the camera must be on the tour's path and the ghost on
   its line, and by refusing any warning in the log.
+  **The ridden bike** (slice 4's VH2). The grid bike is a vehicle ridden with the actions: the `bike` part gives the
+  `Bike` root a dynamic body of `RacingLine.py`'s 262 kg (rider included), a chassis box low between the wheels (not the
+  wheels: a wheel entity has no collider, §8 "Vehicles") whose roll inertia of 9.82 kg m² clears the lean spring's bound
+  of 6.67, and `Vehicle` on `Assets/Vehicles/Moto.svehicle`; `Front Wheel` and `Rear Wheel` get `VehicleWheel`.
+  `Tools/Vehicle.py` writes the definition from `Bike.py`'s geometry (wheelbase 1.485 m, rake 24°, trail 98 mm, tyres of
+  0.2999 and 0.3259 m radius, 120 and 200 mm wide) and `RacingLine.py`'s figures (150 kW at the wheel at 14,000 rpm, the
+  gears 2.714 to 1.304 behind a primary of 1.80 and a final drive of 2.5625, so overall ratios of 12.52 in first to 6.01
+  in sixth; idle 1,700 rpm, red line 16,000), in `Manual` mode: the bike waits in neutral, and the rider shifts with
+  `ShiftUp` and `ShiftDown`. Its curve (`EngineTorque.scurve`) lives in `Assets/Vehicles/`, and its `check()` asserts the
+  figures and recomputes the ride's from what it wrote. The four surfaces get their tyre grip through the `circuit` part
+  (asphalt 1, kerb 0.9, grass 0.45, gravel 0.4). The riding graph (`Scripts/Bike.sgraph`) is the bike's only writer of
+  `SetDriverInput` and the shifts: in `Event.FixedUpdate`, while its public `Driver` is 0, it reads `Throttle`,
+  `FrontBrake`, `RearBrake` and `Lean` and shifts on the presses of `ShiftUp` and `ShiftDown`. With `Driver` 1 (an
+  autopilot) or 2 (a test) it applies its public `Throttle`, `FrontBrake`, `RearBrake` and `Lean`, which other graphs set,
+  and shifts on the custom events `ShiftUp` and `ShiftDown` they send it. `Moto.sinput` has `FrontBrake` (the left trigger
+  and `Key/S`) and `RearBrake` (`Gamepad/X` and `Key/Space`) in place of `Brake`. Every authoring run rides the bike in
+  play mode on the actions and compares its launch and stops with `Vehicle.py`'s figures within 20 %. **The tests part**
+  is made of modules (`Tools/Checks.py`): `SCENES` holds the test scenes and `MODULES` the modules whose checks join
+  them, one line each. A module's `Suite` gives its checks, their writer, the entities and variables they use, helper
+  functions, its own entities, how it prepares the scene, and regions it adds to the runner graph's event graph (`events`).
+  The core module holds `Tests.sscene`'s 24 checks; `Tools/BikeChecks.py` holds the ride's. **The ride test scene**
+  (`Scenes/Ride.sscene`, the main scene without its props, with the `Ride Tests` entity running `Scripts/RideTests.sgraph`)
+  sets the riding graph's `Driver` to 2. The runner graph's `Event.FixedUpdate` rides the bike as a function of its own
+  count of fixed steps and of what the bike reads (its gear, its speed), never of a frame. It writes the riding graph's
+  public values and sends it its shifts, and takes every reading in the step it belongs to: the ride and its readings are
+  the same at every frame rate, step for step. The phases, one after another: from the grid, `ShiftUp` into first and full
+  throttle for 3 s; second gear up to 20 m/s, a coast in neutral down to it, then the front brake alone until the bike
+  stops; first gear up to 20 m/s again, the coast, the rear brake alone; first gear up to 15 m/s, a coast down to it, then
+  1 s on the asphalt with nothing applied; then a teleport (`RigidBodyComponent.Teleport` with its velocity and spin set)
+  into the gravel trap outside Turn 6 at the speed it had, facing along the lap with its wheels turning on, for 1 s more;
+  then back onto the main straight, 3 m right of its center line, first gear up to 15 m/s, the coast, and a lean of -0.5 for
+  1 s. At the end it is teleported back onto the grid at rest, braked until it stops, and left in neutral with no input:
+  the ride writes nothing more, for the checks that join the scene later. It takes about 1,875 steps (31 s), and about
+  15 s more when a brake never stops the bike (a stop gives up after 900 steps). A module whose checks join
+  `Ride.sscene` (a line of `MODULES` naming `Ride`) runs them after the seven, from about step 1,875, with the bike on
+  the grid in neutral and `Driver` still 2, and raises the scene's test timeout (60 s, in `Checks.SCENES` and in
+  `MotoRideTests.cpp`'s `--timeout`) by what they add; a check's wait (`BikeChecks.WAIT`) stays below it. A module that
+  needs the bike from the grid at the first step (a ride compared across frame rates from the start) registers a test
+  scene of its own instead, one line of `SCENES`: it too is the main scene without its props, its runner runs only the
+  modules that name it, the ride is not in it, and the riding graph's `Driver` is what that module's `prepare` sets (0,
+  the player's, unless it sets one). The registration is the ride's switch: the runner graph has no public one. Seven
+  checks, each a band drawn from the figures
+  `Vehicle.py`'s `ride_figures()` gives (closed forms from the definition), with the room each form leaves:
+  (1) the speed 3 s after the launch, 18.92 m/s by the form, in 0.9 to 1.3 times it (the form takes the spinning rear tyre at its
+  sliding friction throughout, where it grips up to its peak whenever it spins less), read 20.58; (2) the front brake
+  alone from 20 m/s, 24.17 m, in 0.85 to 1.25 times it (the form moves the weight to the front at once, where the
+  springs' pitch moves it over the first tenths of a second), read 25.47 (25.52 in Release); (3) the rear brake alone from 20 m/s, 50.04 m,
+  in the same room and longer than the front's, read 52.75; (4) upright with no lean asked over the launch and the
+  asphalt's coast, within 3°, read 1.65° at most; (5) the coast in the gravel losing more than the one on the asphalt by
+  the forms' 2.28 m/s (rolling resistance 0.25 against 0.015), in 0.75 to 1.25 times it, read 2.69 against 0.51 m/s;
+  (6) each of the five `ShiftUp`s (from neutral four times, from first once) one gear up, exactly, counted 10 steps after
+  each; (7) the lean to the left leaning the bike more than 5° to the left and turning its heading more than 5° to the
+  left, read -10.95° and 46.4° (-10.81° and 46.3° in Release; the steering turns the bike before the lean builds). Release
+  reads within 1.3 % of Debug, and each the same at every frame rate. The graph logs every reading in one line ("Moto's ride: ..."). `MotoRideTests.cpp` (the shard
+  `StradaRuntimeTests.Ride`) plays the scene at 1/60 and at 1/30 s a frame and requires the same line and the same physics
+  state at step 1,750, after both teleports; behind `STRADA_LONG_RIDES=1`, with a timeout of 10 minutes, it also plays it at
+  1/144 s a frame. The scene has no props, so the shard's two starts of the player stay well within its 200 s on CI's
+  macOS runners, where one start on Moto with its props costs about 25 s. `Tests.sscene` keeps its 24 checks and gains no
+  ride. `PlayModeTests` rides the main scene's bike on an injected gamepad (`input.set`'s `gamepads`): the right bumper
+  shifts it into first, the right trigger takes it more than 8 m off the grid at over 8 m/s in 2 s (it reads 13.5), the
+  left stick leans it to the left and then to the right (the input applied and the lean's sign), the left trigger alone
+  slows it by more than 2 m/s in 1 s still in gear, then the X button alone slows it on, the left bumper shifts it into
+  neutral, and stopping brings it back to the grid.
 - The Showcase's **Graph Garden**: chimes played by six visual scripts (`Scripts/GraphGarden`; `Tools/GraphGarden.py`
   authors them and `Tools/Author.py --exhibit GraphGarden` rebuilds the exhibit in place, with a hash guard that names
   any file outside the exhibit that changed), whose score is a Timeline; seven of the Showcase's 68 checks look at it.

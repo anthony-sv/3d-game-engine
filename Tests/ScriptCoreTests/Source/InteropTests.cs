@@ -274,6 +274,21 @@ public sealed class InteropTests
 		Assert.Equal(16, (int)Marshal.OffsetOf<NativeMixerBus>(nameof(NativeMixerBus.NameLength)));
 		Assert.Equal(24, (int)Marshal.OffsetOf<NativeMixerBus>(nameof(NativeMixerBus.VolumeDb)));
 		Assert.Equal(28, (int)Marshal.OffsetOf<NativeMixerBus>(nameof(NativeMixerBus.Muted)));
+		Assert.Equal(64, Unsafe.SizeOf<NativeVehicleWheel>());
+		Assert.Equal(16, (int)Marshal.OffsetOf<NativeVehicleWheel>(nameof(NativeVehicleWheel.ContactPoint)));
+		Assert.Equal(28, (int)Marshal.OffsetOf<NativeVehicleWheel>(nameof(NativeVehicleWheel.ContactNormal)));
+		Assert.Equal(40, (int)Marshal.OffsetOf<NativeVehicleWheel>(nameof(NativeVehicleWheel.SuspensionLength)));
+		Assert.Equal(56, (int)Marshal.OffsetOf<NativeVehicleWheel>(nameof(NativeVehicleWheel.HasContact)));
+		Assert.Equal(160, Unsafe.SizeOf<NativeVehicleState>());
+		Assert.Equal(16, (int)Marshal.OffsetOf<NativeVehicleState>(nameof(NativeVehicleState.EngineSpeed)));
+		Assert.Equal(28, (int)Marshal.OffsetOf<NativeVehicleState>(nameof(NativeVehicleState.Gear)));
+		Assert.Equal(32, (int)Marshal.OffsetOf<NativeVehicleState>(nameof(NativeVehicleState.Front)));
+		Assert.Equal(96, (int)Marshal.OffsetOf<NativeVehicleState>(nameof(NativeVehicleState.Rear)));
+		Assert.Equal(72, Unsafe.SizeOf<NativeVehicle>());
+		Assert.Equal(24, (int)Marshal.OffsetOf<NativeVehicle>(nameof(NativeVehicle.FrontNameLength)));
+		Assert.Equal(32, (int)Marshal.OffsetOf<NativeVehicle>(nameof(NativeVehicle.MaxTorque)));
+		Assert.Equal(60, (int)Marshal.OffsetOf<NativeVehicle>(nameof(NativeVehicle.TransmissionMode)));
+		Assert.Equal(64, (int)Marshal.OffsetOf<NativeVehicle>(nameof(NativeVehicle.GearCount)));
 		Assert.Equal(16, Unsafe.SizeOf<NativeRebindAnswer>());
 		Assert.Equal(12, (int)Marshal.OffsetOf<NativeRebindAnswer>(nameof(NativeRebindAnswer.ConflictCount)));
 		// InputRebindStatus's values (static_asserted beside the engine's layout), and what no scene answers.
@@ -302,7 +317,7 @@ public sealed class InteropTests
 			(typeof(AudioClip), "AudioClip", NativeAssetType.AudioClip), (typeof(Font), "Font", NativeAssetType.Font),
 			(typeof(VisualScript), "VisualScript", NativeAssetType.VisualScript), (typeof(Curve), "Curve", NativeAssetType.None),
 			(typeof(InputActions), "InputActions", NativeAssetType.None), (typeof(Mixer), "Mixer", NativeAssetType.None),
-			(typeof(PhysicsMaterial), "PhysicsMaterial", NativeAssetType.None)];
+			(typeof(PhysicsMaterial), "PhysicsMaterial", NativeAssetType.None), (typeof(Vehicle), "Vehicle", NativeAssetType.None)];
 		foreach ((System.Type assetClass, string name, NativeAssetType builtIn) in classes)
 		{
 			Assert.Equal(name, AssetTypes.GetTypeName(assetClass));
@@ -381,6 +396,8 @@ public sealed class InteropTests
 		Assert.Equal(new Mixer(new AssetHandle(8)), ScriptFieldCodec.FromStored(new AssetHandle(8), typeof(Mixer), out error));
 		Assert.Equal("PhysicsMaterial", ScriptFieldCodec.GetAssetType(typeof(PhysicsMaterial)));
 		Assert.Equal(new PhysicsMaterial(new AssetHandle(7)), ScriptFieldCodec.FromStored(new AssetHandle(7), typeof(PhysicsMaterial), out error));
+		Assert.Equal("Vehicle", ScriptFieldCodec.GetAssetType(typeof(Vehicle)));
+		Assert.Equal(new Vehicle(new AssetHandle(9)), ScriptFieldCodec.FromStored(new AssetHandle(9), typeof(Vehicle), out error));
 		Assert.Null(ScriptFieldCodec.GetAssetType(typeof(Prefab)));
 		Assert.Null(ScriptFieldCodec.GetAssetType(typeof(AssetHandle)));
 	}

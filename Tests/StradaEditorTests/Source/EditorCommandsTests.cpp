@@ -1462,7 +1462,8 @@ TEST_CASE("EditorCommands: the viewport's overlays are read and set")
 	                                {"volumes", "selected"},
 	                                {"debugDrawing", true},
 	                                {"canvases", true},
-	                                {"contacts", false}}));
+	                                {"contacts", false},
+	                                {"vehicles", false}}));
 	CHECK(fixture.Overlays == SceneViewOverlays());
 
 	// Only the given overlays change.
@@ -1473,7 +1474,8 @@ TEST_CASE("EditorCommands: the viewport's overlays are read and set")
 	                                                                   {"volumes", "all"},
 	                                                                   {"debugDrawing", false},
 	                                                                   {"canvases", false},
-	                                                                   {"contacts", true}}));
+	                                                                   {"contacts", true},
+	                                                                   {"vehicles", true}}));
 	CHECK(changed["grid"] == false);
 	CHECK(changed["selectionOutline"] == true);
 	CHECK(changed["lights"] == "all");
@@ -1482,11 +1484,13 @@ TEST_CASE("EditorCommands: the viewport's overlays are read and set")
 	CHECK(changed["cameras"] == "selected");
 	CHECK(changed["canvases"] == false);
 	CHECK(changed["contacts"] == true);
+	CHECK(changed["vehicles"] == true);
 	CHECK_FALSE(fixture.Overlays.Grid);
 	CHECK_FALSE(fixture.Overlays.Icons);
 	CHECK_FALSE(fixture.Overlays.DebugLines);
 	CHECK_FALSE(fixture.Overlays.Canvases);
 	CHECK(fixture.Overlays.Contacts);
+	CHECK(fixture.Overlays.Vehicles);
 	CHECK(fixture.Overlays.Lights == OverlayShapeSetting{true, true});
 	CHECK_FALSE(fixture.Overlays.Colliders.Enabled);
 	CHECK(fixture.Overlays.Volumes == OverlayShapeSetting{true, true});
@@ -1503,6 +1507,7 @@ TEST_CASE("EditorCommands: the viewport's overlays are read and set")
 	CHECK(fixture.Fails("viewport.overlays", Json::object({{"grid", "yes"}, {"icons", true}})) == AutomationErrorCode::InvalidParams);
 	CHECK(fixture.Fails("viewport.overlays", Json::object({{"canvases", 1}})) == AutomationErrorCode::InvalidParams);
 	CHECK(fixture.Fails("viewport.overlays", Json::object({{"contacts", "on"}})) == AutomationErrorCode::InvalidParams);
+	CHECK(fixture.Fails("viewport.overlays", Json::object({{"vehicles", 0}})) == AutomationErrorCode::InvalidParams);
 	CHECK(fixture.Overlays == before);
 	// The scene and its history are untouched.
 	CHECK(fixture.Context.GetHistory().GetUndoCount() == 0);

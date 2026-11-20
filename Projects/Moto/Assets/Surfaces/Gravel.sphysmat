@@ -9,6 +9,7 @@
 		"FrictionCombine": "Maximum",
 		"RestitutionCombine": "Maximum",
 		"RollingResistance": 0.25,
+		"TyreGrip": 0.4000000059604645,
 		"Surface": "Gravel",
 		"ImpactSound": "0",
 		"ImpactParticles": "0"

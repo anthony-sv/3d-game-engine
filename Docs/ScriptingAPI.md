@@ -10,7 +10,7 @@ summary C# editors show as you type. The [scripting guide](Scripting.md) shows t
 the few whose summary says graphs have none.
 The engine's tests generate this page from the API, so it lists exactly what the API has.
 
-104 types in 2 namespaces, with 876 members and enum values in all.
+108 types in 2 namespaces, with 912 members and enum values in all.
 
 ## Strada
 
@@ -113,6 +113,10 @@ The engine's tests generate this page from the API, so it lists exactly what the
 | [Vector2](#vector2) | struct | A 2D vector of single-precision components, laid out like the engine's vectors. |
 | [Vector3](#vector3) | struct | A 3D vector of single-precision components, laid out like the engine's vectors. |
 | [Vector4](#vector4) | struct | A 4D vector of single-precision components, laid out like the engine's vectors. |
+| [Vehicle](#vehicle) | class | A vehicle definition asset (`.svehicle`): a motorcycle's two wheels (the front steers, the engine drives the rear), its engine, its gearbox and final drive, and how it leans. A `VehicleComponent` names the definition its entity rides with. Edit it in the editor; scripts read it, for example the engine's speeds a rev counter shows or the gears a gear indicator counts, and an edit made while the game plays reaches the vehicles and the scripts on the next frame. A definition that cannot be loaded reads as a new one's values (logged). |
+| [VehicleComponent](#vehiclecomponent) | class | Makes the entity a motorcycle of its `VehicleComponent.Definition`: the entity needs a dynamic `RigidBodyComponent` and a collider (its chassis), and the entities below it that draw its wheels a VehicleWheel component each. While the scene simulates it, a rider drives it with `VehicleComponent.SetDriverInput` (the throttle, the front and the rear brake, and the lean) and, in a Manual gearbox, `VehicleComponent.ShiftUp` and `VehicleComponent.ShiftDown`; its engine, gearbox, lean and wheels read as its last physics step left them. Set the inputs in `Script.OnFixedUpdate` (or a graph's Event.FixedUpdate): each physics step applies the latest given before it, so a ride set there as a function of the simulation is the same at every frame rate. Without a simulated vehicle (the scene is not playing, the entity has no dynamic body or no definition that loads) the reads are a vehicle at rest in neutral, and the inputs and shifts are logged and do nothing. |
+| [VehicleTransmissionMode](#vehicletransmissionmode) | enum | How a vehicle's gearbox changes gear. |
+| [VehicleWheelState](#vehiclewheelstate) | struct | A wheel of a vehicle as its last physics step left it (`VehicleComponent.GetWheelState`), a struct of public fields that graphs Make and Break. |
 | [VisualNodeAttribute](#visualnodeattribute) | attribute | Makes a member of the game's scripts a node of visual scripts, or every public member of a type: graphs call your code as they call the scripting API. |
 | [VisualScript](#visualscript) | class | A visual script asset (`.sgraph`): a graph of nodes that a `VisualScriptComponent` runs on its entity. |
 | [VisualScriptComponent](#visualscriptcomponent) | class | Runs a visual script (a graph asset) on the entity, beside or instead of a C# script. While the scene runs, C# scripts raise the graph's custom events and read and write its variables through this component. |
@@ -1778,6 +1782,83 @@ A 4D vector of single-precision components, laid out like the engine's vectors.
 | `static bool operator ==(Vector4 a, Vector4 b)` | Exact component-wise equality. |
 | `static bool operator !=(Vector4 a, Vector4 b)` | Exact component-wise inequality. |
 | `bool Equals(Vector4 other)` | Exact component-wise equality. |
+
+### Vehicle
+
+```csharp
+public sealed class Vehicle : Asset
+```
+
+A vehicle definition asset (`.svehicle`): a motorcycle's two wheels (the front steers, the engine drives the rear), its engine, its gearbox and final drive, and how it leans. A `VehicleComponent` names the definition its entity rides with. Edit it in the editor; scripts read it, for example the engine's speeds a rev counter shows or the gears a gear indicator counts, and an edit made while the game plays reaches the vehicles and the scripts on the next frame. A definition that cannot be loaded reads as a new one's values (logged).
+
+| Member | Summary |
+|---|---|
+| `VehicleTransmissionMode TransmissionMode { get; }` | Whether the gearbox shifts by itself or when the rider asks. |
+| `int GearCount { get; }` | How many forward gears the gearbox has (1 to 16); there is no reverse gear. |
+| `float FinalDrive { get; }` | The ratio from the gearbox's output to the rear wheel: the primary and final drives together. |
+| `float MaxTorque { get; }` | The largest torque the engine gives, in newton meters, at full throttle. |
+| `float MinRPM { get; }` | The engine's lowest speed in revolutions per minute: it idles there. |
+| `float MaxRPM { get; }` | The engine's highest speed in revolutions per minute: it never turns faster (the red line). |
+| `float ShiftUpRPM { get; }` | The engine speed in revolutions per minute above which an Automatic gearbox shifts up. |
+| `float ShiftDownRPM { get; }` | The engine speed in revolutions per minute below which an Automatic gearbox shifts down. |
+| `float MaxLeanAngle { get; }` | The farthest the bike leans in turns, in degrees. |
+| `float GetGearRatio(int gear)` | A forward gear's ratio between the engine and the gearbox's output (the final drive comes after it); 0 for a gear the gearbox lacks. |
+| `string GetWheelName(int index)` | A wheel's name, which a VehicleWheel component names to draw it; empty for an index other than 0 and 1. |
+
+### VehicleComponent
+
+```csharp
+public sealed class VehicleComponent : Component
+```
+
+Makes the entity a motorcycle of its `VehicleComponent.Definition`: the entity needs a dynamic `RigidBodyComponent` and a collider (its chassis), and the entities below it that draw its wheels a VehicleWheel component each. While the scene simulates it, a rider drives it with `VehicleComponent.SetDriverInput` (the throttle, the front and the rear brake, and the lean) and, in a Manual gearbox, `VehicleComponent.ShiftUp` and `VehicleComponent.ShiftDown`; its engine, gearbox, lean and wheels read as its last physics step left them. Set the inputs in `Script.OnFixedUpdate` (or a graph's Event.FixedUpdate): each physics step applies the latest given before it, so a ride set there as a function of the simulation is the same at every frame rate. Without a simulated vehicle (the scene is not playing, the entity has no dynamic body or no definition that loads) the reads are a vehicle at rest in neutral, and the inputs and shifts are logged and do nothing.
+
+| Member | Summary |
+|---|---|
+| `Vehicle? Definition { get; set; }` | The vehicle definition (a `.svehicle` asset): its wheels, engine, gearbox and lean. Another definition makes the vehicle again; null leaves the entity without a vehicle. |
+| `float EngineSpeed { get; }` | The engine's speed in revolutions per minute, as the last physics step left it: from the definition's `Vehicle.MinRPM` (idle) to its `Vehicle.MaxRPM`. |
+| `int Gear { get; }` | The gear the gearbox is in: 0 is neutral, 1 the first gear, up to the definition's `Vehicle.GearCount`. A Manual gearbox starts in neutral. |
+| `float ForwardSpeed { get; }` | The chassis's speed along its front in meters per second, as the last physics step left it: negative when it rolls backwards. |
+| `float LeanAngle { get; }` | How far the chassis leans from the world's up around its front, in degrees: positive to its right, negative to its left. |
+| `float Throttle { get; }` | The throttle the last physics step applied, from 0 to 1 (`VehicleComponent.SetDriverInput` gives the next steps'). |
+| `float FrontBrake { get; }` | The front brake the last physics step applied, from 0 to 1. |
+| `float RearBrake { get; }` | The rear brake the last physics step applied, from 0 to 1. |
+| `float Lean { get; }` | The lean the last physics step applied, from -1 (fully to the left) to 1 (fully to the right). |
+| `void SetDriverInput(float throttle, float frontBrake, float rearBrake, float lean)` | What the rider asks of the vehicle from its next physics step on, until the next call: each value is clamped to its range. The throttle opens the engine; each brake applies its torque at each wheel the definition gives it (the front brake is usually the front wheel's, the rear brake the rear wheel's); the lean steers, leans and turns the bike (positive to its right). The latest call before a step wins, from `Script.OnFixedUpdate` or `Script.OnUpdate`; a value that is not a finite number is a script error and the call does nothing. |
+| `void ShiftUp()` | Asks a Manual gearbox for the next gear up at the next physics step (requests before a step add up); the clutch opens for the definition's switch time and then closes. Nothing happens in top gear, nor in an Automatic gearbox, which shifts by itself. |
+| `void ShiftDown()` | Asks a Manual gearbox for the next gear down at the next physics step, down to neutral; nothing happens in neutral, nor in an Automatic gearbox. |
+| `VehicleWheelState GetWheelState(int index)` | A wheel as the last physics step left it: what it stands on, its suspension, its spin and its slips. Without a simulated vehicle, a wheel without contact. |
+
+### VehicleTransmissionMode
+
+```csharp
+public enum VehicleTransmissionMode
+```
+
+How a vehicle's gearbox changes gear.
+
+Values: `Automatic`, `Manual`.
+
+### VehicleWheelState
+
+```csharp
+public struct VehicleWheelState
+```
+
+A wheel of a vehicle as its last physics step left it (`VehicleComponent.GetWheelState`), a struct of public fields that graphs Make and Break.
+
+| Member | Summary |
+|---|---|
+| `bool HasContact` | Whether the wheel touches the ground: its suspension then carries the chassis and its tyre grips. |
+| `Entity? Ground` | The entity the wheel stands on (its script instance when it has one); null without contact. |
+| `PhysicsMaterial? Material` | The physics material of the surface under the wheel; null without contact and on a surface without one, whose tyre grip is 1 (see `VehicleWheelState.Surface`). |
+| `Vector3 ContactPoint` | Where the tyre touches the ground, in world space; zero without contact. |
+| `Vector3 ContactNormal` | The ground's normal where the tyre touches it, unit length; zero without contact. |
+| `float SuspensionLength` | Meters from where the suspension is attached to the wheel's center, between the definition's shortest and longest suspension lengths: short when compressed. |
+| `float Spin` | How fast the wheel turns around its axle, in radians per second: positive when it rolls forward. |
+| `float LongitudinalSlip` | The size of the longitudinal slip ratio: how much faster or slower the tyre's tread moves than the ground goes by under it, as a share of the ground's speed. It is 0 when the tyre rolls with the ground and grows as the tyre spins or slides, either way: 1 for a locked wheel, and large for a wheel that turns while the bike barely moves. It is never negative, so it does not tell spinning from braking: compare `VehicleWheelState.Spin` times the wheel's radius with `VehicleComponent.ForwardSpeed` for that (faster when the tyre spins, slower when it brakes). 0 without contact. |
+| `float LateralSlip` | The slip angle in degrees, between where the tyre points and where it moves over the ground: from 0 to 90, whichever side the tyre slides to (never negative); 0 without contact or while the tyre barely moves. |
+| `string Surface { get; }` | The name of the surface under the wheel (its material's `PhysicsMaterial.Surface`, such as Asphalt or Gravel); empty without contact or a material. |
 
 ### VisualNodeAttribute
 

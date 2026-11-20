@@ -21,6 +21,7 @@
 #include <Jolt/Physics/Vehicle/MotorcycleController.h>
 #include <Jolt/Physics/Vehicle/VehicleCollisionTester.h>
 #include <Jolt/Physics/Vehicle/VehicleConstraint.h>
+#include <Jolt/Physics/Vehicle/VehicleEngine.h>
 #include <Jolt/Physics/Vehicle/WheeledVehicleController.h>
 
 #include <glm/gtc/constants.hpp>
@@ -206,10 +207,24 @@ namespace Strada
 			}
 		};
 
+		// Whether the rear wheel turns a Manual gearbox's gear slower than the engine idles: Jolt holds the engine at MinRPM
+		// (VehicleEngine::ClampRPM, VehicleEngine.cpp:57 and :67), so a closed clutch would pass that speed on to the wheels.
+		// Reads the wheel's spin as the last collision step left it.
+		bool TurnsBelowIdle(VehicleRecord const& record, int32_t gear)
+		{
+			float const ratio = record.Desc.GearRatios[static_cast<size_t>(gear - 1)] * record.Desc.FinalDrive;
+			float const spin = std::abs(record.Constraint->GetWheel(1)->GetAngularVelocity());
+			return spin * ratio * JPH::VehicleEngine::cAngularVelocityToRPM < record.Desc.MinRPM;
+		}
+
 		// A Manual gearbox over one collision step, before Jolt's OnStep reads it: the first collision step of a step applies
 		// the pending shift requests (the clutch held open in that collision step, as Jolt's automatic gearbox holds it in
 		// the update that shifts, VehicleTransmission.cpp:100-107), and every other one counts the switch time down with the
-		// clutch open, then the release time with the clutch closing (:108-123).
+		// clutch open, then the release time with the clutch closing (:108-123). With the throttle closed, the clutch is also
+		// open while the rear wheel turns the gear slower than the engine idles (TurnsBelowIdle), as a rider holds the lever:
+		// the idling engine never pushes the bike, which rolls free and stops on its brakes, while above that speed the clutch
+		// stays closed and the engine turns with the wheels. The rule reads only the step's inputs and the wheel's spin, so it
+		// adds no state.
 		void UpdateManualGearbox(VehicleRecord& record, JPH::PhysicsStepListenerContext const& context)
 		{
 			if (record.Desc.TransmissionMode != VehicleTransmissionMode::Manual)
@@ -246,6 +261,10 @@ namespace Strada
 				shift.ClutchReleaseTimeLeft = std::max(0.0f, shift.ClutchReleaseTimeLeft - context.mDeltaTime);
 				float const release = record.Desc.ClutchReleaseTime;
 				clutch = release > 0.0f ? std::clamp(1.0f - shift.ClutchReleaseTimeLeft / release, 0.0f, 1.0f) : 1.0f;
+			}
+			if (shift.Gear != 0 && record.AppliedInputs.Throttle <= 0.0f && TurnsBelowIdle(record, shift.Gear))
+			{
+				clutch = 0.0f;
 			}
 			record.Controller->GetTransmission().Set(shift.Gear, clutch);
 		}
@@ -961,6 +980,26 @@ namespace Strada
 		pending = std::clamp(pending + std::clamp(gears, -limit, limit), -limit, limit);
 	}
 
+	void VehicleWorld::AppendVehiclesOnMaterial(AssetHandle material, std::vector<std::pair<UUID, JPH::BodyID>>& vehicles) const
+	{
+		if (!material.IsValid())
+		{
+			return;
+		}
+		for (auto const& [entity, record] : m_Vehicles)
+		{
+			bool const touches = std::any_of(record.Surfaces.begin(), record.Surfaces.end(),
+			                                 [material](VehicleWheelSurface const& surface)
+			                                 {
+												 return surface.Material == material;
+											 });
+			if (touches)
+			{
+				vehicles.emplace_back(entity, record.Body);
+			}
+		}
+	}
+
 	std::optional<VehicleState> VehicleWorld::GetVehicleState(UUID entity) const
 	{
 		auto const it = m_Vehicles.find(entity);
@@ -1032,6 +1071,39 @@ namespace Strada
 		}
 		return ToGlm(
 			it->second.Constraint->GetWheelLocalTransform(static_cast<JPH::uint>(wheel), JPH::Vec3::sAxisX(), JPH::Vec3::sAxisY()));
+	}
+
+	VehicleDesc const* VehicleWorld::FindVehicleSettings(UUID entity) const
+	{
+		auto const it = m_Vehicles.find(entity);
+		return it != m_Vehicles.end() ? &it->second.Desc : nullptr;
+	}
+
+	std::optional<float> VehicleWorld::GetVehicleRollInertia(UUID entity) const
+	{
+		auto const it = m_Vehicles.find(entity);
+		if (it == m_Vehicles.end())
+		{
+			return std::nullopt;
+		}
+		VehicleRecord const& record = it->second;
+		JPH::BodyLockRead const lock(m_System.GetBodyLockInterface(), record.Body);
+		if (!lock.Succeeded() || !lock.GetBody().IsDynamic())
+		{
+			return std::nullopt;
+		}
+		// What the lean spring's angular impulse along the front does to the roll rate (Body::AddAngularImpulse,
+		// Body.inl:150-154 of the pinned Jolt): the impulse times the front's component of the world-space inverse inertia.
+		// The same at any rotation, since the front turns with the body.
+		JPH::Body const& body = lock.GetBody();
+		JPH::Vec3 const forward = body.GetRotation() * Jolt::ToJolt(record.Desc.Forward);
+		float const inverse =
+			body.GetMotionProperties()->MultiplyWorldSpaceInverseInertiaByVector(body.GetRotation(), forward).Dot(forward);
+		if (!(inverse > 0.0f) || !std::isfinite(inverse))
+		{
+			return std::nullopt;
+		}
+		return 1.0f / inverse;
 	}
 
 	std::optional<VehicleCarriedState> VehicleWorld::TakeVehicle(UUID entity, VehicleDesc& desc)

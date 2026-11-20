@@ -24,6 +24,7 @@
 #include <cstdint>
 #include <map>
 #include <optional>
+#include <utility>
 #include <vector>
 
 namespace JPH
@@ -136,6 +137,12 @@ namespace Strada
 		void RequestVehicleShift(UUID entity, int32_t gears);
 		std::optional<VehicleState> GetVehicleState(UUID entity) const;
 		std::optional<glm::mat4> GetVehicleWheelTransform(UUID entity, size_t wheel) const;
+		VehicleDesc const* FindVehicleSettings(UUID entity) const;
+		std::optional<float> GetVehicleRollInertia(UUID entity) const;
+		// Appends the entity and the body of each vehicle one of whose wheels touched a surface of the material at its last step
+		// (its wheel's slot), in the order of the entities' UUIDs: what an edit of the values only vehicles read wakes
+		// (PhysicsScene::SetMaterialValues).
+		void AppendVehiclesOnMaterial(AssetHandle material, std::vector<std::pair<UUID, JPH::BodyID>>& vehicles) const;
 		// Takes the entity's vehicle out of the world, keeping its values in desc and what a vehicle made again keeps, before
 		// its body is replaced; RestoreVehicle makes it again on the new body.
 		std::optional<VehicleCarriedState> TakeVehicle(UUID entity, VehicleDesc& desc);

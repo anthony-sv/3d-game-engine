@@ -203,8 +203,9 @@ player:
 [FeatureTest](Projects/FeatureTest), uses every component, the entire scripting API and every built-in node kind; CI
 plays it and fails on any failed check. [Moto](Projects/Moto), a motorcycle time trial in the making, is so far its
 circuit, lined with 10,000 props and whose surfaces have physics materials, a generated superbike and its rider on the
-grid, a camera tour made of a graph, and a ghost bike riding the racing line with a synthesized engine that dopplers
-past four trackside cameras and echoes under the footbridge, with 24 test checks that are graphs too.
+grid, a vehicle with a front and a rear brake that a graph rides on the input actions, a camera tour made of a graph,
+and a ghost bike riding the racing line with a synthesized engine that dopplers past four trackside cameras and echoes
+under the footbridge, with 24 test checks that are graphs too and a ride test scene whose graph rides the bike.
 
 ## Features
 

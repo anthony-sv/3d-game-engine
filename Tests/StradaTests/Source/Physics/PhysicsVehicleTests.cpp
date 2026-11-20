@@ -501,6 +501,71 @@ TEST_CASE("PhysicsScene: a coasting bike slows by about g times the rolling resi
 	CHECK(drag < 1.2f * expected);
 }
 
+TEST_CASE("PhysicsScene: an edit of the tyre grip alone wakes a bike asleep across a slope, which slides, and no other body")
+{
+	Testing::PhysicsSystemScope physics;
+	// A 10 degree slope falling towards -X (tan 10 = 0.18) of a material with friction 1, whose rolling resistance stops the
+	// wheels' creep along the contour; a bike asleep across it, its front along the contour (-Z), held by its tyres' sideways
+	// grip; and a box asleep on the same slope, held by its friction.
+	AssetHandle const slopeMaterial(UUID(7101));
+	glm::quat const tilt = glm::angleAxis(glm::radians(10.0f), glm::vec3(0.0f, 0.0f, 1.0f));
+	glm::vec3 const normal = tilt * glm::vec3(0.0f, 1.0f, 0.0f);
+	glm::vec3 const downhill = tilt * glm::vec3(-1.0f, 0.0f, 0.0f);
+	ColliderSurface surface = MakeSurface(slopeMaterial, 0.1f, 1.0f);
+	surface.Friction = 1.0f;
+	BodyDesc slope;
+	slope.Entity = GroundId;
+	slope.Type = RigidBodyType::Static;
+	slope.Position = -0.5f * normal;
+	slope.Rotation = tilt;
+	ColliderDesc slopeCollider;
+	slopeCollider.HalfExtents = glm::vec3(20.0f, 0.5f, 20.0f);
+	slopeCollider.Surface = surface;
+	slope.Colliders.push_back(slopeCollider);
+	UUID const boxId(311);
+	BodyDesc box;
+	box.Entity = boxId;
+	box.Type = RigidBodyType::Dynamic;
+	box.Position = 0.3f * normal + glm::vec3(0.0f, 0.0f, 5.0f);
+	box.Rotation = tilt;
+	ColliderDesc boxCollider;
+	boxCollider.HalfExtents = glm::vec3(0.25f);
+	boxCollider.Surface.Friction = 1.0f;
+	box.Colliders.push_back(boxCollider);
+	BodyDesc chassis = MakeChassis(BikeId, {0.0f, 0.1f, 0.0f});
+	chassis.AllowSleep = true;
+
+	Scope<PhysicsScene> world = CreateWorld();
+	RequireOk(world->AddBody(slope));
+	RequireOk(world->AddBody(box));
+	RequireOk(world->AddBody(chassis));
+	RequireOk(world->AddVehicle(MakeBike(BikeId, VehicleTransmissionMode::Automatic)));
+	for (int step = 0; step < 1200 && !(world->IsSleeping(BikeId) && world->IsSleeping(boxId)); step++)
+	{
+		world->Step(Step);
+	}
+	REQUIRE(world->IsSleeping(BikeId));
+	REQUIRE(world->IsSleeping(boxId));
+	VehicleState const asleep = StateOf(*world, BikeId);
+	CHECK(asleep.Wheels[0].Surface == slopeMaterial);
+	CHECK(asleep.Wheels[1].Surface == slopeMaterial);
+	glm::vec3 const start = world->GetBodyTransform(BikeId)->Position;
+
+	// The same values again wake nothing; the slope's tyre grip lowered wakes the bike alone, which slides down the slope.
+	PhysicsMaterial values;
+	values.Friction = 1.0f;
+	values.RollingResistance = 0.1f;
+	CHECK(world->SetMaterialValues(slopeMaterial, values) == 1);
+	CHECK(world->IsSleeping(BikeId));
+	values.TyreGrip = 0.05f;
+	CHECK(world->SetMaterialValues(slopeMaterial, values) == 1);
+	CHECK_FALSE(world->IsSleeping(BikeId));
+	CHECK(world->IsSleeping(boxId));
+	Simulate(*world, 60);
+	CHECK(glm::dot(world->GetBodyTransform(BikeId)->Position - start, downhill) > 0.1f);
+	CHECK(world->IsSleeping(boxId));
+}
+
 TEST_CASE("PhysicsScene: a positive lean input leans and turns the bike to its right, and a lower tyre grip runs it wider")
 {
 	Testing::PhysicsSystemScope physics;
@@ -717,7 +782,9 @@ TEST_CASE("PhysicsScene: a vehicle's inputs are clamped and reach it once per st
 TEST_CASE("PhysicsScene: a manual gearbox shifts at the next step by the requests' sum, within its gears, with its clutch's ramp")
 {
 	Testing::PhysicsSystemScope physics;
-	Scope<PhysicsScene> world = MakeRide(VehicleTransmissionMode::Manual);
+	// Rolling at 20 m/s, so that the wheels turn the gearbox faster than the engine idles in every gear the case reaches:
+	// with the throttle closed below that speed the clutch stays open whatever the ramp (the case after this one).
+	Scope<PhysicsScene> world = MakeRide(VehicleTransmissionMode::Manual, {}, {0.0f, 0.0f, -20.0f});
 	VehicleDesc desc = MakeBike(BikeId, VehicleTransmissionMode::Manual);
 	desc.SwitchTime = 0.1f;
 	desc.ClutchReleaseTime = 0.2f;
@@ -792,6 +859,86 @@ TEST_CASE("PhysicsScene: a manual gearbox shifts at the next step by the request
 	world->RequestVehicleShift(BikeId, 1);
 	world->Step(Step);
 	CHECK(StateOf(*world, BikeId).Gear == static_cast<int32_t>(desc.GearRatios.size()));
+}
+
+TEST_CASE("PhysicsScene: a manual gearbox in gear with the throttle closed never lets the idling engine push the bike: it stays at "
+          "rest and its brake stops it, while above idle the engine still brakes it")
+{
+	Testing::PhysicsSystemScope physics;
+	// Docs/Architecture.md §8, "Shifts, and the manual mode's clutch": Jolt holds the engine at MinRPM (1,000 here), and a
+	// closed clutch passes that on to the wheels, which would roll the bike at first gear's idle speed (1,000 rpm / 10.95 x
+	// 0.31 m = 2.96 m/s) whatever its brakes do. With the throttle closed, the clutch stays open while the rear wheel turns
+	// the gearbox slower than the engine idles.
+	VehicleDesc const desc = MakeBike(BikeId, VehicleTransmissionMode::Manual);
+	float const idleSpeed = desc.MinRPM * glm::two_pi<float>() / 60.0f / (desc.GearRatios[0] * desc.FinalDrive) * desc.Wheels[1].Radius;
+	REQUIRE(idleSpeed > 2.0f);
+
+	// At rest in first gear: the bike stays where it stands, its clutch open.
+	{
+		Scope<PhysicsScene> world = MakeRide(VehicleTransmissionMode::Manual);
+		Simulate(*world, 30);
+		glm::vec3 const start = PositionOf(*world, BikeId);
+		world->RequestVehicleShift(BikeId, 1);
+		for (int step = 0; step < 120; step++)
+		{
+			world->Step(Step);
+			VehicleState const state = StateOf(*world, BikeId);
+			CHECK(state.Gear == 1);
+			CHECK(state.ClutchFriction == 0.0f);
+		}
+		VehicleState const state = StateOf(*world, BikeId);
+		CHECK(std::abs(state.ForwardSpeed) < 0.05f);
+		CHECK(glm::distance(PositionOf(*world, BikeId), start) < 0.02f);
+		CHECK(state.EngineSpeed == doctest::Approx(desc.MinRPM).epsilon(1e-3));
+
+		// The throttle opened closes the clutch at once: the bike sets off.
+		world->SetVehicleInputs(BikeId, MakeInputs(0.5f, 0.0f, 0.0f, 0.0f));
+		world->Step(Step);
+		CHECK(StateOf(*world, BikeId).ClutchFriction == 1.0f);
+		Simulate(*world, 59);
+		CHECK(StateOf(*world, BikeId).ForwardSpeed > 1.0f);
+	}
+
+	// Rolling at 15 m/s in first gear (above its idle speed) and in neutral, the throttle closed for 1 s: in gear the clutch
+	// stays closed and the engine, whose damping (0.2 here) is its braking, slows the bike more than rolling alone does.
+	std::array<float, 2> lost{};
+	for (int32_t const gear : {0, 1})
+	{
+		Scope<PhysicsScene> world = MakeRide(VehicleTransmissionMode::Manual, {}, {0.0f, 0.0f, -15.0f});
+		Simulate(*world, 30);
+		world->RequestVehicleShift(BikeId, gear);
+		Simulate(*world, 30);
+		float const before = StateOf(*world, BikeId).ForwardSpeed;
+		REQUIRE(before > 2.0f * idleSpeed);
+		Simulate(*world, 60);
+		VehicleState const state = StateOf(*world, BikeId);
+		CHECK(state.Gear == gear);
+		if (gear == 1)
+		{
+			CHECK(state.ClutchFriction == 1.0f);
+		}
+		lost[static_cast<size_t>(gear)] = before - state.ForwardSpeed;
+	}
+	MESSAGE("speed lost in 1 s with the throttle closed: " << lost[0] << " m/s in neutral, " << lost[1] << " m/s in first gear");
+	CHECK(lost[1] > lost[0] + 0.5f);
+
+	// From 15 m/s in first gear, the front brake alone stops the bike: the engine brakes it down to its idle speed, then the
+	// clutch opens and the brake takes it to rest.
+	Scope<PhysicsScene> world = MakeRide(VehicleTransmissionMode::Manual, {}, {0.0f, 0.0f, -15.0f});
+	Simulate(*world, 30);
+	world->RequestVehicleShift(BikeId, 1);
+	Simulate(*world, 30);
+	int steps = 0;
+	while (StateOf(*world, BikeId).ForwardSpeed > 0.05f && steps < 600)
+	{
+		world->SetVehicleInputs(BikeId, MakeInputs(0.0f, 1.0f, 0.0f, 0.0f));
+		world->Step(Step);
+		steps++;
+	}
+	MESSAGE("stopped from 15 m/s in first gear in " << steps << " steps");
+	CHECK(steps < 600);
+	CHECK(StateOf(*world, BikeId).ClutchFriction == 0.0f);
+	CHECK(StateOf(*world, BikeId).Gear == 1);
 }
 
 TEST_CASE("PhysicsScene: a vehicle's gear stays within the gears an edit leaves, after the edit and after a restore, and a change of "

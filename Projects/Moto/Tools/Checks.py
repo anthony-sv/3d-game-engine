@@ -1,4 +1,10 @@
-"""Moto's test scene (Scenes/Tests.sscene) and its checks, all of them graphs: the main scene as it is without its props
+"""Moto's test scenes and their checks, all of them graphs. A test scene is the main scene as it is without its props, with
+what its checks need; its runner graph runs them in turn and reports to the test run. The checks come in modules, each
+registered by one line of MODULES (the scene it joins and the module's name): a module gives its checks, how each is
+written, the scene's entities its checks look at, its own entities and its helper functions (a Suite). SCENES has the
+test scenes, one line each.
+
+The first module is this one's (CORE): Scenes/Tests.sscene and its checks: the main scene as it is without its props
 (they stand clear of all it checks and have no colliders), with a crate to drop on the road, two blocks that slide off along the asphalt and along a gravel trap, a second entity running the tour
 that waits to be sent it (the Waiting Tour) and the Tests entity, whose graph checks the circuit's surfaces, the camera
 tour, the ghost bike, its engine's sound, the camera director and the audio director one after another, then reports to
@@ -27,6 +33,7 @@ sounds pitched within its layer's band, on the Engine bus. The camera director, 
 each the one camera that shows and hears the scene and turned to the ghost, then back to the tour's camera. The audio
 director, sent TogglePause twice, blends the mix to the Paused snapshot and back.
 """
+import importlib
 import math
 import os
 import sys
@@ -44,9 +51,85 @@ from Graphs import CHECK, ENTITY, private, public  # noqa: E402
 
 CHECKS = Graphs.script("Checks")
 TESTS = Graphs.script("Tests")
-GRAPHS = (CHECKS, TESTS)
+RIDE_TESTS = Graphs.script("RideTests")
 LIBRARIES = (CHECKS,)
 VECTOR = "Strada.Vector3"
+
+
+class TestScene:
+    """A test scene: its name (Scenes/<name>.sscene), its runner entity and graph, the runner graph's description (with
+    {count}, the number of its checks), how long a test run of it may take (seconds) and the main scene's roots it leaves
+    out."""
+
+    def __init__(self, name, runner, graph, about, timeout, left_out=("Props",)):
+        self.name = name
+        self.runner = runner
+        self.graph = graph
+        self.about = about
+        self.timeout = timeout
+        self.left_out = left_out
+
+    @property
+    def path(self):
+        return f"Scenes/{self.name}.sscene"
+
+
+class Suite:
+    """A module's checks in a test scene:
+
+    - checks(): its checks in the order they run, (function, title of its box, the check's name in the report);
+    - write(b, function, name): writes one check's function into its region;
+    - entities: the scene's entities its checks look at, (variable of the runner graph, the entity's name, tooltip);
+    - variables: private variables of the runner graph its checks share (Graphs.private);
+    - helpers: functions of the runner graph its checks call, declared before the checks: ((name, pure, inputs, outputs,
+      locals), title of its box, write(b));
+    - own: the names of the entities it makes in the scene, which keep their IDs when the scene is made again;
+    - make(create): makes them, create(name, components) returning the new entity's ID;
+    - prepare(session, found): adjusts the scene's entities (found: their IDs by name) before the runner is made;
+    - events: regions of the runner graph's event graph it adds beside the start, which runs the checks: (title of its
+      box, its colour, write(b)), such as a ride driven from Event.FixedUpdate whose readings its checks report."""
+
+    def __init__(self, checks, write, entities=(), variables=(), helpers=(), own=(), make=None, prepare=None, events=()):
+        self.checks = checks
+        self.write = write
+        self.entities = entities
+        self.variables = variables
+        self.helpers = helpers
+        self.own = own
+        self.make = make
+        self.prepare = prepare
+        self.events = events
+
+
+# The test scenes, one line each.
+SCENES = (
+    TestScene("Tests", "Tests", TESTS, "The test scene's checks: {count} checks of Moto's circuit, its camera tour and its ghost "
+              "bike, one after another, each a latent function that acts or waits for its moment, then reports it.",
+              math.ceil(Tour.LENGTH) + 30),
+    TestScene("Ride", "Ride Tests", RIDE_TESTS, "The ride test scene's checks: {count} checks of the ridden bike, each a latent "
+              "function that waits for a reading the ride takes in its fixed steps, then reports it.", 60),
+)
+# The modules whose checks the test scenes run, one line each, in the order their checks run: (the scene they join, the
+# module that holds them, by its name). A module's Suite is its SUITE; it is imported when the checks are written, so a
+# module may import this one for its helpers.
+MODULES = (
+    ("Tests", "Checks"),
+    ("Ride", "BikeChecks"),
+)
+# The runner graphs and the library they report through, and the tests part's files.
+GRAPHS = (CHECKS,) + tuple(scene.graph for scene in SCENES)
+FILES = tuple(f"Assets/{scene.path}" for scene in SCENES) + tuple(f"Assets/{graph[len('asset://'):]}" for graph in GRAPHS) + \
+    ("Assets/AssetRegistry.sreg",)
+
+
+def suites(scene):
+    """The suites of a test scene, in the order MODULES registers them."""
+    return [importlib.import_module(module).SUITE for name, module in MODULES if name == scene.name]
+
+
+def scene_checks(scene):
+    """A test scene's checks, every suite's in turn: (suite, function, title, name)."""
+    return [(suite,) + row for suite in suites(scene) for row in suite.checks()]
 RAYCAST = "Call:Strada.Physics.Raycast(Strada.Vector3,Strada.Vector3,float,out Strada.RaycastHit,uint)"
 
 # The crate dropped on the road (half its size, meters: builtin://Cube is a 1 m cube, and its collider is as large) and
@@ -246,10 +329,12 @@ TEST_ENTITIES = (
     ("CameraDirector", Trackside.ROOT, "The camera director, whose children are the trackside cameras"),
     ("AudioDirector", Sound.DIRECTOR, "The audio director, which blends the mix to the Paused snapshot"),
 )
-# The test scene's own entities, which it keeps the IDs of when it is made again.
-OWN_ENTITIES = ("Probe Crate", "Asphalt Slider", "Gravel Slider", "Waiting Tour", "Tests")
-# The main scene's root entities the test scene leaves out.
-LEFT_OUT = ("Props",)
+# The test scene's own entities (besides its runner), which it keeps the IDs of when it is made again.
+OWN_ENTITIES = ("Probe Crate", "Asphalt Slider", "Gravel Slider", "Waiting Tour")
+# The private variables of the runner graph the checks share.
+VARIABLES = (private("StepStart", "double", 0.0), private("LineError", "float", 0.0), private("HeadingError", "float", 0.0),
+             private("Power", "float", 0.0), private("Playing", "int", 0), private("Strays", "int", 0), private("Cuts", "int", 0),
+             private("Aim", "float", 0.0), private("Snapshot", "string", ""))
 
 
 # --- The interfaces ---------------------------------------------------------------------------------------------------------
@@ -261,16 +346,15 @@ def declare(author):
                        ("NearVector", True, (("A", VECTOR), ("B", VECTOR), ("Tolerance", "float")), (("Result", "bool"),), ()),
                        ("Facing", True, (("Direction", VECTOR), ("Expected", VECTOR), ("Degrees", "float")), (("Result", "bool"),), ()),
                    ))
-    author.declare(TESTS, f"The test scene's checks: {len(checks())} checks of Moto's circuit, its camera tour and its ghost "
-                   "bike, one after another, each a latent function that acts or waits for its moment, then reports it.", variables=(
-        tuple(public(name, ENTITY, None, tooltip) for name, _, tooltip in TEST_ENTITIES) +
-        (private("StepStart", "double", 0.0), private("LineError", "float", 0.0), private("HeadingError", "float", 0.0),
-         private("Power", "float", 0.0), private("Playing", "int", 0), private("Strays", "int", 0), private("Cuts", "int", 0),
-         private("Aim", "float", 0.0), private("Snapshot", "string", ""))),
-        functions=(("Probe", False, (("From", VECTOR), ("Surface", ENTITY), ("Height", "float")),
-                    (("Passed", "bool"), ("Detail", "string")), ()),
-                   ("ProbeSurface", False, (("From", VECTOR), ("Expected", "string")), (("Passed", "bool"), ("Detail", "string")),
-                    (("Found", "string", ""),)),) + tuple((name, False, (), (), ()) for name, _, _ in checks()))
+    # Each runner graph: the entities and the variables of its suites, then their helpers and their checks, in turn.
+    for scene in SCENES:
+        parts = suites(scene)
+        rows = scene_checks(scene)
+        author.declare(scene.graph, scene.about.format(count=len(rows)), variables=(
+            tuple(public(name, ENTITY, None, tooltip) for suite in parts for name, _, tooltip in suite.entities) +
+            tuple(variable for suite in parts for variable in suite.variables)),
+            functions=tuple(declaration for suite in parts for declaration, _, _ in suite.helpers) +
+            tuple((function, False, (), (), ()) for _, function, _, _ in rows))
 
 
 # --- Checks.sgraph -----------------------------------------------------------------------------------------------------------
@@ -371,46 +455,75 @@ def view_detail(b):
     return b.fmt("the camera at {At}, looking along {Forward}", At=camera_at(b), Forward=camera_forward(b))
 
 
-def write_tests(author):
-    order = checks()
-    with author.region(TESTS, "Start: every check in turn, then the report", CHECK) as b:
+def write_tests(author, scene):
+    """A runner graph: its start, which runs every check in turn and finishes the report, then its suites' helpers and
+    checks."""
+    order = scene_checks(scene)
+    with author.region(scene.graph, "Start: every check in turn, then the report", CHECK) as b:
         start = b.event("Event.Create")
         settle = b.add("Flow.WaitFrames", Frames=1, comment="Every entity has run its Create first")
         steps = b.sequence(len(order) + 1)
         b.chain(start, settle)
         b.flow(settle["Completed"], steps)
-        for index, (name, _, _) in enumerate(order):
+        for index, (_, name, _, _) in enumerate(order):
             b.flow(steps[f"Then{index}"], b.own(name))
         b.flow(steps[f"Then{len(order)}"], b.call("Call:Strada.Testing.TestReporter.Finish()"))
 
-    with author.region(TESTS, "Probe: the surface a ray down from a point hits, at its height", CHECK, "Probe") as b:
-        ray = b.call(RAYCAST, Origin=b.entry["From"], Direction=[0.0, -1.0, 0.0], MaxDistance=20.0)
-        hit = ray["Hit"]
-        surface = b.pure("Get:Strada.RaycastHit.Entity", "Value", Target=hit)
-        point = b.pure("Get:Strada.RaycastHit.Point", "Value", Target=hit)
-        normal = b.pure("Get:Strada.RaycastHit.Normal", "Value", Target=hit)
-        passed = b.expr(f"hit && same && abs(point.Y - height) <= {SURFACE_TOLERANCE} && normal.Y > 0.95", hit=ray["Result"],
-                        same=b.equal(surface, b.entry["Surface"]), point=point, height=b.entry["Height"], normal=normal)
-        b.link(passed, b.ret["Passed"])
-        b.link(b.fmt("the ray hit {Surface} at {Point}, facing {Normal}", Surface=surface, Point=point, Normal=normal), b.ret["Detail"])
-        b.chain(b.entry, ray, b.ret)
+    for suite in suites(scene):
+        for title, color, write_events in suite.events:
+            with author.region(scene.graph, title, color) as b:
+                write_events(b)
+    for suite in suites(scene):
+        for (function, *_), title, write_helper in suite.helpers:
+            with author.region(scene.graph, title, CHECK, function) as b:
+                write_helper(b)
+    for suite, function, title, name in order:
+        with author.region(scene.graph, title, CHECK, function) as b:
+            suite.write(b, function, name)
 
-    with author.region(TESTS, "Probe surface: the physics material a ray down from a point hits", CHECK, "ProbeSurface") as b:
-        ray = b.call(RAYCAST, Origin=b.entry["From"], Direction=[0.0, -1.0, 0.0], MaxDistance=20.0)
-        material = b.pure("Get:Strada.RaycastHit.Material", "Value", Target=ray["Hit"])
-        known = b.branch(b.pure("IsValid", Value=material), comment="A collider without a physics material names none")
-        found = b.set("Found", b.pure("Get:Strada.PhysicsMaterial.Surface", "Value", Target=material))
-        passed = b.both(ray["Result"], b.equal(b.var("Found"), b.entry["Expected"]))
-        b.link(passed, b.ret["Passed"])
-        b.link(b.fmt("the ray hit the surface '{Found}' at {Point}", Found=b.var("Found"),
-                     Point=b.pure("Get:Strada.RaycastHit.Point", "Value", Target=ray["Hit"])), b.ret["Detail"])
-        b.chain(b.entry, ray, known)
-        b.chain(known["True"], found, b.ret)
-        b.flow(known["False"], b.ret)
 
-    for function, title, name in order:
-        with author.region(TESTS, title, CHECK, function) as b:
-            WRITERS.get(function, check_material if function in MATERIAL_CHECKS else check_surface)(b, name)
+def write_probe(b):
+    """Probe: the surface a ray down from a point hits, at its height."""
+    ray = b.call(RAYCAST, Origin=b.entry["From"], Direction=[0.0, -1.0, 0.0], MaxDistance=20.0)
+    hit = ray["Hit"]
+    surface = b.pure("Get:Strada.RaycastHit.Entity", "Value", Target=hit)
+    point = b.pure("Get:Strada.RaycastHit.Point", "Value", Target=hit)
+    normal = b.pure("Get:Strada.RaycastHit.Normal", "Value", Target=hit)
+    passed = b.expr(f"hit && same && abs(point.Y - height) <= {SURFACE_TOLERANCE} && normal.Y > 0.95", hit=ray["Result"],
+                    same=b.equal(surface, b.entry["Surface"]), point=point, height=b.entry["Height"], normal=normal)
+    b.link(passed, b.ret["Passed"])
+    b.link(b.fmt("the ray hit {Surface} at {Point}, facing {Normal}", Surface=surface, Point=point, Normal=normal), b.ret["Detail"])
+    b.chain(b.entry, ray, b.ret)
+
+
+def write_probe_surface(b):
+    """Probe surface: the physics material a ray down from a point hits."""
+    ray = b.call(RAYCAST, Origin=b.entry["From"], Direction=[0.0, -1.0, 0.0], MaxDistance=20.0)
+    material = b.pure("Get:Strada.RaycastHit.Material", "Value", Target=ray["Hit"])
+    known = b.branch(b.pure("IsValid", Value=material), comment="A collider without a physics material names none")
+    found = b.set("Found", b.pure("Get:Strada.PhysicsMaterial.Surface", "Value", Target=material))
+    passed = b.both(ray["Result"], b.equal(b.var("Found"), b.entry["Expected"]))
+    b.link(passed, b.ret["Passed"])
+    b.link(b.fmt("the ray hit the surface '{Found}' at {Point}", Found=b.var("Found"),
+                 Point=b.pure("Get:Strada.RaycastHit.Point", "Value", Target=ray["Hit"])), b.ret["Detail"])
+    b.chain(b.entry, ray, known)
+    b.chain(known["True"], found, b.ret)
+    b.flow(known["False"], b.ret)
+
+
+# The helper functions the checks call: their declarations, the titles of their boxes and their writers.
+HELPERS = (
+    (("Probe", False, (("From", VECTOR), ("Surface", ENTITY), ("Height", "float")), (("Passed", "bool"), ("Detail", "string")), ()),
+     "Probe: the surface a ray down from a point hits, at its height", write_probe),
+    (("ProbeSurface", False, (("From", VECTOR), ("Expected", "string")), (("Passed", "bool"), ("Detail", "string")),
+      (("Found", "string", ""),)),
+     "Probe surface: the physics material a ray down from a point hits", write_probe_surface),
+)
+
+
+def write_check(b, function, name):
+    """One of this module's checks, by its function's writer (WRITERS), or a probe of a surface or of its material."""
+    WRITERS.get(function, check_material if function in MATERIAL_CHECKS else check_surface)(b, name)
 
 
 def check_tour_starts_home(b, name):
@@ -707,25 +820,33 @@ WRITERS = {
 def write(author):
     write_checks(author)
     author.finish(CHECKS)
-    write_tests(author)
-    author.finish(TESTS)
+    for scene in SCENES:
+        write_tests(author, scene)
+        author.finish(scene.graph)
 
 
-# --- The scene ---------------------------------------------------------------------------------------------------------------
+# --- The scenes --------------------------------------------------------------------------------------------------------------
 
 def entity_value(entity):
     return {"Type": "Entity", "Value": entity}
 
 
-def build_scene(session, handles, project):
-    """The test scene: the main scene saved as Tests (its entities keep their IDs), the crate over the road, the two
-    sliding blocks, the Waiting Tour and the entity whose graph runs the checks, each with the ID it had in the test scene
-    when there was one. Leaves the main scene open."""
+def build_scenes(session, handles, project):
+    """Every test scene (build_scene). Leaves the main scene open."""
+    for scene in SCENES:
+        build_scene(session, handles, project, scene)
+
+
+def build_scene(session, handles, project, scene):
+    """A test scene: the main scene saved under the scene's name (its entities keep their IDs) without the roots it leaves
+    out, its suites' own entities and the runner entity whose graph runs the checks, each with the ID it had in the test
+    scene when there was one. Leaves the main scene open."""
+    parts = suites(scene)
+    own = {scene.runner} | {name for suite in parts for name in suite.own}
     previous = {}
-    if os.path.exists(os.path.join(project, "Assets", "Scenes", "Tests.sscene")):
-        session.call("scene_open", {"path": "Scenes/Tests.sscene"})
-        previous = {entity["name"]: entity["id"] for entity in session.call("scene_hierarchy")["entities"]
-                    if entity["name"] in OWN_ENTITIES}
+    if os.path.exists(os.path.join(project, "Assets", *scene.path.split("/"))):
+        session.call("scene_open", {"path": scene.path})
+        previous = {entity["name"]: entity["id"] for entity in session.call("scene_hierarchy")["entities"] if entity["name"] in own}
 
     def create(name, components):
         arguments = {"name": name, "components": components}
@@ -734,13 +855,42 @@ def build_scene(session, handles, project):
         return session.call("entity_create", arguments)["id"]
 
     session.call("scene_open", {"path": "Scenes/Main.sscene"})
-    session.call("scene_save", {"path": "Scenes/Tests.sscene"})
-    session.call("scene_settings", {"name": "Tests"})
-    # The props stand clear of everything the checks touch and have no colliders: the test scene leaves them out, which
+    session.call("scene_save", {"path": scene.path})
+    session.call("scene_settings", {"name": scene.name})
+    # The props stand clear of everything the checks touch and have no colliders: a test scene leaves them out, which
     # keeps the project small (they are most of the main scene's file) and the test runs short.
-    props = [entity["id"] for entity in session.call("scene_hierarchy")["entities"] if entity["name"] in LEFT_OUT]
-    if props:
-        session.call("entity_delete", {"entities": props})
+    left_out = [entity["id"] for entity in session.call("scene_hierarchy")["entities"] if entity["name"] in scene.left_out]
+    if left_out:
+        session.call("entity_delete", {"entities": left_out})
+    for suite in parts:
+        if suite.make is not None:
+            suite.make(create, handles)
+    found = {}
+
+    def walk(entities):
+        for entity in entities:
+            found.setdefault(entity["name"], entity["id"])
+            walk(entity.get("children", []))
+
+    walk(session.call("scene_hierarchy")["entities"])
+    entities = [row for suite in parts for row in suite.entities]
+    missing = [scene_name for _, scene_name, _ in entities if scene_name not in found]
+    if missing:
+        raise SystemExit(f"the test scene {scene.name} has no {', '.join(missing)}")
+    for suite in parts:
+        if suite.prepare is not None:
+            suite.prepare(session, found)
+    create(scene.runner, {"VisualScript": {"Graph": handles[scene.graph], "Variables": {
+        name: entity_value(found[scene_name]) for name, scene_name, _ in entities}}})
+    session.call("scene_save")
+    session.call("scene_open", {"path": "Scenes/Main.sscene"})
+
+
+# --- This module's suite: the test scene's checks of the circuit, the tour, the ghost and its sound, the cameras and the
+# pause ------------------------------------------------------------------------------------------------------------------------
+
+def make_entities(create, handles):
+    """The crate over the road, the two sliding blocks and the Waiting Tour."""
     create("Probe Crate", {
         "Transform": {"Translation": list(crate_start()), "RotationEuler": [0.0, Circuit.yaw(CRATE_AT), 0.0]},
         "Mesh": {"Mesh": "builtin://Cube"},
@@ -759,23 +909,15 @@ def build_scene(session, handles, project):
         "Transform": {"Translation": list(WAITING_SPOT)},
         "VisualScript": {"Graph": handles[Tour.TOUR], "Variables": {
             "PlayOnStart": {"Type": "Bool", "Value": False}, "Repeat": {"Type": "Bool", "Value": False}}}})
-    found = {}
 
-    def walk(entities):
-        for entity in entities:
-            found.setdefault(entity["name"], entity["id"])
-            walk(entity.get("children", []))
 
-    walk(session.call("scene_hierarchy")["entities"])
-    missing = [scene_name for _, scene_name, _ in TEST_ENTITIES if scene_name not in found]
-    if missing:
-        raise SystemExit(f"the test scene has no {', '.join(missing)}")
-    # The ghost sets out into its lap where its checks find it early in the run, from the line's pose there.
+def prepare_scene(session, found):
+    """The ghost sets out into its lap where its checks find it early in the run, from the line's pose there."""
     ghost = found[Ghost.ENTITY]
     session.call("component_set", {"entity": ghost, "component": "Transform", "fields": Ghost.transform(Ghost.TEST_START_AT)})
     session.call("component_set", {"entity": ghost, "component": "VisualScript", "fields": {
         "Variables": {"StartAt": {"Type": "Float", "Value": Ghost.TEST_START_AT}}}})
-    create("Tests", {"VisualScript": {"Graph": handles[TESTS], "Variables": {
-        name: entity_value(found[scene_name]) for name, scene_name, _ in TEST_ENTITIES}}})
-    session.call("scene_save")
-    session.call("scene_open", {"path": "Scenes/Main.sscene"})
+
+
+CORE = Suite(checks, write_check, TEST_ENTITIES, VARIABLES, HELPERS, OWN_ENTITIES, make_entities, prepare_scene)
+SUITE = CORE

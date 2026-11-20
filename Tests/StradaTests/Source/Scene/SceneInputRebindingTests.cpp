@@ -658,6 +658,60 @@ TEST_CASE("SceneInputRebinding: the profile is written below the game data folde
 	}
 }
 
+TEST_CASE("SceneInputRebinding: Moto's actions drop a player's binding of Brake, which FrontBrake and RearBrake replaced, with one "
+          "line, and keep the rest")
+{
+	// A profile a player made before the bike had two brakes (Projects/Moto/Tools/Controls.py): Brake's keyboard binding
+	// moved to the down arrow, and the throttle's to the up arrow. The repository's actions have no Brake: its entry is
+	// dropped with one line as the actions load, and the throttle's applies.
+	Testing::TemporaryDirectory const directory;
+	Testing::AssetManagerScope const assets;
+	Testing::PhysicsSystemScope const physics;
+	InputScope const input;
+	std::filesystem::path const folder = directory.GetPath() / "Assets";
+	REQUIRE(FileSystem::CreateDirectories(folder / "Input").IsOk());
+	std::filesystem::path const file = folder / "Input" / "Moto.sinput";
+	REQUIRE(
+		FileSystem::Copy(FileSystem::PathFromUtf8(STRADA_SAMPLE_PROJECTS_DIR) / "Moto" / "Assets" / "Input" / "Moto.sinput", file, false)
+			.IsOk());
+	REQUIRE(AssetManager::OpenAssetDirectory(folder).IsOk());
+	Result<AssetHandle> const imported = AssetManager::ImportFile(file);
+	REQUIRE(imported.IsOk());
+	AssetHandle const actions = imported.GetValue();
+
+	std::filesystem::path const data = directory.GetPath() / "Data";
+	GameDataScope const gameData(data, GameDataLifetime::Kept);
+	InputBindingProfile older;
+	older.Bindings.push_back(InputBindingProfileEntry{"Brake", 0, "Key/Down", "Key/S"});
+	older.Bindings.push_back(InputBindingProfileEntry{"Throttle", 0, "Key/Up", "Key/W"});
+	std::filesystem::path const profile = data / "Input" / "Moto.sinput.json";
+	REQUIRE(InputRebinding::GetProfilePath(actions) == profile);
+	REQUIRE(FileSystem::CreateDirectories(profile.parent_path()).IsOk());
+	REQUIRE(FileSystem::WriteTextFile(profile, DumpJson(WriteInputBindingProfile(older))).IsOk());
+
+	uint64_t const first = Log::GetNextEntryIndex();
+	Scene scene("Moto");
+	scene.OnRuntimeStart(Settings(actions));
+	CHECK(CountLogged(first, "no longer match") == 1);
+	CHECK(CountLogged(first, "Input bindings: 1 of 2 changed bindings of") == 1);
+	CHECK(CountLogged(first, "Brake binding 0: the map has no action of that name") == 1);
+	CHECK(ControlsOf(scene, "Throttle", 0) == "Key/Up");
+	CHECK(ControlsOf(scene, "FrontBrake", 0) == "Key/S");
+	CHECK(ControlsOf(scene, "FrontBrake", 1) == "Gamepad/LeftTrigger");
+	CHECK(ControlsOf(scene, "RearBrake", 0) == "Key/Space");
+	CHECK(ControlsOf(scene, "RearBrake", 1) == "Gamepad/X");
+	CHECK(InputRebinding::GetProfile().Bindings.size() == 1);
+
+	// The throttle's moved key rides; the old Brake's key brakes nothing.
+	Input::SetKeyState(KeyCode::Up, true);
+	Input::SetKeyState(KeyCode::Down, true);
+	RunFrame(scene);
+	CHECK(scene.GetInputActions().GetValue(Find(scene, "Throttle")) == 1.0f);
+	CHECK(scene.GetInputActions().GetValue(Find(scene, "FrontBrake")) == 0.0f);
+	CHECK(scene.GetInputActions().GetValue(Find(scene, "RearBrake")) == 0.0f);
+	scene.OnRuntimeStop();
+}
+
 TEST_CASE("SceneInputRebinding: without a game data folder, or for actions that are no file, nothing is read or written")
 {
 	Testing::TemporaryDirectory const directory;

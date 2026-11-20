@@ -1,4 +1,5 @@
 #include "Core/ProfilerTestUtilities.h"
+#include "Core/TelemetryTestUtilities.h"
 #include "Physics/PhysicsTestUtilities.h"
 #include "Script/ScriptTestUtilities.h"
 #include "TestUtilities.h"
@@ -12,8 +13,11 @@
 #include "Strada/Core/Log.h"
 #include "Strada/Core/Platform.h"
 #include "Strada/Core/Profiler.h"
+#include "Strada/Core/Telemetry.h"
 #include "Strada/Math/Curve.h"
 #include "Strada/Math/Math.h"
+#include "Strada/Physics/PhysicsScene.h"
+#include "Strada/Physics/PhysicsTypes.h"
 #include "Strada/Scene/Entity.h"
 #include "Strada/Scene/Scene.h"
 
@@ -363,15 +367,34 @@ TEST_CASE("ScenePhysics: a vehicle's definition or curve edited while the scene 
 	CHECK(spinDrop() == doctest::Approx(40.0f * Step / inertia).epsilon(1e-4));
 	CHECK(world.GetStructureVersion() == structure);
 	CHECK(world.HasVehicle(UUID(200)));
+	// Edits in place say nothing.
+	std::string_view const madeAgain = "Physics: the Vehicle of 'Bike 200' is made again: its definition's Up or Forward changed";
+	CHECK(CountLogged(logStart, {madeAgain}) == 0);
 
 	// The chassis's axes are taken when the vehicle is made: an edit of them makes it again (the structure moves), keeping
-	// the rider's inputs.
+	// the rider's inputs, and says so once for the edit.
 	values.Forward = glm::vec3(0.0f, 0.02f, -1.0f);
 	Edit(definition, values);
 	Run(scene, 1);
 	CHECK(world.GetStructureVersion() != structure);
 	CHECK(world.HasVehicle(UUID(200)));
 	CHECK(StateOf(scene, 200).Inputs.FrontBrake == 1.0f);
+	CHECK(CountLogged(logStart, {madeAgain, "snapshots taken before are refused"}) == 1);
+	Run(scene, 10);
+	CHECK(CountLogged(logStart, {madeAgain}) == 1);
+	// Another edit of them makes it again, and says so again; one in place after it, nothing.
+	uint64_t const remade = world.GetStructureVersion();
+	values.Up = glm::vec3(0.0f, 1.0f, 0.02f);
+	Edit(definition, values);
+	Run(scene, 1);
+	CHECK(world.GetStructureVersion() != remade);
+	CHECK(CountLogged(logStart, {madeAgain}) == 2);
+	uint64_t const again = world.GetStructureVersion();
+	values.Wheels[0].FrontBrakeTorque = 60.0f;
+	Edit(definition, values);
+	Run(scene, 1);
+	CHECK(world.GetStructureVersion() == again);
+	CHECK(CountLogged(logStart, {madeAgain}) == 2);
 
 	// A definition that stops loading leaves the entity without a vehicle until it loads again.
 	AssetManager::RemoveMemoryAsset(definition);
@@ -379,6 +402,193 @@ TEST_CASE("ScenePhysics: a vehicle's definition or curve edited while the scene 
 	CHECK_FALSE(world.HasVehicle(UUID(200)));
 	CHECK(CountLogged(logStart, {"'Bike 200' makes no vehicle: its Definition", "is no Vehicle that loads"}) == 1);
 	scene.OnRuntimeStop();
+}
+
+TEST_CASE("ScenePhysics: a vehicle whose lean spring cannot settle its chassis is warned of once each time it comes to that: made, "
+          "its values edited or its body changed")
+{
+	Testing::AssetManagerScope const assets;
+	Testing::PhysicsSystemScope const physics;
+	// The two chassis of the lean spring's bound (PhysicsVehicleTests.cpp): the wide one, 250 kg, 0.5 m wide and 1 m high
+	// (26 kg m² about its front), clears the default damping of 1,000 times a step of 1/60 s (16.7); the thin one, 200 kg,
+	// 0.3 m wide and 0.5 m high (200 x (0.3² + 0.5²) / 12 = 5.67 kg m²), does not, and a damping below 340 settles it.
+	AssetHandle const wideDefinition = AddDataAsset(Vehicle{}, "Wide.svehicle");
+	Vehicle thinValues;
+	AssetHandle const thinDefinition = AddDataAsset(thinValues, "Thin.svehicle");
+	Scene scene("Lean Springs");
+	MakeGround(scene);
+	Entity wide = MakeBike(scene, 200, 0.0f, wideDefinition);
+	Entity thin = MakeBike(scene, 300, 5.0f, thinDefinition);
+	thin.GetComponent<RigidBodyComponent>().Mass = 200.0f;
+	BoxColliderComponent& thinCollider = thin.GetComponent<BoxColliderComponent>();
+	thinCollider.HalfExtents = {0.15f, 0.25f, 0.6f};
+	thinCollider.Offset = {0.0f, 0.5f, 0.0f};
+	uint64_t const logStart = Log::GetNextEntryIndex();
+	scene.OnRuntimeStart(PhysicsOnly());
+	PhysicsScene& world = *scene.GetPhysicsScene();
+	std::optional<float> const wideInertia = world.GetVehicleRollInertia(UUID(200));
+	std::optional<float> const thinInertia = world.GetVehicleRollInertia(UUID(300));
+	REQUIRE(wideInertia);
+	REQUIRE(thinInertia);
+	CHECK(*wideInertia == doctest::Approx(250.0f * (0.25f + 1.0f) / 12.0f).epsilon(1e-3));
+	CHECK(*thinInertia == doctest::Approx(200.0f * (0.09f + 0.25f) / 12.0f).epsilon(1e-3));
+	CHECK_FALSE(world.GetVehicleRollInertia(UUID(GroundId)));
+
+	std::string_view const thrown = "may be thrown over by its lean spring";
+	auto const warnings = [logStart, thrown](std::string_view bike)
+	{
+		return CountLogged(logStart, {bike, thrown});
+	};
+	// Made: the thin chassis is warned of, naming its inertia, the damping, the step and the damping that settles it.
+	CHECK(warnings("'Bike 300'") == 1);
+	CHECK(CountLogged(logStart, {"'Bike 300' may be thrown over by its lean spring: its chassis's roll inertia about its front, 5.667 "
+	                             "kg m², is at or below its lean spring's damping, 1000, times the collision step, 0.01667 s; a "
+	                             "damping below 340 settles it"}) == 1);
+	CHECK(warnings("'Bike 200'") == 0);
+	Run(scene, 30);
+	CHECK(warnings("'Bike 300'") == 1);
+
+	// Its values edited to a damping that settles it: no warning; edited back into it, warned again, once.
+	thinValues.Lean.SpringDamping = 200.0f;
+	Edit(thinDefinition, thinValues);
+	Run(scene, 10);
+	CHECK(warnings("'Bike 300'") == 1);
+	thinValues.Lean.SpringDamping = 900.0f;
+	Edit(thinDefinition, thinValues);
+	Run(scene, 10);
+	CHECK(warnings("'Bike 300'") == 2);
+	CHECK(CountLogged(logStart, {"'Bike 300'", thrown, "its lean spring's damping, 900,"}) == 1);
+	// An edit that leaves it there says nothing new.
+	thinValues.Lean.SpringConstant = 4000.0f;
+	Edit(thinDefinition, thinValues);
+	Run(scene, 10);
+	CHECK(warnings("'Bike 300'") == 2);
+
+	// The wide chassis's body changed into it: its collider made as thin, and a lighter body.
+	RigidBodyComponent lighter = wide.GetComponent<RigidBodyComponent>();
+	lighter.Mass = 200.0f;
+	wide.AddOrReplaceComponent<RigidBodyComponent>(lighter);
+	BoxColliderComponent narrow = wide.GetComponent<BoxColliderComponent>();
+	narrow.HalfExtents = {0.15f, 0.25f, 0.6f};
+	narrow.Offset = {0.0f, 0.5f, 0.0f};
+	wide.AddOrReplaceComponent<BoxColliderComponent>(narrow);
+	Run(scene, 2);
+	REQUIRE(world.HasVehicle(UUID(200)));
+	CHECK(warnings("'Bike 200'") == 1);
+	Run(scene, 10);
+	CHECK(warnings("'Bike 200'") == 1);
+	// No value of the author's changed.
+	CHECK(AssetManager::GetAsset<TypedDataAsset<Vehicle>>(thinDefinition)->GetData().Lean.SpringDamping == 900.0f);
+	scene.OnRuntimeStop();
+}
+
+TEST_CASE("SceneTelemetry: each vehicle records its sixteen channels at every fixed step while a recording runs, named by its UUID, "
+          "with the values its step left, and recording leaves the state hashes as they are")
+{
+	Testing::AssetManagerScope const assets;
+	Testing::PhysicsSystemScope const physics;
+	Testing::TelemetryScope const telemetry;
+	AssetHandle const definition = AddDataAsset(Vehicle{}, "Bike.svehicle");
+	constexpr int Frames = 40;
+	// A vehicle's channels' values as Docs/Architecture.md §8 names them: the angles in degrees.
+	auto const channelValues = [](VehicleState const& state)
+	{
+		std::array<float, VehicleChannelCount> values{};
+		values[0] = state.AppliedInputs.Throttle;
+		values[1] = state.AppliedInputs.FrontBrake;
+		values[2] = state.AppliedInputs.RearBrake;
+		values[3] = state.AppliedInputs.Lean;
+		values[4] = state.EngineSpeed;
+		values[5] = static_cast<float>(state.Gear);
+		values[6] = state.ForwardSpeed;
+		values[7] = glm::degrees(state.LeanAngle);
+		for (size_t wheel = 0; wheel < VehicleWheelCount; wheel++)
+		{
+			values[8 + 4 * wheel] = state.Wheels[wheel].LongitudinalSlip;
+			values[9 + 4 * wheel] = glm::degrees(state.Wheels[wheel].LateralSlip);
+			values[10 + 4 * wheel] = state.Wheels[wheel].SuspensionLength;
+			values[11 + 4 * wheel] = state.Wheels[wheel].TyreGrip;
+		}
+		return values;
+	};
+	struct Ride
+	{
+		std::vector<uint64_t> Hashes;
+		std::vector<std::array<float, VehicleChannelCount>> Values;
+	};
+	auto const ride = [&definition, &channelValues](bool record)
+	{
+		if (record)
+		{
+			REQUIRE(Telemetry::Start().IsOk());
+		}
+		Scene scene("Channels");
+		MakeGround(scene);
+		// Made first, the bike of the larger UUID records after the other.
+		MakeBike(scene, 300, 5.0f, definition);
+		MakeBike(scene, 200, 0.0f, definition);
+		scene.OnRuntimeStart(PhysicsOnly());
+		PhysicsScene& world = *scene.GetPhysicsScene();
+		Ride result;
+		for (int frame = 0; frame < Frames; frame++)
+		{
+			float const odd = static_cast<float>(frame % 2);
+			world.SetVehicleInputs(UUID(200),
+			                       MakeInputs(frame < 25 ? 0.6f : 0.0f, frame < 25 ? 0.0f : 0.5f, 0.25f * odd, frame < 30 ? 0.3f : -0.2f));
+			scene.OnUpdateRuntime(Timestep(Step));
+			result.Hashes.push_back(scene.ComputePhysicsStateHash());
+			result.Values.push_back(channelValues(StateOf(scene, 200)));
+		}
+		if (record)
+		{
+			// A vehicle gone records no more (a running scene destroys an entity at the end of the frame, after that frame's
+			// step); a frame without a step adds no row.
+			scene.DestroyEntity(scene.GetEntityByUUID(UUID(300)));
+			Run(scene, 5);
+			scene.OnUpdateRuntime(Timestep(0.4f * Step));
+			Telemetry::Stop();
+		}
+		scene.OnRuntimeStop();
+		return result;
+	};
+	Ride const unrecorded = ride(false);
+	CHECK(Telemetry::GetSessions().empty());
+	Ride const recorded = ride(true);
+	CHECK(recorded.Hashes == unrecorded.Hashes);
+	CHECK(recorded.Values == unrecorded.Values);
+
+	REQUIRE(Telemetry::GetSessions().size() == 1);
+	TelemetrySession const& session = Testing::GetNewestTelemetrySession();
+	CHECK(session.FirstStep == 1);
+	CHECK(session.Rows == Frames + 5);
+	REQUIRE(session.Channels.size() == 2 * VehicleChannelCount);
+	for (size_t index = 0; index < VehicleChannelCount; index++)
+	{
+		CAPTURE(index);
+		std::string const first = "Vehicle.200." + std::string(VehicleChannelQuantities[index]);
+		std::string const second = "Vehicle.300." + std::string(VehicleChannelQuantities[index]);
+		// In the order of the vehicles' UUIDs, whatever the order their entities were made in.
+		CHECK(session.Channels[index].Name == first);
+		CHECK(session.Channels[VehicleChannelCount + index].Name == second);
+		CHECK(session.Channels[index].Count == Frames + 5);
+		CHECK(session.Channels[VehicleChannelCount + index].Count == Frames + 1);
+		// Each row holds what its step left.
+		std::vector<std::optional<float>> const column = Testing::GetTelemetryColumn(session, first);
+		for (int row = 0; row < Frames; row++)
+		{
+			CAPTURE(row);
+			REQUIRE(column[static_cast<size_t>(row)].has_value());
+			CHECK(*column[static_cast<size_t>(row)] == recorded.Values[static_cast<size_t>(row)][index]);
+		}
+		CHECK_FALSE(Testing::GetTelemetryColumn(session, second)[Frames + 1].has_value());
+	}
+	// What they hold: the inputs as applied, a bike that rode in first gear, on its tyres' grip of 1, the lean in degrees.
+	CHECK(FindTelemetryChannel(session, "Vehicle.200.Throttle")->Maximum == 0.6f);
+	CHECK(FindTelemetryChannel(session, "Vehicle.200.RearBrake")->Maximum == 0.25f);
+	CHECK(FindTelemetryChannel(session, "Vehicle.200.Gear")->Maximum >= 1.0f);
+	CHECK(FindTelemetryChannel(session, "Vehicle.200.ForwardSpeed")->Maximum > 0.1f);
+	CHECK(FindTelemetryChannel(session, "Vehicle.200.Front.Grip")->Minimum == 1.0f);
+	CHECK(FindTelemetryChannel(session, "Vehicle.300.Gear")->Maximum == 0.0f);
 }
 
 TEST_CASE("Scene: a bike duplicated keeps its definition and its wheels' names, and runs as a vehicle of its own")

@@ -251,6 +251,9 @@ namespace
 		Recipe("Call:Strada.Audio.PlayClipAtPoint(Strada.AudioClip,Strada.Vector3,float,string)")
 			.WithInputs(R"({"Clip": "9906031496213900225"})"),
 		Recipe("Set:Strada.Audio.MasterVolume").WithInputs(R"({"Value": 1.0})"),
+		// A vehicle's definition set to the one it has (FeatureTest's Vehicles/Bike.svehicle): none would make no vehicle, which
+		// the scene warns of.
+		Recipe("Set:Strada.VehicleComponent.Definition").WithInputs(R"({"Value": "16927299108182019562"})"),
 		// Save slots run against a game data folder of their own (GameDataTypes), named as a slot and a value may be; the
 		// player's settings without one, so that their Save says it keeps nothing (both sides of each are directed cases of
 		// Scene/SceneSavesScriptingTests.cpp).
@@ -277,6 +280,11 @@ namespace
 		{"Strada.RigidBodyComponent", R"({"RigidBody": {}, "BoxCollider": {}})"},
 		{"Strada.JointComponent", R"({"RigidBody": {}, "BoxCollider": {}, "Joint": {}})"},
 		{"Strada.MeshColliderComponent", R"({"RigidBody": {"Type": "Static"}, "MeshCollider": {"Mesh": "1", "Convex": true}})"},
+		// A vehicle rides a dynamic chassis with a collider and a definition (FeatureTest's Vehicles/Bike.svehicle): FeatureTest's
+		// 250 kg chassis box, whose roll inertia carries the definition's lean spring (Docs/Architecture.md §8, "Vehicles").
+		{"Strada.VehicleComponent",
+	     R"({"RigidBody": {"Type": "Dynamic", "Mass": 250.0}, "BoxCollider": {"HalfExtents": [0.25, 0.5, 0.6], "Offset": [0.0, 0.75, 0.0]},
+	         "Vehicle": {"Definition": "16927299108182019562"}})"},
 	});
 
 	constexpr auto Exclusions = std::to_array<NodeCaseExclusion>({

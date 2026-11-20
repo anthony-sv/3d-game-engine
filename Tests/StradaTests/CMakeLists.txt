@@ -149,6 +149,7 @@ add_executable(StradaTests
     Source/Scene/SceneScriptingHostTests.cpp
     Source/Scene/SceneScriptingInputActionsTests.cpp
     Source/Scene/SceneScriptingTests.cpp
+    Source/Scene/SceneScriptingVehicleTests.cpp
     Source/Scene/SceneSerializerTests.cpp
     Source/Scene/SceneTelemetryScriptingTests.cpp
     Source/Scene/SceneTelemetryTests.cpp

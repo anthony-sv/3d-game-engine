@@ -6,6 +6,8 @@
 #include "Strada/Asset/InputActionsAsset.h"
 #include "Strada/Asset/MixerAsset.h"
 #include "Strada/Asset/PhysicsMaterialAsset.h"
+#include "Strada/Asset/Vehicle.h"
+#include "Strada/Asset/VehicleAsset.h"
 #include "Strada/Asset/VisualScriptSerializer.h"
 
 #include <algorithm>
@@ -447,6 +449,11 @@ namespace Strada
 		{
 			static AssetType const s_PhysicsMaterialType = TypedDataAsset<PhysicsMaterial>::GetStaticType();
 			return VisualScriptExposableType{ScriptFieldType::Asset, s_PhysicsMaterialType};
+		}
+		if (typeId == "Strada.Vehicle")
+		{
+			static AssetType const s_VehicleType = TypedDataAsset<Vehicle>::GetStaticType();
+			return VisualScriptExposableType{ScriptFieldType::Asset, s_VehicleType};
 		}
 		return std::nullopt;
 	}
