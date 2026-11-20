@@ -41,8 +41,8 @@ namespace
 	// The ride test scene's checks: the bike's seven (Tools/BikeChecks.py), the assists' and the autopilot's seven, the
 	// directors' nine, then the best lap's five.
 	constexpr std::string_view RideChecks = "Tests passed: 28 checks";
-	// The lap test scene's checks (Tools/LapChecks.py): the laps' times, the line, the ghost.
-	constexpr std::string_view LapChecks = "Tests passed: 3 checks";
+	// The lap test scene's checks (Tools/LapChecks.py): the laps' times, the line, the ghost, the lean.
+	constexpr std::string_view LapChecks = "Tests passed: 4 checks";
 	// The ride test scene's test timeout (seconds of the game, Tools/Checks.py's SCENES): the rides take about 151 s. A Debug
 	// run of its 9,100 frames on a slow runner can pass RunTimeout's two minutes, so it has a process timeout of its own.
 	constexpr std::string_view RideTimeout = "200";

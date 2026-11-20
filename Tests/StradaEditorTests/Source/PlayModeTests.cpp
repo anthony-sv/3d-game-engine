@@ -2609,15 +2609,18 @@ TEST_CASE("PlayCommands: play mode flies the Moto sample's camera tour, a graph'
 	float const brakeFrom = upright["forwardSpeed"].get<float>();
 	CHECK(brakeFrom > 4.0f);
 	// A second on the front lever (the left trigger), still in first gear: the linked brakes apply the rear too, by its share
-	// of the front, both eased a little by what lean is left (1 upright), and the bike loses more than 2 m/s (in gear the
-	// engine's inertia rides on with it, so it slows about half as fast as in neutral, Tools/Vehicle.py).
+	// of the front, both eased by what lean is left ((1 - sin|lean|)^2, 1 upright: the lean of the step before the one read,
+	// so within 0.05 of the reading's), and the bike loses more than 2 m/s (in gear the engine's inertia rides on with it, so
+	// it slows about half as fast as in neutral, Tools/Vehicle.py).
 	pad(Json::object({{"axes", Json::object({{"LeftTrigger", 1.0}})}}));
 	fixture.Ok("play.advance", Json::object({{"frames", 60}}));
 	Json const braked = ridden();
 	CAPTURE(braked.dump());
 	CHECK(braked["applied"]["throttle"] == 0.0);
 	float const frontApplied = braked["applied"]["frontBrake"].get<float>();
-	CHECK(frontApplied >= 0.9f);
+	float const eased = std::pow(1.0f - std::sin(glm::radians(std::abs(braked["leanAngle"].get<float>()))), 2.0f);
+	CHECK(frontApplied == doctest::Approx(eased).epsilon(0.05));
+	CHECK(frontApplied >= 0.5f);
 	// Tools/Vehicle.py's LINKED_SHARE.
 	CHECK(braked["applied"]["rearBrake"].get<float>() == doctest::Approx(0.3f * frontApplied).epsilon(0.001));
 	float const frontBraked = braked["forwardSpeed"].get<float>();

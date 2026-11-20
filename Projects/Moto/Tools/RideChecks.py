@@ -96,6 +96,10 @@ TURN_ROOM = (0.6, 1.25)
 COVERED_ROOM = (0.75, 1.15)
 MOST_OFFSET = 3.0
 MOST_LEAN = RacingLine.MAX_LEAN
+# The deepest lean of the segment through Turn 1, at least (degrees): 80 % of the weaker of the Debug and the Release
+# readings (the feel pass's contacts read 31.4 and 31.2; the bike as drawn, its contacts as wide as its tyres, 9.2), so
+# that a bike that takes Turn 1 upright again fails on every platform CI plays the scene on.
+LEAST_TURN1_LEAN = 24.9
 # The pose: how far the rider may stand from where the riding graph poses him for the bike's drawn lean and speed (meters;
 # the check may read a frame after the pose was set), and the fork's axle from the front wheel's (degrees).
 POSE_TOLERANCE = 0.01
@@ -485,11 +489,13 @@ def check_autopilot(b, name, segment):
     covered = b.var(f"Covered{segment}")
     offset, rough, deepest = b.var(f"Offset{segment}"), b.var(f"OffRoad{segment}"), b.var(f"Deepest{segment}")
     ready = b.expr("covered >= 0", covered=covered)
+    # Through Turn 1 the bike leans into the turn, at least LEAST_TURN1_LEAN.
+    least = LEAST_TURN1_LEAN if segment == "A" else 0.0
     passed = b.both(ready, b.expr(f"covered >= {low} && covered <= {high} && offset <= {MOST_OFFSET} && rough == 0 && deepest <= "
-                                  f"{MOST_LEAN}", covered=covered, offset=offset, rough=rough, deepest=deepest))
+                                  f"{MOST_LEAN} && deepest >= {least}", covered=covered, offset=offset, rough=rough, deepest=deepest))
     text = b.fmt(f"the autopilot covered {{Covered}} m of the lap (its point mass {figure}, the band {low} to {high}), {{Offset}} m off "
                  f"the line at most (at most {MOST_OFFSET}), {{Rough}} steps with a wheel on gravel or grass, leaned {{Deepest}} "
-                 f"degrees at most (at most {MOST_LEAN})", Covered=covered, Offset=offset, Rough=rough, Deepest=deepest)
+                 f"degrees at most (from {least} to {MOST_LEAN})", Covered=covered, Offset=offset, Rough=rough, Deepest=deepest)
     run(b, Checks.check(b, name, ready, WAIT, text, passed))
 
 

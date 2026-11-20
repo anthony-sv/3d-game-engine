@@ -33553,7 +33553,7 @@
 								0.0
 							],
 							"Settings": {
-								"Formula": "covered >= 508.6 && covered <= 779.8 && offset <= 3.0 && rough == 0 && deepest <= 52.0"
+								"Formula": "covered >= 507.1 && covered <= 777.6 && offset <= 3.0 && rough == 0 && deepest <= 52.0 && deepest >= 24.9"
 							}
 						},
 						{
@@ -33572,7 +33572,7 @@
 								80.0
 							],
 							"Settings": {
-								"Format": "the autopilot covered {Covered} m of the lap (its point mass 678.1, the band 508.6 to 779.8), {Offset} m off the line at most (at most 3.0), {Rough} steps with a wheel on gravel or grass, leaned {Deepest} degrees at most (at most 52.0)"
+								"Format": "the autopilot covered {Covered} m of the lap (its point mass 676.1, the band 507.1 to 777.6), {Offset} m off the line at most (at most 3.0), {Rough} steps with a wheel on gravel or grass, leaned {Deepest} degrees at most (from 24.9 to 52.0)"
 							}
 						},
 						{
@@ -33972,7 +33972,7 @@
 								0.0
 							],
 							"Settings": {
-								"Formula": "covered >= 314.3 && covered <= 481.9 && offset <= 3.0 && rough == 0 && deepest <= 52.0"
+								"Formula": "covered >= 300.8 && covered <= 461.2 && offset <= 3.0 && rough == 0 && deepest <= 52.0 && deepest >= 0.0"
 							}
 						},
 						{
@@ -33991,7 +33991,7 @@
 								80.0
 							],
 							"Settings": {
-								"Format": "the autopilot covered {Covered} m of the lap (its point mass 419.0, the band 314.3 to 481.9), {Offset} m off the line at most (at most 3.0), {Rough} steps with a wheel on gravel or grass, leaned {Deepest} degrees at most (at most 52.0)"
+								"Format": "the autopilot covered {Covered} m of the lap (its point mass 401.0, the band 300.8 to 461.2), {Offset} m off the line at most (at most 3.0), {Rough} steps with a wheel on gravel or grass, leaned {Deepest} degrees at most (from 0.0 to 52.0)"
 							}
 						},
 						{

@@ -7,9 +7,11 @@ The definition takes its figures from the bike's tools, so that the bike rides a
 
 - the geometry from Bike.py: the wheels on their axles 1,485 mm apart, the front one steering about an axis raked 24
   degrees that meets the ground 98 mm ahead of its contact patch, the 120/70 ZR17 front tyre (0.2999 m in radius, 120 mm
-  wide) and the 200/55 ZR17 rear one (0.3259 m, 200 mm); the front suspension runs along the fork, the rear one straight
-  up; each wheel's attachment lies where its spring, loaded by the bike at rest, holds the wheel on its axle, so the bike
-  stands in play as the scene placed it;
+  wide) and the 200/55 ZR17 rear one (0.3259 m, 200 mm), which Bike.py draws; the front suspension runs along the fork, the
+  rear one straight up; each wheel's attachment lies where its spring, loaded by the bike at rest, holds the wheel on its
+  axle, so the bike stands in play as the scene placed it;
+- each wheel's contact width (the width of the cylinder the wheel casts against the ground, the definition's Width) its
+  own, narrower than the tyre drawn: FRONT_CONTACT and REAR_CONTACT, at most MAX_CONTACT (below);
 - the rest from RacingLine.py: 262 kg with the rider (the body's mass), 150 kW at the rear wheel at the top of the
   engine's torque curve, the primary drive of 1.80, the six gears from 2.714 to 1.304 and the final drive of 2.5625 (the
   definition's FinalDrive is the primary times the final: 4.6125), the shift at 15,500 rpm, the red line at 16,000 and
@@ -107,6 +109,17 @@ REAR_SAG = 0.0538
 FRONT_INERTIA = 0.6
 REAR_INERTIA = 1.0
 WHEEL_DAMPING = 0.02
+# The wheels' contact widths (meters): the width of the cylinder each wheel casts against the ground along its suspension
+# (the definition's Width), apart from the tyres Bike.py draws (Bike.FRONT_WIDTH and Bike.REAR_WIDTH). The engine rounds the
+# cast's edges by half its width, but Jolt caps a cast's convex radius at 0.05 m (ScaleHelpers.h, from the cylinder's
+# support function), so a wheel cast wider than MAX_CONTACT rides on a flat bottom: its contact sits off the wheel's plane
+# by half the width less 0.05 m even upright, the ground's force misses the center of mass at the lean Jolt's controller
+# aims for, and the bike rides its corners nearly upright (the feel pass, Docs/Architecture.md section 15: the bike as
+# drawn leaned 0.07 of the lean that balances its turns). Narrower casts lean it the more: these lean it about two thirds of
+# the way, a share LapChecks pins.
+FRONT_CONTACT = 0.024
+REAR_CONTACT = 0.04
+MAX_CONTACT = 0.1
 # The steering lock (degrees) and the brakes' torques at full input (N m): the front lever brakes the front wheel, the
 # rear pedal the rear one. Applied all at once, the front's asks more of its tyre than the tyre's load at rest holds, so
 # the front wheel locks and its tyre slides at SLIDING_FRICTION, its load growing as the bike pitches forward (locks());
@@ -122,8 +135,12 @@ SLIDING_FRICTION = 1.0
 
 # --- The lean -------------------------------------------------------------------------------------------------------------
 
+# The lean limit, and Jolt's lean controller: the spring that turns the bike to its target lean and its damping (which
+# stays under the roll inertia's bound, check()), and how much of the last target it keeps each step. The feel pass stiffened
+# the spring from 5,000 with the damping held: on the narrow contacts it leans the bike deeper and faster (Turn 1's peak
+# roll rate 31 against 43 degrees a second); a damping raised with it slows the lean instead.
 MAX_LEAN = round(math.degrees(math.atan(RacingLine.GRIP)), 1)
-LEAN_SPRING = 5000.0
+LEAN_SPRING = 10000.0
 LEAN_DAMPING = 400.0
 LEAN_SMOOTHING = 0.8
 MAX_PITCH_ROLL = 60.0
@@ -182,9 +199,9 @@ def definition():
     return {
         "Wheels": [
             wheel("Front", Bike.FRONT_AXLE, FRONT_DIRECTION, FRONT_REST, FRONT_TRAVEL, FRONT_SAG, Bike.STEERING_AXIS, STEER_LOCK,
-                  Bike.FRONT_RADIUS, Bike.FRONT_WIDTH, FRONT_INERTIA, FRONT_BRAKE, 0.0),
+                  Bike.FRONT_RADIUS, FRONT_CONTACT, FRONT_INERTIA, FRONT_BRAKE, 0.0),
             wheel("Rear", Bike.REAR_AXLE, REAR_DIRECTION, REAR_REST, REAR_TRAVEL, REAR_SAG, (0.0, 1.0, 0.0), 0.0, Bike.REAR_RADIUS,
-                  Bike.REAR_WIDTH, REAR_INERTIA, 0.0, REAR_BRAKE),
+                  REAR_CONTACT, REAR_INERTIA, 0.0, REAR_BRAKE),
         ],
         "Up": [0.0, 1.0, 0.0], "Forward": [0.0, 0.0, -1.0], "MaxPitchRoll": MAX_PITCH_ROLL,
         "Engine": {"MaxTorque": MAX_TORQUE, "MinRPM": RacingLine.IDLE, "MaxRPM": RacingLine.RED_LINE,
@@ -458,6 +475,10 @@ def check():
             problems.append(f"the {row['Name']} wheel's rest length {rest} lies outside its travel {travel}")
     if abs(math.degrees(math.acos(-FRONT_DIRECTION[1])) - Bike.RAKE) > 1e-3:
         problems.append("the fork's suspension does not run along the steering axis")
+    # The contacts are narrow enough to be round (a wider cast rides on a flat bottom), and no wider than the tyres drawn.
+    for row, drawn in ((front, Bike.FRONT_WIDTH), (rear, Bike.REAR_WIDTH)):
+        if not 0.0 < row["Width"] <= min(MAX_CONTACT, drawn):
+            problems.append(f"the {row['Name']} wheel's contact width {row['Width']} m is not within 0 to {min(MAX_CONTACT, drawn)} m")
     # The figures the tools state.
     if abs(Bike.REAR_AXLE[2] - Bike.FRONT_AXLE[2] - 1.485) > 1e-6 or Bike.RAKE != 24.0 or abs(Bike.TRAIL - 0.098) > 1e-9:
         problems.append("Bike.py's geometry is not the published 1,485 mm, 24 degrees and 98 mm")

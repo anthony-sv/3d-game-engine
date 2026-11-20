@@ -9,11 +9,13 @@ came round from the lap's last CROSSING meters to its first), broadcasts LapFini
 (Best when it is the faster) and LapStarted(Lap) for the next, as the race director does, the lap's time in fixed steps
 since the crossing that began it. It is driven by its own count of steps and by what the bike and the Ride graph read, never
 by a frame, and logs every reading in one line ("Moto's laps: ..."). Meanwhile it notes, every step of the laps, how far the
-bike rode from the racing line (the Ride graph's Offset), the steps a wheel touched gravel or grass, and the deepest lean.
+bike rode from the racing line (the Ride graph's Offset), the steps a wheel touched gravel or grass, and the deepest lean,
+and ten times a second the lean's share of the lean that balances the turn.
 
 The checks: each lap's time within LAP_BAND of the racing line's own (RacingLine.LAP_TIME, a point mass at the tyres'
 grip, which the autopilot's careful pace stays behind: Docs/Architecture.md section 15, the feel pass); the laps on the line
-and on the road; and the ghost keeping the faster lap, with its Delta at the end of the second the laps' difference.
+and on the road; the ghost keeping the faster lap, with its Delta at the end of the second the laps' difference; and the
+bike leaning into its corners, its lean at least LEAN_SHARE of the balancing lean over the laps.
 """
 import os
 import sys
@@ -45,6 +47,14 @@ MOST_OFFSET = RideChecks.MOST_OFFSET
 MOST_LEAN = RideChecks.MOST_LEAN
 # Delta at the second lap's end against the laps' difference (seconds), as the ghost's checks of the ride test scene.
 DELTA_TOLERANCE = 0.1
+# The lean over the lean that balances the turn: every LEAN_EVERY steps of the laps (ten times a second) the turn's rate is
+# the heading's change since the last sample, the balancing lean atan(v x rate / g), and where that passes LEAN_FROM degrees
+# the bike's lean over it is a sample; the laps' reading is the samples' mean. The bike as drawn (its contacts as wide as its
+# tyres) read 0.07, the feel pass's contacts about two thirds (Docs/Architecture.md section 15); the bound is 85 % of the
+# weaker of the Debug and the Release readings (0.671 and 0.676), so that a bike that rides its corners upright again fails.
+LEAN_EVERY = 6
+LEAN_FROM = 10.0
+LEAN_SHARE = 0.57
 # How long a check waits for its reading (seconds of the game, from when it starts); the scene's timeout stays above it.
 WAIT = 200
 
@@ -60,6 +70,8 @@ VARIABLES = (
     private("LapTimes", "float[]", [0.0] * LAPS), private("LapDeltas", "float[]", [0.0] * LAPS),
     private("LapKept", "float[]", [-1.0] * LAPS), private("LapSamples", "int[]", [-1] * LAPS),
     private("LapOffset", "float", 0.0), private("LapRough", "int", 0), private("LapLean", "float", 0.0),
+    private("LapHeading", "float", 0.0), private("LapHeaded", "bool", False), private("LapShareSum", "float", 0.0),
+    private("LapShareCount", "int", 0),
     private("LapsDone", "bool", False),
 )
 
@@ -76,6 +88,11 @@ def broadcast(b, event, **arguments):
     name, parameters = event
     return b.add("Event.Broadcast", {"Name": name, "Parameters": [{"Name": p, "Type": t} for p, t in parameters]}, "Count",
                  comment="The race director's event, which this test stands in for", **arguments)
+
+
+def lean_share(b):
+    """The laps' lean over the balancing lean: the mean of the samples' shares."""
+    return b.expr("count > 0 ? sum / float(count) : 0.0", sum=b.var("LapShareSum"), count=b.var("LapShareCount"))
 
 
 def put(b, array, index, value):
@@ -116,9 +133,11 @@ def write_laps(b):
     stop = b.send("StopAutopilot", b.var("Ride"), graph=RIDE)
     readings = b.fmt(
         "Moto's laps: {Times} s, Delta at their ends {Deltas} s, the ghost keeping {Kept} s of {Samples} samples after each; at "
-        "most {Offset} m off the line, {Rough} steps off the road, leaned {Lean} degrees at most; done at step {Step}",
+        "most {Offset} m off the line, {Rough} steps off the road, leaned {Lean} degrees at most and {Share} of the balancing "
+        "lean over {Count} samples; done at step {Step}",
         Times=b.var("LapTimes"), Deltas=b.var("LapDeltas"), Kept=b.var("LapKept"), Samples=b.var("LapSamples"),
-        Offset=b.var("LapOffset"), Rough=b.var("LapRough"), Lean=b.var("LapLean"), Step=b.var("LapStep"))
+        Offset=b.var("LapOffset"), Rough=b.var("LapRough"), Lean=b.var("LapLean"), Share=lean_share(b),
+        Count=b.var("LapShareCount"), Step=b.var("LapStep"))
     done = [b.set("LapNumber", LAPS + 1), stop, b.call("Call:Strada.Log.Info(string)", Message=readings), b.set("LapsDone", True)]
     # Every step of the laps: how far off the line, on what, how leaned.
     timing = b.branch(b.expr(f"lap >= 1 && lap <= {LAPS}", lap=b.var("LapNumber")), comment="On a lap: its readings")
@@ -131,8 +150,20 @@ def write_laps(b):
                                     grass=b.equal(surface, b.lit("string", "Grass")))))
     away = b.set("LapOffset", b.expr("max(most, abs(offset))", most=b.var("LapOffset"), offset=b.get("Offset", RIDE, b.var("Ride"))))
     rough = b.set("LapRough", b.expr("count + (front || rear ? 1 : 0)", count=b.var("LapRough"), front=wheels[0], rear=wheels[1]))
-    leaned = b.set("LapLean", b.expr("max(most, abs(lean))", most=b.var("LapLean"),
-                                     lean=b.pure("Get:Strada.VehicleComponent.LeanAngle", "Value", Target=b.var("Bike"))))
+    lean = b.pure("Get:Strada.VehicleComponent.LeanAngle", "Value", Target=b.var("Bike"))
+    leaned = b.set("LapLean", b.expr("max(most, abs(lean))", most=b.var("LapLean"), lean=lean))
+    # Ten times a second: the turn's rate since the last sample, the lean that balances it, and the lean's share of it (the
+    # lean is positive to the right, where the heading turns the other way).
+    sampled = b.branch(b.expr(f"step % {LEAN_EVERY} == 0", step=b.var("LapStep")), comment="Ten times a second: the lean's share")
+    heading = b.expr("atan2(f.X, f.Z)", f=b.pure("Get:Strada.TransformComponent.Forward", "Value", Target=b.var("Bike")))
+    balance = b.expr(f"degrees(atan(v * atan2(sin(h - last), cos(h - last)) / ({LEAN_EVERY} * dt) / {RacingLine.GRAVITY}))",
+                     v=b.pure("Get:Strada.VehicleComponent.ForwardSpeed", "Value", Target=b.var("Bike")), h=heading,
+                     last=b.var("LapHeading"), dt=b.pure("Get:Strada.Time.FixedDeltaTime", "Value"))
+    turning = b.branch(b.expr(f"headed && abs(balance) > {LEAN_FROM}", headed=b.var("LapHeaded"), balance=balance),
+                       comment="A turn whose balancing lean passes LEAN_FROM")
+    share = b.set("LapShareSum", b.expr("sum - lean / balance", sum=b.var("LapShareSum"), lean=lean, balance=balance))
+    shared = b.set("LapShareCount", b.expr("count + 1", count=b.var("LapShareCount")))
+    headed = [b.set("LapHeading", heading), b.set("LapHeaded", True)]
     last = b.set("LapLast", b.get("Distance", RIDE, b.var("Ride")))
     counted = b.set("LapStep", b.expr("step + 1", step=b.var("LapStep")))
     b.chain(b.entry, crossed)
@@ -143,7 +174,12 @@ def write_laps(b):
     b.flow(more["False"], done[0])
     b.chain(*done, timing)
     b.flow(crossed["False"], timing)
-    b.chain(timing["True"], away, rough, leaned, last)
+    b.chain(timing["True"], away, rough, leaned, sampled)
+    b.chain(sampled["True"], turning)
+    b.chain(turning["True"], share, shared, headed[0])
+    b.flow(turning["False"], headed[0])
+    b.chain(*headed, last)
+    b.flow(sampled["False"], last)
     b.flow(timing["False"], last)
     b.chain(last, counted, b.ret)
 
@@ -164,6 +200,8 @@ def checks():
          "the autopilot rides whole laps on the racing line, never off the road"),
         ("CheckLapGhost", "Ghost: the faster lap kept, Delta the laps' difference",
          "the ghost keeps the faster of two whole laps, and its Delta at the second's end is their difference"),
+        ("CheckLapLean", "Lean: into the corners, near the lean that balances them",
+         "the bike leans into the corners of whole laps by at least its share of the lean that balances each turn"),
     )
 
 
@@ -204,7 +242,16 @@ def check_ghost(b, name):
     run(b, Checks.check(b, name, ready, WAIT, text, passed))
 
 
-WRITERS = {"CheckLapTimes": check_times, "CheckLapLine": check_line, "CheckLapGhost": check_ghost}
+def check_lean(b, name):
+    ready = b.var("LapsDone")
+    share = lean_share(b)
+    passed = b.expr(f"ready && share >= {LEAN_SHARE}", ready=ready, share=share)
+    text = b.fmt(f"leaned {{Share}} of the lean that balances each turn over {{Count}} samples (at least {LEAN_SHARE})", Share=share,
+                 Count=b.var("LapShareCount"))
+    run(b, Checks.check(b, name, ready, WAIT, text, passed))
+
+
+WRITERS = {"CheckLapTimes": check_times, "CheckLapLine": check_line, "CheckLapGhost": check_ghost, "CheckLapLean": check_lean}
 
 
 def write_check(b, function, name):

@@ -6813,7 +6813,7 @@ graphs alone keeps its best lap and its settings screen, and none exposes a path
   wheels: a wheel entity has no collider, §8 "Vehicles") whose roll inertia of 9.82 kg m² clears the lean spring's bound
   of 6.67, and `Vehicle` on `Assets/Vehicles/Moto.svehicle`; `Front Wheel` and `Rear Wheel` get `VehicleWheel`.
   `Tools/Vehicle.py` writes the definition from `Bike.py`'s geometry (wheelbase 1.485 m, rake 24°, trail 98 mm, tyres of
-  0.2999 and 0.3259 m radius, 120 and 200 mm wide) and `RacingLine.py`'s figures (150 kW at the wheel at 14,000 rpm, the
+  0.2999 and 0.3259 m radius, drawn 120 and 200 mm wide, whose contacts are 24 and 40 mm wide since the feel pass) and `RacingLine.py`'s figures (150 kW at the wheel at 14,000 rpm, the
   gears 2.714 to 1.304 behind a primary of 1.80 and a final drive of 2.5625, so overall ratios of 12.52 in first to 6.01
   in sixth; idle 1,700 rpm, red line 16,000), in `Manual` mode: the bike waits in neutral, and the rider shifts with
   `ShiftUp` and `ShiftDown`. Its curve (`EngineTorque.scurve`) lives in `Assets/Vehicles/`, and its `check()` asserts the
@@ -6857,15 +6857,15 @@ graphs alone keeps its best lap and its settings screen, and none exposes a path
   checks, each a band drawn from the figures
   `Vehicle.py`'s `ride_figures()` gives (closed forms from the definition), with the room each form leaves:
   (1) the speed 3 s after the launch, 18.92 m/s by the form, in 0.9 to 1.3 times it (the form takes the spinning rear tyre at its
-  sliding friction throughout, where it grips up to its peak whenever it spins less), read 20.58; (2) the front brake
+  sliding friction throughout, where it grips up to its peak whenever it spins less), read 20.45 (20.43 in Release); (2) the front brake
   alone from 20 m/s, 24.17 m, in 0.85 to 1.25 times it (the form moves the weight to the front at once, where the
-  springs' pitch moves it over the first tenths of a second), read 25.47 (25.52 in Release); (3) the rear brake alone from 20 m/s, 50.04 m,
-  in the same room and longer than the front's, read 52.75; (4) upright with no lean asked over the launch and the
-  asphalt's coast, within 3°, read 1.65° at most; (5) the coast in the gravel losing more than the one on the asphalt by
-  the forms' 2.28 m/s (rolling resistance 0.25 against 0.015), in 0.75 to 1.25 times it, read 2.69 against 0.51 m/s;
+  springs' pitch moves it over the first tenths of a second), read 25.62 (25.61 in Release); (3) the rear brake alone from 20 m/s, 50.04 m,
+  in the same room and longer than the front's, read 52.75 (52.78 in Release); (4) upright with no lean asked over the launch and the
+  asphalt's coast, within 3°, read 0.12° at most; (5) the coast in the gravel losing more than the one on the asphalt by
+  the forms' 2.28 m/s (rolling resistance 0.25 against 0.015), in 0.75 to 1.25 times it, read 2.68 against 0.51 m/s;
   (6) each of the five `ShiftUp`s (from neutral four times, from first once) one gear up, exactly, counted 10 steps after
   each; (7) the lean to the left leaning the bike more than 5° to the left and turning its heading more than 5° to the
-  left, read -10.95° and 46.4° (-10.81° and 46.3° in Release; the steering turns the bike before the lean builds). Release
+  left, read -27.86° and 49.2° (the same in Release). Release
   reads within 1.3 % of Debug, and each the same at every frame rate. The graph logs every reading in one line ("Moto's ride: ..."). `MotoRideTests.cpp` (the shard
   `StradaRuntimeTests.Ride`) plays the scene at 1/60 and at 1/30 s a frame and requires the same line and the same physics
   state at step 1,750, after both teleports; behind `STRADA_LONG_RIDES=1`, with a timeout of 10 minutes, it also plays it at
@@ -6927,14 +6927,14 @@ graphs alone keeps its best lap and its settings screen, and none exposes a path
   `Ride.Speed` (km/h) and `Ride.Offset`. **The autopilot** (`Autopilot`, off: Moto starts as it did, the player riding;
   the events `StartAutopilot` and `StopAutopilot`) rides by the simulation alone from that fixed step: it sets the riding
   graph's `Driver` to 1 and writes its public inputs, never `SetDriverInput`, and the assists steer, brake and shift for
-  it. It steers onto a curvature, the line's own 0.3 s ahead times 1.3 (the bike's turn builds behind its steering, so it
+  it. It steers onto a curvature, the line's own 0.3 s ahead times 1.15 (the bike's turn builds behind its steering, so it
   asks for more than the line's curvature: found by probing the ride), less its heading's error from the line's over 0.4 s of its speed, the heading it aims for bringing
   it back from its offset over 1.2 s (at most 0.3 rad); it asks the assist for the lean that turns on that curvature. It
-  holds the speed of the line 0.5 s ahead: `LineSpeed` is the line's corners at 0.8 g, slowed for at 4 m/s² besides the
+  holds the speed of the line 0.5 s ahead: `LineSpeed` is the line's corners at 0.75 g, slowed for at 4 m/s² besides the
   drag, never faster than the line's own point mass, times `Pace` (1); the throttle opens by 0.5 for each m/s below it
   (exactly 0 at or above), the front lever by 0.4 for each m/s above it past 0.5, at most 0.45 (the linked brakes add the
-  rear). A probe found that a front lever past about 0.6 at 60 m/s sets the bike weaving until it falls, which is why the
-  autopilot brakes gently and early; a lap at its speeds is 83.0 s against the line's 71.1 s (its point mass's), and
+  rear). A probe found that a front lever of 0.45 at 58 m/s sets the bike weaving until it falls (the feel pass, below),
+  which is why the autopilot brakes gently and early; a lap at its speeds is 84.6 s against the line's 71.1 s (its point mass's), and
   whole laps ride within 1 to 1.25 times the line's (the feel pass, below). **The best lap's ghost**
   (`Tools/Ghost.py`, the `ghost` part, in regions of the ghost's graph of their own, so that the graph without them is
   slice 3's ghost on the racing line). The ghost's public `Bike` is the ridden bike (the `ghost` part follows the `bike`
@@ -7004,19 +7004,19 @@ graphs alone keeps its best lap and its settings screen, and none exposes a path
   (`Tools/RideChecks.py`, after the bike's seven; the test runner's one `Event.FixedUpdate` calls each module's ride in
   turn, `Checks.Suite.steps`): from the bike's ride's end, the assists on, (8) the throttle alone puts it in first gear
   20 steps later; (9) from 20 m/s in neutral the front lever with the linked brakes stops it within 0.85 to 1.25 times
-  the 20.1 m (read 21.3 m) and shorter than the front brake alone in the same run (25.5 m), the rear applied at the
+  the 20.1 m (read 21.3 m) and shorter than the front brake alone in the same run (25.6 m), the rear applied at the
   share eased by the lean (0.287 to 0.3; read 0.299); (10) a lean request of −0.4 (20.1°) held 1.5 s from 20 m/s turns
   the bike, over its last 0.5 s, at 0.6 to 1.25 times the rate at which that lean balances the turn at the speed then,
-  g tan(lean) / v (read 8.3°/s against 8.3). The lean itself is read and logged, not checked: in this turn, where 20°
-  balances it, the vehicle's target lean (the direction of the ground's impulse, `vehicle.state`'s `targetLeanAngle`)
-  read 0 to −2.9° in a probe and the chassis followed it (−0.9° at the end), a lean far smaller than a rider's, which the
-  feel pass takes up; (11) at over 47 m/s the rider stands where the
+  g tan(lean) / v (read 8.5°/s against 8.3). The lean itself is read and logged, not checked: −12.2° at the end, where
+  20.1° balances the turn (the bike as drawn read −0.9°, before the feel pass); (11) at over 47 m/s the rider stands where the
   pose puts him tucked, within 1 cm; (12) leaned over 5° he hangs to its side where the pose puts him, within 1 cm, the
   fork's axle within 0.5° of the front wheel's; (13, 14) the autopilot from the grid at rest for 20 s and then 15 s more
-  covers 0.75 to 1.15 times the lap distance a point mass riding `LineSpeed` covers (`Ride.predict`: 678 and 419 m at
-  the feel pass's 0.8 g; the point mass takes each speed at once, where the autopilot's throttle and brake follow by their
-  gains, so the ride covers less, or a little more, never much more; read 639.3 and 424.7), never more than 3 m off the
-  line (read 2.3 and 2.4), with no step of a wheel on gravel or grass, never leaned past the line's 52° (read 9.2° and 7.8°). Then the ride stops the autopilot,
+  covers 0.75 to 1.15 times the lap distance a point mass riding `LineSpeed` covers (`Ride.predict`: 676 and 401 m at
+  the feel pass's 0.75 g; the point mass takes each speed at once, where the autopilot's throttle and brake follow by their
+  gains, so the ride covers less, or a little more, never much more; read 638.5 and 430.6), never more than 3 m off the
+  line (read 1.9 and 1.9), with no step of a wheel on gravel or grass, never leaned past the line's 52° (read 31.2° and
+  32.5°), and through Turns 1 and 2 leaned 24.9° at least, 80 % of the weaker of the Debug and the Release readings (31.4°
+  and 31.2°; the bike as drawn read 9.2°), so that a bike that takes Turn 1 upright again fails on every platform. Then the ride stops the autopilot,
   puts the riding graph back on its test driver with the assists off and the bike on the grid, brakes it to rest into
   neutral and enters `Done`. The ride logs every reading in one line ("Moto's assists and autopilot: ..."), which
   `MotoRideTests.cpp` requires the same at 1/60 and 1/30 s a frame (and at 1/144 behind `STRADA_LONG_RIDES=1`). **The
@@ -7047,13 +7047,13 @@ graphs alone keeps its best lap and its settings screen, and none exposes a path
   step and ends 660 m along the lap, past Turn 1, its time the steps since. Laps 1, 2 and 3 ride at a `Pace` of 0.8, 1 and
   0.9, then lap 4, of 180 steps, rides while the ghost's `MaxSamples` is 20. (24) Lap 4, the race's best, is longer than
   the ghost keeps: timed, not kept, the ghost's best lap cleared and the racing line ridden. (25) The ghost keeps lap 1, then
-  lap 2 in its place, and not lap 3 (read 24.22, 20.95 and 22.43 s), its `BestLapTime` the kept lap's, lap 2's samples
+  lap 2 in its place, and not lap 3 (read 24.50, 21.05 and 22.58 s), its `BestLapTime` the kept lap's, lap 2's samples
   within one of its time's count, each the bike's position at its step within 10 µm: the ghost's first sample is in its
   first fixed step at or after `LapStarted`, the step the lap starts in or the next as the scene orders the graphs within a
   step, so the module takes the bike's samples from both and compares the ghost's with the grid they lie on (read
   from the start step, 0 m apart). (26) `Delta` at the end of each lap, read in its last step before
   `LapFinished`: 0 while no best lap is held (lap 1), and within 0.1 s of the laps' difference, negative for lap 2 and
-  positive for lap 3 (read −3.267 against −3.267 and 1.517 against 1.483). (27) In every frame of lap 3 from its fourth step on
+  positive for lap 3 (read −3.367 against −3.450 and 1.567 against 1.533). (27) In every frame of lap 3 from its fourth step on
   the ghost stands, at its own `LapTime`, where lap 2's samples of the bike put it (between the two round that time, at
   the share the time gives) within 1 cm, and its `LapTime` is the race's lap clock within 0.04 s (the ghost's time runs by
   frames, the race's by fixed steps; over 300 frames at least). (28) The samples written back
@@ -7069,36 +7069,55 @@ graphs alone keeps its best lap and its settings screen, and none exposes a path
   without its props, its `Ride` with `Autopilot` on and its ghost recording the bike): the autopilot rides two laps from
   the grid while the scene's graph stands in for the race director, sending `LapFinished` and `LapStarted` in the step the
   bike's `Distance` crosses the start and finish line, each lap's time its steps since the crossing that began it. Its
-  three checks: each lap within 1 to 1.25 times the racing line's 71.1 s (read 84.33 and 80.98 s; 84.33 and 81.00 in Debug); never more than 3 m off
-  the line, no step of a wheel on gravel or grass, never leaned past 52° (read 2.4 m, 0 steps, 10.7°); and the ghost
-  keeping the faster lap, with its `Delta` at the second's end within 0.1 s of the laps' difference (read −3.333 s against −3.350). A line
+  four checks: each lap within 1 to 1.25 times the racing line's 71.1 s (read 82.53 and 79.28 s; 82.57 and 79.28 in Debug); never more than 3 m off
+  the line, no step of a wheel on gravel or grass, never leaned past 52° (read 2.26 m, 0 steps, 39.1°); the ghost
+  keeping the faster lap, with its `Delta` at the second's end within 0.1 s of the laps' difference (read −3.233 s against −3.250);
+  and the bike leaning into its corners: ten times a second the lean that balances the turn, atan(v × the heading's rate
+  since the last sample / g), and where that passes 10° the bike's lean over it; the samples' mean at least 0.57, 85 % of
+  the weaker of the Debug and the Release readings (0.671 and 0.676 over about 1,110 samples; the bike as drawn read 0.07). A line
   "Moto's laps: ..." logs the readings. `MotoRideTests.cpp` plays it behind `STRADA_LONG_RIDES=1` with a process timeout of
-  10 minutes (about 10,000 frames). **The feel pass** tuned the autopilot, not the definition: probing whole laps showed what
-  the speeds ask of the bike as built. At 0.7 g of `LineSpeed`'s grip its laps read 87.8 s and 84.6 s; at 0.8 they read
-  84.4 and 80.9 s (1.19 and 1.14 times the line's) on the line and the road, leaned 11° at most; at 0.85 and 0.9 exits ran
-  onto the grass (in 40 and 68 of two laps' samples every 0.1 s a wheel was off the road), at 1.0 more (88). On a line
-  drawn nearer the center line (its lateral offset at most 3.4 m), 0.85 kept to the road but leaned the bike 22° under
-  braking for Turn 1, and 0.75 fell; on it, at 0.85, one probe of braking at 4.5 m/s² left the road (7.4 m off the line)
-  and one of a shift point of 14,800 rpm in the definition threw the bike over. So `LineSpeed` takes the corners at 0.8 g on
-  the racing line itself, and the stated band for a lap is 1 to 1.25 times the line's. What the bike leans is not the
-  rider's: in a turn the bike rides on its steering's geometry, its tyres slipping 0.3 to 0.5° in Turn 1 at about 0.8 g
-  sideways (a probe of whole laps at 0.7 g of `LineSpeed`), and the target lean Jolt's controller holds (the
-  direction of the ground's impulse) reads 5 to 8° where 35 to 39° balances the turn. Jolt's lean controller adds, with
-  each roll impulse, a linear impulse at the center of mass that cancels the contact points' sideways motion
-  (`MotorcycleController.cpp:228-247`), and with the chassis's roll inertia of 9.82 kg m² small beside its mass times its
-  height squared, that impulse carries the turn instead of the tyres. A chassis box of 30 kg m² (0.6 by 1 m, its center
-  0.2 m higher) leaned towards the balance, but lifted the front wheel at the launch and fell. A roll inertia raised at the
-  same height of the center of mass is the lever left, and it moves VH2's bands and the hash; so the lean spring decides
-  only how fast the chassis follows a target that reads small, and an edit of the spring shows no faster lean (below).
-  The brakes, the weave under a hard front brake at speed (on the line drawn nearer the center, a lean of up to 22° under
-  braking for Turn 1 at 0.85 g) and the engine's speed in neutral were not tuned. **M1's sixth step** (`MotoAgentTests.cpp`, StradaEditorTests): in the lap
-  test scene, the autopilot riding from the grid, an agent's `vehicle.set` a second into the ride raises the shift point
-  and the red line by 1,000 rpm and the lean spring to 10,000 with its damping to 560 (within the roll inertia's bound);
-  the riding vehicle takes the spring in place before its next step and rides on, `telemetry.read` of the vehicle's
-  channels shows the first upshift at a road speed whose engine speed in first gear is above the old shift point by more
-  than 500 rpm (read 16,510 rpm at 45.0 m/s, against 42.3 m/s without the edit) and the lean within the line's limit, and `profiler.capture` of the frames
-  writes a capture whose subsystems hold `Physics`. A faster lean is not shown, for the reason above; the case logs the lean
-  the telemetry holds.
+  10 minutes (about 10,000 frames). **The feel pass** found why the bike rode its corners upright and gave it contacts of
+  its own. As drawn, its wheels cast cylinders 120 and 200 mm wide against the ground (the definition's `Width`), and the
+  bike leaned 0.07 of the lean that balances its turns (35 to 39° balance Turn 1; it leaned 9 to 11°). The engine rounds a
+  cast's edges by half its width (`VehicleWorld.cpp`, as Jolt's own tester does, `VehicleCollisionTester.cpp:261`), but the
+  support function every cast goes through caps a convex radius at 0.05 m (`ScaleHelpers.h:29`, from
+  `CylinderShape::GetSupportFunction`, reached from `ConvexShape.cpp:269-273`), so a wheel wider than 0.1 m rides on a flat
+  bottom: upright its contact sits half its width less 0.05 m off the wheel's plane (a probe read 52 mm for the 200 mm rear,
+  none at 100 mm or less). The ground's force then misses the center of mass at the lean Jolt's controller aims for, the
+  lean spring holds a standing torque, and the linear impulse Jolt pairs with every roll impulse
+  (`MotorcycleController.cpp:228-247`) carries the turn in the tyres' place. On steady circles at 25 m/s the bike leaned
+  0.064, 0.27, 0.45, 0.60, 0.75 and 0.85 of the balance with its wheels' widths scaled 1, 0.8, 0.6, 0.4, 0.2 and 0.1;
+  Jolt's own sample body, made in this engine, 0.82 to 0.89 on its 50 mm wheels and 0.43 to 0.47 on wheels three times as
+  wide. A lower center of mass or a larger roll inertia on the wide contacts fell or left the road in every probe, and the
+  engine has no field for either (a chassis's mass and inertia are its colliders', section 8). So `Vehicle.py` gives the
+  wheels contact widths of their own, 24 and 40 mm (at most 0.1 m, which its `check()` asserts), while `Bike.py` draws the
+  tyres 120 and 200 mm wide; the lean spring goes from 5,000 to 10,000 with its damping held at 400 (a stiffer spring with
+  the damping held leans the bike deeper and faster: on these contacts Turn 1's peak roll rate read 31, 38, 43 and 61°/s
+  at 5,000, 7,500, 10,000 and 15,000; a damping raised with the spring, towards the roll inertia's bound of 589, slows the
+  lean instead); and the autopilot takes `LineSpeed`'s corners at 0.75 g with an understeer of 1.15 (on the narrow contacts
+  the upright bike's 0.8 g and 1.3 ran exits onto the grass). The tune was chosen by its margin: it rides the lap and ride
+  scenes clean in Debug and Release, and so does each one-notch change of it on the lap scene in Release (the grip by
+  ±0.025, the understeer by ±0.05, each contact width by ±10 %, the spring by ±10 %: first laps of 81.72 to 83.33 s, 1.97 to
+  2.51 m off the line at most, no step off the road, 0.66 to 0.69 of the balancing lean). The lean is pinned: the lap
+  scene's fourth check and the ride scene's Turn 1 bound above. The drawn tyres stand on narrower contacts: from the
+  geometry (a round tread of half the drawn width about the contact's), the drawn edge lies below the road by (half the
+  drawn width less half the contact's) times (1 − cos lean), 18 mm for the rear and 11 mm for the front at the laps'
+  deepest 39°. **By measurement**, with the assists off in neutral from 20 m/s, the front brake stops the bike in 25.6 m at
+  its 750 N m (its wheel locks at once and its tyre slides), 26.2 m at 600, 30.9 m at 500 and 37.9 m at 400: a brake that
+  does not lock stops longer, so it stays at 750. From 58 m/s a front lever of 0.45, the front tyre rolling, sets the bike
+  weaving until it falls within about 2 s, with the linked brakes on or off, the rear brake's share at 0, the lean assist
+  off or the spring at 5,000; at 0.3 it does not, nor at a full lever, which locks the front and slides the bike straight,
+  nor from 50 or 40 m/s at any lever probed: the autopilot's brake ramps on gently. In neutral the engine winds down from
+  its red line by 80 rpm a second (Jolt's engine damping, 0.005 of its speed a second, which also takes its share of the
+  power at every speed). Neither is tuned here. **M1's sixth step** (`MotoAgentTests.cpp`, StradaEditorTests): in the lap
+  test scene, the autopilot riding from the grid, an agent rides through Turn 1's turn-in as the bike is, then again,
+  and a second into the second ride `vehicle.set` raises the shift point and the red line by 1,000 rpm and doubles the
+  lean spring, its damping left as it was. The riding vehicle takes the spring in place before its next step and rides
+  on; `telemetry.read` of the vehicle's channels shows the first upshift at a road speed whose engine speed in first gear
+  is above the old shift point by more than 500 rpm (read 16,505 rpm at 45.0 m/s, against 42.3 m/s without the edit), and
+  a quicker roll into Turn 1: from the turn-in (the first step past 500 m along the lap leaned 2°) to 10° of lean, 0.72 s
+  as the bike was and 0.52 s edited (0.72 and 0.53 in Release), on either side of the case's 0.625 s; and `profiler.capture`
+  of the frames writes a capture whose subsystems hold `Physics`.
 - The Showcase's **Graph Garden**: chimes played by six visual scripts (`Scripts/GraphGarden`; `Tools/GraphGarden.py`
   authors them and `Tools/Author.py --exhibit GraphGarden` rebuilds the exhibit in place, with a hash guard that names
   any file outside the exhibit that changed), whose score is a Timeline; seven of the Showcase's 68 checks look at it.
