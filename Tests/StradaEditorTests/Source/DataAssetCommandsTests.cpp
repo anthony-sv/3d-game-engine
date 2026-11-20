@@ -14,6 +14,8 @@
 #include "Strada/Asset/DataAsset.h"
 #include "Strada/Asset/MixerAsset.h"
 #include "Strada/Asset/PhysicsMaterialAsset.h"
+#include "Strada/Asset/Vehicle.h"
+#include "Strada/Asset/VehicleAsset.h"
 #include "Strada/Audio/AudioEngine.h"
 #include "Strada/Core/FileSystem.h"
 #include "Strada/Physics/PhysicsScene.h"
@@ -674,6 +676,85 @@ TEST_CASE("DataAssetCommands: the engine's Mixer has mixer.create, get and set, 
 	CHECK(fixture.Ok("component.add",
 	                 Json::object({{"entity", entity}, {"component", "AudioSource"}, {"fields", {{"Bus", "Music"}}}}))["fields"]["Bus"] ==
 	      "Music");
+}
+
+TEST_CASE("DataAssetCommands: the engine's Vehicle has vehicle.create, get and set, an undo step, refusing a definition that does not "
+          "validate")
+{
+	DataAssetCommandFixture fixture;
+	CommandDefinition const* create = fixture.Registry.Find("vehicle.create");
+	REQUIRE(create != nullptr);
+	CHECK(create->Description.find(".svehicle") != std::string::npos);
+	REQUIRE(fixture.Registry.Find("vehicle.set") != nullptr);
+	CHECK(fixture.Registry.Find("vehicle.get")->Parameters["required"] == Json::array({"vehicle"}));
+	CHECK(fixture.Registry.Find("vehicle.set")->Description.starts_with("Applies a partial patch to a Vehicle file's fields"));
+	// The schema of fields describes the list of wheels and its limit (its elements' fields are Docs/Automation.md's to tell).
+	std::string const wheelsSchema = create->Parameters["properties"]["fields"]["properties"]["Wheels"].dump();
+	CHECK(wheelsSchema.find("VehicleWheelDefinition[], at most 2 elements") != std::string::npos);
+	Result<std::string> const reference = FileSystem::ReadTextFile(STRADA_AUTOMATION_DOC_PATH);
+	REQUIRE(reference.IsOk());
+	for (char const* name : {"vehicle.create", "vehicle.get", "vehicle.set"})
+	{
+		CAPTURE(name);
+		CHECK(reference.GetValue().find(std::string("`") + name + "`") != std::string::npos);
+	}
+
+	// A new definition is a motorcycle: its front, then its rear wheel.
+	Json const created = fixture.Ok("vehicle.create", Json::object({{"path", "Vehicles/Bike.svehicle"}}));
+	CHECK(created["vehicle"]["type"] == "Vehicle");
+	REQUIRE(created["fields"]["Wheels"].size() == 2);
+	CHECK(created["fields"]["Wheels"][0]["Name"] == "Front");
+	CHECK(created["fields"]["Wheels"][1]["Name"] == "Rear");
+	std::string const id = created["vehicle"]["id"].get<std::string>();
+	Ref<TypedDataAsset<Vehicle>> const vehicle =
+		AssetManager::GetAsset<TypedDataAsset<Vehicle>>(AssetManager::FindByPath("Vehicles/Bike.svehicle"));
+	REQUIRE(vehicle != nullptr);
+	CHECK(vehicle->GetData() == Vehicle{});
+
+	// A patch of a nested struct's field: one step, undone and redone.
+	fixture.Ok("vehicle.set", Json::object({{"vehicle", id}, {"fields", {{"Engine", {{"MaxRPM", 14000}}}, {"MaxPitchRoll", 75}}}}));
+	CHECK(fixture.Ok("editor.status")["undo"] == "Edit Vehicle");
+	CHECK(vehicle->GetData().Engine.MaxRPM == 14000.0f);
+	CHECK(vehicle->GetData().Engine.MaxTorque == Vehicle{}.Engine.MaxTorque);
+	CHECK(vehicle->GetData().MaxPitchRoll == 75.0f);
+	CHECK(fixture.Ok("vehicle.get", Json::object({{"vehicle", "asset://Vehicles/Bike.svehicle"}}))["fields"]["Engine"]["MaxRPM"] ==
+	      14000.0);
+	CHECK(fixture.Ok("editor.undo")["undone"] == "Edit Vehicle");
+	CHECK(vehicle->GetData() == Vehicle{});
+	CHECK(fixture.Ok("editor.redo")["redone"] == "Edit Vehicle");
+	CHECK(vehicle->GetData().Engine.MaxRPM == 14000.0f);
+
+	// One wheel, a rear wheel that steers and an automatic gearbox that shifts up past the engine's speed are refused,
+	// naming what is at fault; nothing is written.
+	std::string const edited = fixture.ReadFile("Vehicles/Bike.svehicle");
+	Json const wheels = created["fields"]["Wheels"];
+	CommandError const single =
+		fixture.Fails("vehicle.set", Json::object({{"vehicle", id}, {"fields", {{"Wheels", Json::array({wheels[0]})}}}}));
+	CHECK(single.Code == AutomationErrorCode::InvalidParams);
+	CHECK(single.Message.find("Wheels: a motorcycle has exactly 2 wheels") != std::string::npos);
+	Json steering = wheels;
+	steering[1]["MaxSteerAngle"] = 15;
+	CommandError const rearSteers = fixture.Fails("vehicle.set", Json::object({{"vehicle", id}, {"fields", {{"Wheels", steering}}}}));
+	CHECK(rearSteers.Message.find("Wheels[1].MaxSteerAngle: the rear wheel does not steer") != std::string::npos);
+	CommandError const overRevving =
+		fixture.Fails("vehicle.set", Json::object({{"vehicle", id}, {"fields", {{"Transmission", {{"ShiftUpRPM", 15000}}}}}}));
+	CHECK(overRevving.Message.find("Transmission.ShiftUpRPM") != std::string::npos);
+	CHECK(fixture.ReadFile("Vehicles/Bike.svehicle") == edited);
+
+	// A curve field takes any asset's reference: one that is no Curve counts as unset when the vehicle is made (and is said
+	// then), as a collider's material that is no physics material does.
+	Json const material = fixture.Ok("physics-material.create", Json::object({{"path", "Surfaces/Asphalt.sphysmat"}}));
+	std::string const materialId = material["physicsMaterial"]["id"].get<std::string>();
+	fixture.Ok("vehicle.set", Json::object({{"vehicle", id}, {"fields", {{"Engine", {{"Torque", materialId}}}}}}));
+	CHECK(vehicle->GetData().Engine.Torque == AssetManager::FindByPath("Surfaces/Asphalt.sphysmat"));
+
+	// The vehicle parameter names a registered Vehicle: a missing one is AssetNotFound, another type's InvalidParams.
+	CommandError const missing = fixture.Fails("vehicle.get", Json::object({{"vehicle", "asset://Vehicles/Nowhere.svehicle"}}));
+	CHECK(missing.Code == AutomationErrorCode::AssetNotFound);
+	CHECK(missing.Data["path"] == "vehicle");
+	CommandError const otherType = fixture.Fails("vehicle.get", Json::object({{"vehicle", materialId}}));
+	CHECK(otherType.Code == AutomationErrorCode::InvalidParams);
+	CHECK(otherType.Message.find("is a PhysicsMaterial, not a Vehicle") != std::string::npos);
 }
 
 TEST_CASE("DataAssetCommands: mixer.set while the game plays is mixed from the next frame, and undo gives the old buses back")

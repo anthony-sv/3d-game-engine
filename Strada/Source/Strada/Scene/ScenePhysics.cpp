@@ -2,20 +2,29 @@
 #include "Strada/Scene/Scene.h"
 
 #include "Strada/Asset/AssetManager.h"
+#include "Strada/Asset/CurveAsset.h"
 #include "Strada/Asset/DataAsset.h"
 #include "Strada/Asset/MeshSource.h"
 #include "Strada/Asset/PhysicsMaterial.h"
 #include "Strada/Asset/PhysicsMaterialAsset.h"
+#include "Strada/Asset/Vehicle.h"
+#include "Strada/Asset/VehicleAsset.h"
 #include "Strada/Core/Hash.h"
 #include "Strada/Core/Profiler.h"
+#include "Strada/Math/Curve.h"
 #include "Strada/Math/Math.h"
 #include "Strada/Physics/PhysicsScene.h"
 #include "Strada/Scene/Components.h"
 #include "Strada/Scene/Entity.h"
 
+#include <glm/gtc/constants.hpp>
+#include <glm/gtc/quaternion.hpp>
+
 #include <algorithm>
+#include <array>
 #include <cmath>
 #include <optional>
+#include <string>
 #include <tuple>
 #include <type_traits>
 #include <utility>
@@ -87,6 +96,32 @@ namespace Strada
 			glm::quat localRotation;
 			glm::vec3 localScale;
 			if (Math::DecomposeTransform(local, localPosition, localRotation, localScale))
+			{
+				transform.Translation = localPosition;
+				transform.Rotation = localRotation;
+			}
+		}
+
+		// Places an entity at a world position and rotation computed in its parent's space from the parent's world transform
+		// alone, keeping its own scale: the same pose and parent always give the same bits, whatever the entity showed before
+		// (a wheel drawn between steps goes back exactly to where its step put it).
+		void SetWorldPoseInParent(Scene& scene, Entity entity, glm::vec3 const& position, glm::quat const& rotation)
+		{
+			TransformComponent& transform = entity.GetComponent<TransformComponent>();
+			Entity const parent = scene.GetParent(entity);
+			if (!parent)
+			{
+				transform.Translation = position;
+				transform.Rotation = Math::NormalizeRotation(rotation);
+				return;
+			}
+			glm::mat4 const local =
+				glm::inverse(scene.GetWorldTransform(parent)) * Math::ComposeTransform(position, rotation, glm::vec3(1.0f));
+			glm::vec3 localPosition;
+			glm::quat localRotation;
+			glm::vec3 localScale;
+			// Parents without a usable transform (zero scale) have no space to place the entity in.
+			if (Math::DecomposeTransform(local, localPosition, localRotation, localScale) && IsFinite(localPosition))
 			{
 				transform.Translation = localPosition;
 				transform.Rotation = localRotation;
@@ -185,18 +220,94 @@ namespace Strada
 			return desc;
 		}
 
-		// The physics material a collider names, when it is a registered physics material that loads; null otherwise (a
-		// reference to anything else counts as unset: no handle, an unknown one, an asset of another type, a file that does
-		// not load).
-		Ref<TypedDataAsset<PhysicsMaterial>> FindPhysicsMaterial(AssetHandle handle)
+		// The data asset of type TData a reference names, when it is registered as one and loads; null otherwise (a reference
+		// to anything else counts as unset: no handle, an unknown one, an asset of another type, a file that does not load).
+		template<typename TData>
+		Ref<TypedDataAsset<TData>> FindDataAsset(AssetHandle handle)
 		{
-			AssetType const type = TypedDataAsset<PhysicsMaterial>::GetStaticType();
+			AssetType const type = TypedDataAsset<TData>::GetStaticType();
 			if (!handle.IsValid() || !AssetManager::IsInitialized() || type == AssetType::None ||
 			    AssetManager::GetAssetType(handle) != type)
 			{
 				return nullptr;
 			}
-			return AssetManager::GetAsset<TypedDataAsset<PhysicsMaterial>>(handle);
+			return AssetManager::GetAsset<TypedDataAsset<TData>>(handle);
+		}
+
+		// The physics material a collider names (FindDataAsset).
+		Ref<TypedDataAsset<PhysicsMaterial>> FindPhysicsMaterial(AssetHandle handle)
+		{
+			return FindDataAsset<PhysicsMaterial>(handle);
+		}
+
+		// An asset reference as messages name it.
+		std::string DescribeReference(AssetHandle handle)
+		{
+			return AssetManager::IsInitialized() ? AssetManager::GetReference(handle) : handle.ToString();
+		}
+
+		// What a vehicle is made from: its definition and the curve assets the definition names, in the order of
+		// Scene::VehicleSyncState::Curves (each wheel's longitudinal and lateral friction, then the engine's torque), each
+		// null when it does not apply. No curve without a definition.
+		struct VehicleSources
+		{
+			Ref<TypedDataAsset<Vehicle>> Definition;
+			std::vector<AssetHandle> CurveHandles;
+			std::vector<Ref<TypedDataAsset<Curve>>> Curves;
+		};
+
+		VehicleSources ReadVehicleSources(AssetHandle definition)
+		{
+			VehicleSources sources;
+			sources.Definition = FindDataAsset<Vehicle>(definition);
+			if (sources.Definition)
+			{
+				Vehicle const& values = sources.Definition->GetData();
+				for (VehicleWheelDefinition const& wheel : values.Wheels)
+				{
+					sources.CurveHandles.push_back(wheel.LongitudinalFriction);
+					sources.CurveHandles.push_back(wheel.LateralFriction);
+				}
+				sources.CurveHandles.push_back(values.Engine.Torque);
+				for (AssetHandle const curve : sources.CurveHandles)
+				{
+					sources.Curves.push_back(FindDataAsset<Curve>(curve));
+				}
+			}
+			return sources;
+		}
+
+		// The values of a vehicle made from its definition and its curves (VehicleSources, with a definition), each curve
+		// sampled (SampleVehicleCurve; none, or a reference that is no Curve that loads, is Jolt's default). `notes` receives
+		// the references that count as unset.
+		VehicleDesc MakeVehicleValues(UUID entity, VehicleSources const& sources, std::vector<std::string>& notes)
+		{
+			Vehicle const& definition = sources.Definition->GetData();
+			VehicleDesc desc = MakeVehicleDesc(entity, definition);
+			auto const sample = [&sources, &notes](size_t index, std::string const& field, float inputScale)
+			{
+				if (sources.Curves[index])
+				{
+					return SampleVehicleCurve(sources.Curves[index]->GetData(), inputScale);
+				}
+				if (sources.CurveHandles[index].IsValid())
+				{
+					notes.push_back(fmt::format("takes the default for its {}: {} is no Curve that loads", field,
+					                            DescribeReference(sources.CurveHandles[index])));
+				}
+				return VehicleCurve();
+			};
+			// A definition that validates has exactly its two wheels.
+			for (size_t wheel = 0; wheel < std::min(definition.Wheels.size(), VehicleWheelCount); wheel++)
+			{
+				std::string const prefix = "Wheels[" + std::to_string(wheel) + "].";
+				desc.Wheels[wheel].LongitudinalFriction = sample(2 * wheel, prefix + "LongitudinalFriction", 1.0f);
+				desc.Wheels[wheel].LateralFriction = sample(2 * wheel + 1, prefix + "LateralFriction", 1.0f);
+			}
+			// Jolt reads the engine's curve over the engine's speed divided by its largest (VehicleEngine.h:63 of the pinned
+			// Jolt); MaxRPM is at least 1.
+			desc.NormalizedTorque = sample(sources.Curves.size() - 1, "Engine.Torque", 1.0f / definition.Engine.MaxRPM);
+			return desc;
 		}
 
 		// A collider's surface: its material's values and modes when it names one that applies, else its own Friction and
@@ -221,6 +332,8 @@ namespace Strada
 				surface.Restitution = values.Restitution;
 				surface.FrictionCombine = values.FrictionCombine;
 				surface.RestitutionCombine = values.RestitutionCombine;
+				surface.RollingResistance = values.RollingResistance;
+				surface.TyreGrip = values.TyreGrip;
 			}
 			else if (AssetManager::IsInitialized() &&
 			         AssetManager::GetAssetType(material) == TypedDataAsset<PhysicsMaterial>::GetStaticType())
@@ -480,6 +593,10 @@ namespace Strada
 		{
 			m_ChangedCharacters.insert(handle);
 		}
+		for (entt::entity const handle : m_Registry.view<VehicleComponent>())
+		{
+			m_ChangedVehicles.insert(handle);
+		}
 		m_JointsChanged = true;
 		RebuildChangedBodies();
 		ConnectPhysicsSignals(true);
@@ -506,6 +623,10 @@ namespace Strada
 		m_CharacterOrder.clear();
 		m_CharacterOrderChanged = false;
 		m_ChangedCharacters.clear();
+		m_Vehicles.clear();
+		m_VehicleWheelsSaid.clear();
+		m_ChangedVehicles.clear();
+		m_VehicleEpoch = 0;
 		m_JointsChanged = false;
 		m_ContactEvents.clear();
 		m_PhysicsAccumulator = 0.0f;
@@ -582,6 +703,31 @@ namespace Strada
 		{
 			meshUpdated.disconnect<&Scene::OnMeshComponentChanged>(*this);
 		}
+
+		auto const watchVehicles = [this, connect](auto sink)
+		{
+			if (connect)
+			{
+				sink.template connect<&Scene::OnVehicleComponentChanged>(*this);
+			}
+			else
+			{
+				sink.template disconnect<&Scene::OnVehicleComponentChanged>(*this);
+			}
+		};
+		watchVehicles(m_Registry.on_construct<VehicleComponent>());
+		watchVehicles(m_Registry.on_update<VehicleComponent>());
+		watchVehicles(m_Registry.on_destroy<VehicleComponent>());
+
+		auto wheelRemoved = m_Registry.on_destroy<VehicleWheelComponent>();
+		if (connect)
+		{
+			wheelRemoved.connect<&Scene::OnVehicleWheelComponentRemoved>(*this);
+		}
+		else
+		{
+			wheelRemoved.disconnect<&Scene::OnVehicleWheelComponentRemoved>(*this);
+		}
 	}
 
 	void Scene::OnPhysicsComponentChanged(entt::registry&, entt::entity handle)
@@ -606,6 +752,17 @@ namespace Strada
 		m_ChangedBodies.insert(handle);
 	}
 
+	void Scene::OnVehicleComponentChanged(entt::registry&, entt::entity handle)
+	{
+		m_ChangedVehicles.insert(handle);
+	}
+
+	void Scene::OnVehicleWheelComponentRemoved(entt::registry&, entt::entity handle)
+	{
+		// A VehicleWheel added again later is a new one, whose reasons are said again.
+		m_VehicleWheelsSaid.erase(handle);
+	}
+
 	void Scene::OnMeshComponentChanged(entt::registry& registry, entt::entity handle)
 	{
 		// Mesh colliders without their own mesh use the entity's mesh.
@@ -622,6 +779,7 @@ namespace Strada
 			// Between frames entities may be drawn between steps: bodies and joints are made from where the steps left them.
 			ReturnBodiesToSteps();
 			ReturnCharactersToSteps();
+			DrawVehicleWheels(1.0f);
 			RebuildChangedBodies();
 			// After a frame's steps (its contact events, OnDestroy, the next OnUpdate or an edit), the frame still shows them
 			// between their steps, as far as it did: the same alpha gives the same poses. Never inside the steps, which must
@@ -631,6 +789,7 @@ namespace Strada
 				float const alpha = GetDrawingAlpha();
 				InterpolateBodyTransforms(alpha);
 				InterpolateCharacterTransforms(alpha);
+				DrawVehicleWheels(alpha);
 			}
 		}
 	}
@@ -671,13 +830,15 @@ namespace Strada
 
 	bool Scene::HasPendingPhysicsChanges() const
 	{
-		return !m_ChangedBodies.empty() || !m_ChangedCharacters.empty() || m_JointsChanged;
+		return !m_ChangedBodies.empty() || !m_ChangedCharacters.empty() || !m_ChangedVehicles.empty() || m_JointsChanged;
 	}
 
 	void Scene::RebuildChangedBodies()
 	{
-		// First, so that the bodies rebuilt below and those kept have the same values of every material.
+		// First, so that the bodies rebuilt below and those kept have the same values of every material, and the vehicles
+		// those of their definitions.
 		SyncPhysicsMaterials();
+		SyncVehicles();
 		// In UUID order: Jolt numbers bodies in the order they are made and simulates them in that order.
 		if (!m_ChangedBodies.empty())
 		{
@@ -689,6 +850,12 @@ namespace Strada
 				{
 					m_JointsChanged = true;
 				}
+				// A chassis's vehicle goes with its body: the world carries it over to a rebuilt dynamic body and drops it
+				// otherwise, and UpdateVehicle sees which.
+				if (m_Vehicles.contains(handle) || (m_Registry.valid(handle) && m_Registry.all_of<VehicleComponent>(handle)))
+				{
+					m_ChangedVehicles.insert(handle);
+				}
 			}
 		}
 		if (!m_ChangedCharacters.empty())
@@ -697,6 +864,16 @@ namespace Strada
 			for (entt::entity const handle : changed)
 			{
 				UpdateCharacter(handle);
+			}
+		}
+		// After the bodies they ride on; the world adds their constraints again in UUID order, before the joints.
+		if (!m_ChangedVehicles.empty())
+		{
+			ST_PROFILE_SCOPE("Scene.SyncVehicles");
+			std::vector<entt::entity> const changed = SortByUUID(m_Registry, std::exchange(m_ChangedVehicles, {}), m_Vehicles);
+			for (entt::entity const handle : changed)
+			{
+				UpdateVehicle(handle);
 			}
 		}
 		if (std::exchange(m_JointsChanged, false))
@@ -766,6 +943,328 @@ namespace Strada
 				m_ChangedBodies.insert(handle);
 			}
 		}
+	}
+
+	void Scene::SyncVehicles()
+	{
+		uint64_t const epoch = DataAssetRegistry::GetEpoch();
+		if (!m_Physics || epoch == m_VehicleEpoch)
+		{
+			return;
+		}
+		m_VehicleEpoch = epoch;
+		if (m_Vehicles.empty())
+		{
+			return;
+		}
+		ST_PROFILE_SCOPE("Scene.SyncVehicles");
+		// In UUID order, whatever the map's (the changes reach the world in that order anyway: UpdateVehicle's are sorted).
+		std::vector<entt::entity> order;
+		SortKeysByUUID(m_Vehicles, order);
+		for (entt::entity const handle : order)
+		{
+			VehicleSyncState const& state = m_Vehicles.at(handle);
+			VehicleSources const sources = ReadVehicleSources(state.Definition);
+			bool changed = (sources.Definition ? sources.Definition->GetVersion() : 0) != state.DefinitionVersion;
+			for (size_t index = 0; index < VehicleCurveCount && !changed; index++)
+			{
+				AssetHandle const curve = index < sources.CurveHandles.size() ? sources.CurveHandles[index] : AssetHandle();
+				uint64_t const version = index < sources.Curves.size() && sources.Curves[index] ? sources.Curves[index]->GetVersion() : 0;
+				changed = curve != state.Curves[index] || version != state.CurveVersions[index];
+			}
+			if (changed)
+			{
+				m_ChangedVehicles.insert(handle);
+			}
+		}
+	}
+
+	void Scene::UpdateVehicle(entt::entity handle)
+	{
+		auto const existing = m_Vehicles.find(handle);
+		bool const alive = m_Registry.valid(handle) && m_Registry.all_of<IDComponent>(handle);
+		VehicleComponent const* component = alive ? m_Registry.try_get<VehicleComponent>(handle) : nullptr;
+		if (component == nullptr)
+		{
+			// Destroyed entity, or removed component (the world removed a destroyed entity's vehicle with its body).
+			if (existing != m_Vehicles.end())
+			{
+				m_Physics->RemoveVehicle(existing->second.Entity);
+				m_Vehicles.erase(existing);
+			}
+			return;
+		}
+
+		Entity const entity(handle, this);
+		UUID const id = entity.GetUUID();
+		VehicleSyncState& state = m_Vehicles[handle];
+		bool const sameDefinition = state.Definition == component->Definition;
+		state.Entity = id;
+		state.Definition = component->Definition;
+		VehicleSources const sources = ReadVehicleSources(component->Definition);
+		state.DefinitionVersion = sources.Definition ? sources.Definition->GetVersion() : 0;
+		for (size_t index = 0; index < VehicleCurveCount; index++)
+		{
+			state.Curves[index] = index < sources.CurveHandles.size() ? sources.CurveHandles[index] : AssetHandle();
+			state.CurveVersions[index] = index < sources.Curves.size() && sources.Curves[index] ? sources.Curves[index]->GetVersion() : 0;
+		}
+
+		std::string problem;
+		std::vector<std::string> notes;
+		RigidBodyComponent const* body = m_Registry.try_get<RigidBodyComponent>(handle);
+		if (!sources.Definition)
+		{
+			problem = component->Definition.IsValid() ? fmt::format("makes no vehicle: its Definition {} is no Vehicle that loads",
+			                                                        DescribeReference(component->Definition))
+			                                          : std::string("makes no vehicle: it names no Definition");
+		}
+		else if (body == nullptr || body->Type != RigidBodyType::Dynamic || !m_Bodies.contains(handle) || !m_Physics->HasBody(id))
+		{
+			problem = "makes no vehicle: its entity has no dynamic RigidBody with a collider";
+		}
+		else
+		{
+			VehicleDesc const desc = MakeVehicleValues(id, sources, notes);
+			bool const present = state.Made && m_Physics->HasVehicle(id);
+			if (present && desc == state.Desc)
+			{
+				// The world carried it over to the entity's rebuilt body, or nothing it reads changed.
+			}
+			else if (present && sameDefinition && desc.Up == state.Desc.Up && desc.Forward == state.Desc.Forward)
+			{
+				// An edit of the definition or of a curve: the new values from the next step on, the ride and the structure
+				// kept.
+				if (Result<void> changed = m_Physics->SetVehicleSettings(id, desc); changed)
+				{
+					state.Desc = desc;
+				}
+				else
+				{
+					notes.push_back(fmt::format("keeps its values, as the new ones are refused: {}", changed.GetError()));
+				}
+			}
+			else if (Result<void> made = m_Physics->AddVehicle(desc); made)
+			{
+				state.Made = true;
+				state.Desc = desc;
+				// Made again, its wheels are drawn from its first step on.
+				state.Wheels = {};
+			}
+			else
+			{
+				problem = fmt::format("makes no vehicle: {}", made.GetError());
+			}
+		}
+		if (!problem.empty())
+		{
+			// Like every refusal, it leaves the entity without a vehicle.
+			m_Physics->RemoveVehicle(id);
+			state.Made = false;
+			state.Desc = {};
+		}
+		if (state.Made)
+		{
+			// What its wheels are drawn with: the values the world was given, its directions as the world takes them, and the
+			// definition's wheel names (which no value of the world holds, so a rename applies here alone).
+			glm::vec3 up = state.Desc.Up;
+			glm::vec3 forward = state.Desc.Forward;
+			if (NormalizeVehicleAxes(up, forward))
+			{
+				state.Up = up;
+				state.Forward = forward;
+			}
+			Vehicle const& definition = sources.Definition->GetData();
+			for (size_t index = 0; index < VehicleWheelCount; index++)
+			{
+				VehicleWheelDesc const& wheel = state.Desc.Wheels[index];
+				VehicleWheelDesc& geometry = state.WheelGeometry[index];
+				geometry.Position = wheel.Position;
+				geometry.SuspensionDirection = glm::normalize(wheel.SuspensionDirection);
+				geometry.SteeringAxis = glm::normalize(wheel.SteeringAxis);
+				state.WheelNames[index] = index < definition.Wheels.size() ? definition.Wheels[index].Name : std::string();
+			}
+		}
+		std::string said = problem;
+		for (std::string const& note : notes)
+		{
+			said += (said.empty() ? "" : "; ") + note;
+		}
+		// Said once: a body rebuilt every step, or a component set again to the same value, says nothing new.
+		if (said != state.Said)
+		{
+			if (!said.empty())
+			{
+				ST_CORE_WARN("Physics: the Vehicle of '{}' {}", entity.GetName(), said);
+			}
+			state.Said = std::move(said);
+		}
+	}
+
+	std::vector<entt::entity> Scene::GetMadeVehicleOrder() const
+	{
+		std::vector<entt::entity> order;
+		SortKeysByUUID(m_Vehicles, order);
+		std::erase_if(order,
+		              [this](entt::entity handle)
+		              {
+						  return !m_Vehicles.at(handle).Made;
+					  });
+		return order;
+	}
+
+	void Scene::RecordVehicleWheelSteps(float step)
+	{
+		for (auto& [handle, state] : m_Vehicles)
+		{
+			std::optional<VehicleState> const vehicle = state.Made ? m_Physics->GetVehicleState(state.Entity) : std::nullopt;
+			if (!vehicle)
+			{
+				continue;
+			}
+			ScenePhysicsSnapshot::WheelDrawing& drawing = state.Wheels;
+			for (size_t index = 0; index < VehicleWheelCount; index++)
+			{
+				VehicleWheelState const& wheel = vehicle->Wheels[index];
+				ScenePhysicsSnapshot::WheelStep const now{wheel.SuspensionLength, wheel.SteerAngle, wheel.RotationAngle,
+				                                          wheel.AngularVelocity};
+				ScenePhysicsSnapshot::WheelStep const before = drawing.HasSteps ? drawing.Step[index] : now;
+				// Jolt keeps the angle within a turn; the spin tells how many whole turns its change in the step leaves out.
+				float advance = 0.0f;
+				if (drawing.HasSteps)
+				{
+					float const turned = now.RotationAngle - before.RotationAngle;
+					float const expected = 0.5f * (before.AngularVelocity + now.AngularVelocity) * step;
+					float const turn = glm::two_pi<float>();
+					advance = turned + std::round((expected - turned) / turn) * turn;
+				}
+				drawing.PreviousStep[index] = before;
+				drawing.Step[index] = now;
+				drawing.Advance[index] = std::isfinite(advance) ? advance : 0.0f;
+			}
+			drawing.HasSteps = true;
+		}
+		DrawVehicleWheels(1.0f);
+	}
+
+	void Scene::DrawVehicleWheels(float alpha)
+	{
+		auto const wheels = m_Registry.view<VehicleWheelComponent>();
+		for (entt::entity const handle : wheels)
+		{
+			Entity const wheel(handle, this);
+			// The wheel of the nearest entity above it with a Vehicle (said once when there is none to draw).
+			WheelDrawProblem problem = WheelDrawProblem::Drawn;
+			VehicleSyncState const* vehicle = nullptr;
+			Entity chassis;
+			size_t index = 0;
+			std::string const& name = m_Registry.get<VehicleWheelComponent>(handle).Wheel;
+			if (m_Bodies.contains(handle) || m_Characters.contains(handle))
+			{
+				problem = WheelDrawProblem::OwnBody;
+			}
+			else
+			{
+				Entity above = GetParent(wheel);
+				for (size_t depth = 0; above && !above.HasComponent<VehicleComponent>() && depth < m_EntityMap.size(); depth++)
+				{
+					above = GetParent(above);
+				}
+				auto const found = above && above.HasComponent<VehicleComponent>() ? m_Vehicles.find(above.GetHandle()) : m_Vehicles.end();
+				if (!above || !above.HasComponent<VehicleComponent>())
+				{
+					problem = WheelDrawProblem::NoVehicleAbove;
+				}
+				else if (found != m_Vehicles.end() && found->second.Made)
+				{
+					std::array<std::string, VehicleWheelCount> const& names = found->second.WheelNames;
+					auto const named = std::find_if(names.begin(), names.end(),
+					                                [&name](std::string const& candidate)
+					                                {
+														return IsSameVehicleWheelName(candidate, name);
+													});
+					chassis = above;
+					if (named == names.end())
+					{
+						problem = WheelDrawProblem::UnknownWheel;
+					}
+					else
+					{
+						vehicle = &found->second;
+						index = static_cast<size_t>(named - names.begin());
+					}
+				}
+			}
+			SayVehicleWheelProblem(wheel, problem, chassis, name);
+			// Nothing to draw before the vehicle's first step.
+			if (vehicle == nullptr || !vehicle->Wheels.HasSteps)
+			{
+				continue;
+			}
+			glm::vec3 position;
+			glm::quat rotation;
+			glm::vec3 scale;
+			if (!Math::DecomposeTransform(GetWorldTransform(chassis), position, rotation, scale))
+			{
+				continue;
+			}
+			RigidBodyComponent const* body = m_Registry.try_get<RigidBodyComponent>(chassis.GetHandle());
+			float const part = body != nullptr && body->Interpolation == RigidBodyInterpolation::Interpolate ? alpha : 1.0f;
+			ScenePhysicsSnapshot::WheelDrawing const& drawing = vehicle->Wheels;
+			ScenePhysicsSnapshot::WheelStep const& from = drawing.PreviousStep[index];
+			ScenePhysicsSnapshot::WheelStep const& to = drawing.Step[index];
+			// From the last step back, as bodies are, so that the whole step (1) is exactly there.
+			float const back = 1.0f - part;
+			glm::mat4 const local = ComposeVehicleWheelTransform(vehicle->WheelGeometry[index], vehicle->Up, vehicle->Forward,
+			                                                     to.SuspensionLength - back * (to.SuspensionLength - from.SuspensionLength),
+			                                                     to.SteerAngle - back * (to.SteerAngle - from.SteerAngle),
+			                                                     to.RotationAngle - back * drawing.Advance[index]);
+			glm::vec3 wheelPosition;
+			glm::quat wheelRotation;
+			glm::vec3 wheelScale;
+			if (Math::DecomposeTransform(Math::ComposeTransform(position, rotation, glm::vec3(1.0f)) * local, wheelPosition, wheelRotation,
+			                             wheelScale))
+			{
+				SetWorldPoseInParent(*this, wheel, wheelPosition, wheelRotation);
+			}
+		}
+	}
+
+	void Scene::SayVehicleWheelProblem(Entity wheel, WheelDrawProblem problem, Entity chassis, std::string const& name)
+	{
+		auto const found = m_VehicleWheelsSaid.find(wheel.GetHandle());
+		if (found == m_VehicleWheelsSaid.end() && problem == WheelDrawProblem::Drawn)
+		{
+			// Nothing was said about it, and there is nothing to say.
+			return;
+		}
+		VehicleWheelSaid& said = found != m_VehicleWheelsSaid.end() ? found->second : m_VehicleWheelsSaid[wheel.GetHandle()];
+		bool const unknown = problem == WheelDrawProblem::UnknownWheel;
+		entt::entity const chassisHandle = unknown ? chassis.GetHandle() : entt::entity(entt::null);
+		if (said.Problem == problem && said.Chassis == chassisHandle && (!unknown || said.Wheel == name))
+		{
+			return;
+		}
+		switch (problem)
+		{
+			case WheelDrawProblem::Drawn:
+				break;
+			case WheelDrawProblem::OwnBody:
+				ST_CORE_WARN("Physics: the VehicleWheel of '{}' draws no wheel: its entity has a body or a character of its own, which "
+				             "the vehicle would move",
+				             wheel.GetName());
+				break;
+			case WheelDrawProblem::NoVehicleAbove:
+				ST_CORE_WARN("Physics: the VehicleWheel of '{}' draws no wheel: no entity above it has a Vehicle", wheel.GetName());
+				break;
+			case WheelDrawProblem::UnknownWheel:
+				ST_CORE_WARN(
+					"Physics: the VehicleWheel of '{}' draws no wheel: the definition of the Vehicle of '{}' has no wheel named '{}'",
+					wheel.GetName(), chassis.GetName(), name);
+				break;
+		}
+		said.Problem = problem;
+		said.Chassis = chassisHandle;
+		said.Wheel = unknown ? name : std::string();
 	}
 
 	void Scene::TrackPhysicsMaterials(std::vector<AssetHandle> const& previous, std::vector<AssetHandle> const& current)
@@ -1183,6 +1682,8 @@ namespace Strada
 				ReturnBodiesToSteps();
 				NoteBodiesMovedSinceSteps();
 				ReturnCharactersToSteps();
+				// From the chassis where its last step left it.
+				DrawVehicleWheels(1.0f);
 			}
 			RebuildChangedBodies();
 		}
@@ -1213,6 +1714,8 @@ namespace Strada
 				float const alpha = GetDrawingAlpha();
 				InterpolateBodyTransforms(alpha);
 				InterpolateCharacterTransforms(alpha);
+				// From the chassis as it is drawn.
+				DrawVehicleWheels(alpha);
 				m_IsDrawnBetweenSteps = true;
 			}
 			m_ContactEvents = m_Physics->TakeContactEvents();
@@ -1241,6 +1744,8 @@ namespace Strada
 				WriteBodyTransforms();
 				WriteCharacterTransforms();
 				RecordBodySteps();
+				// After the chassis's entity is where the step left it.
+				RecordVehicleWheelSteps(step);
 			}
 		}
 		m_FixedStepCount++;
@@ -1517,6 +2022,11 @@ namespace Strada
 			snapshot.m_Characters.push_back({state.Entity, transform != nullptr ? *transform : TransformComponent(), state.Position,
 			                                 state.PreviousStepPosition, state.StepPosition, state.Carried, state.Ground});
 		}
+		for (entt::entity const handle : GetMadeVehicleOrder())
+		{
+			VehicleSyncState const& state = m_Vehicles.at(handle);
+			snapshot.m_Vehicles.push_back({state.Entity, state.Wheels});
+		}
 		return snapshot;
 	}
 
@@ -1541,9 +2051,15 @@ namespace Strada
 		               {
 						   return m_Characters.at(handle).Entity == saved.Entity && m_Registry.valid(handle);
 					   });
-		if (!sameBodies || !sameCharacters)
+		std::vector<entt::entity> const vehicles = GetMadeVehicleOrder();
+		bool const sameVehicles = std::equal(vehicles.begin(), vehicles.end(), snapshot.m_Vehicles.begin(), snapshot.m_Vehicles.end(),
+		                                     [this](entt::entity handle, ScenePhysicsSnapshot::VehicleWheels const& saved)
+		                                     {
+												 return m_Vehicles.at(handle).Entity == saved.Entity;
+											 });
+		if (!sameBodies || !sameCharacters || !sameVehicles)
 		{
-			return Error{"bodies or characters were added or removed since the snapshot"};
+			return Error{"bodies, characters or vehicles were added or removed since the snapshot"};
 		}
 		if (Result<void> restored = m_Physics->RestoreState(snapshot.m_Physics); !restored)
 		{
@@ -1586,6 +2102,12 @@ namespace Strada
 				*transform = saved.Transform;
 			}
 		}
+		// The wheels drawn as they were, from their chassis where it was and the steps they were drawn between.
+		for (size_t i = 0; i < vehicles.size(); i++)
+		{
+			m_Vehicles.at(vehicles[i]).Wheels = snapshot.m_Vehicles[i].Drawing;
+		}
+		DrawVehicleWheels(m_IsDrawnBetweenSteps ? GetDrawingAlpha() : 1.0f);
 		// The events of the steps that are undone were taken already; the next frame's are those of the steps it runs.
 		m_ContactEvents.clear();
 		return {};

@@ -19,6 +19,8 @@
 #include <glm/glm.hpp>
 
 #include <algorithm>
+#include <array>
+#include <cstddef>
 #include <cstdint>
 #include <functional>
 #include <limits>
@@ -188,6 +190,35 @@ namespace Strada
 			glm::vec3 Carried = glm::vec3(0.0f);
 			UUID Ground = UUID::Invalid();
 		};
+		// A vehicle's wheel as a step left it: what its VehicleWheel entity is drawn from (radians, meters) and its spin
+		// (radians per second), which tells how far it turned in the step.
+		struct WheelStep
+		{
+			float SuspensionLength = 0.0f;
+			float SteerAngle = 0.0f;
+			float RotationAngle = 0.0f;
+			float AngularVelocity = 0.0f;
+
+			bool operator==(WheelStep const& other) const = default;
+		};
+		// How a vehicle's wheels are drawn between steps (Scene::DrawVehicleWheels): each wheel after the last two steps, and
+		// how far it turned from the first to the second (its angle's change unwrapped by its spin, so a wheel turning more
+		// than half a turn in a step is drawn turning forward). Nothing to draw before the vehicle's first step.
+		struct WheelDrawing
+		{
+			std::array<WheelStep, VehicleWheelCount> PreviousStep{};
+			std::array<WheelStep, VehicleWheelCount> Step{};
+			std::array<float, VehicleWheelCount> Advance{};
+			bool HasSteps = false;
+
+			bool operator==(WheelDrawing const& other) const = default;
+		};
+		// A vehicle's entity and how its wheels are drawn.
+		struct VehicleWheels
+		{
+			UUID Entity = UUID::Invalid();
+			WheelDrawing Drawing;
+		};
 
 		PhysicsSnapshot m_Physics;
 		uint64_t m_Step = 0;
@@ -199,6 +230,8 @@ namespace Strada
 		// In UUID order.
 		std::vector<Body> m_Bodies;
 		std::vector<Character> m_Characters;
+		// The vehicles the scene had made, in UUID order.
+		std::vector<VehicleWheels> m_Vehicles;
 	};
 
 	// An ECS world: entities with components, an ordered hierarchy, settings and runtime state. Main thread only.
@@ -378,24 +411,25 @@ namespace Strada
 		// The fixed steps (OnFixedUpdate, then physics) the running scene has run since it started, with or without physics.
 		uint64_t GetFixedStepCount() const { return m_FixedStepCount; }
 		// A 64-bit hash of the running scene's simulation (Architecture.md section 8): the fixed step count, PhysicsScene's
-		// hash of its bodies and characters, then each character's step positions in UUID order. The step accumulator is
-		// left out, so a scene run at different frame rates hashes alike at one step count. Without physics, the step count
-		// alone.
+		// hash of its bodies, characters and vehicles, then each character's step positions in UUID order. The step
+		// accumulator is left out, so a scene run at different frame rates hashes alike at one step count. Without physics,
+		// the step count alone.
 		uint64_t ComputePhysicsStateHash() const;
 		// The hash taken right after the fixed step SceneRuntimeSettings::PhysicsHashStep (the latest time that step ran, when
 		// a snapshot went back before it); empty before that step and when none was asked for.
 		std::optional<uint64_t> GetRecordedPhysicsHash() const { return m_RecordedPhysicsHash; }
 		// Saves the running scene's simulation between frames (ScenePhysicsSnapshot): the physics world's state
 		// (PhysicsScene::SaveState), the fixed step count, the accumulator, the sequence of the UUIDs entities made while
-		// running take, and what the scene exchanged with each body and character. Physics component changes not applied yet
-		// are applied first. Fails when the scene runs no physics.
+		// running take, what the scene exchanged with each body and character, and the steps each vehicle's wheels are drawn
+		// between. Physics component changes not applied yet are applied first. Fails when the scene runs no physics.
 		[[nodiscard]] Result<ScenePhysicsSnapshot> SavePhysicsState();
 		// Goes back to a snapshot of this run between frames: the physics world, the step count and accumulator, the UUID
 		// sequence (an ID still held by an entity made since is skipped), and the entities of bodies and characters where they
-		// were then, so the steps that follow run as they did. Physics component changes not applied yet are applied first, as
+		// were then, with the vehicles' wheels drawn as they were, so the steps that follow run as they did. Physics component
+		// changes not applied yet are applied first, as
 		// the next frame would. Then it fails, changing nothing more, when the scene runs no physics, the snapshot is of
-		// another run, or a body, joint or character was added, removed or rebuilt since. What the simulation does not change
-		// (scripts' state, entities without bodies, settings) stays as it is.
+		// another run, or a body, joint, character or vehicle was added, removed or rebuilt since. What the simulation does
+		// not change (scripts' state, entities without bodies, settings) stays as it is.
 		[[nodiscard]] Result<void> RestorePhysicsState(ScenePhysicsSnapshot const& snapshot);
 		// The physics world while running; null otherwise or when physics is unavailable.
 		PhysicsScene* GetPhysicsScene() { return m_Physics.get(); }
@@ -589,7 +623,8 @@ namespace Strada
 		// GetFixedStepCount and step); idle, it returns after one branch. It reads the simulation and changes nothing the
 		// state hash or a snapshot holds.
 		void SampleTelemetry(float step);
-		// Syncs the physics materials (SyncPhysicsMaterials), then rebuilds the bodies, characters and joints that changed.
+		// Syncs the physics materials (SyncPhysicsMaterials) and the vehicles' definitions (SyncVehicles), then rebuilds the
+		// bodies, characters, vehicles and joints that changed, in that order (Docs/Architecture.md §8, "Vehicles").
 		void RebuildChangedBodies();
 		// When the data asset registry's epoch moved: gives the bodies the values of every physics material their colliders
 		// use whose version changed (PhysicsScene::SetMaterialValues, no body rebuilt), and marks for rebuilding the bodies
@@ -642,6 +677,48 @@ namespace Strada
 		void InterpolateCharacterTransforms(float alpha);
 		void OnCharacterComponentChanged(entt::registry& registry, entt::entity handle);
 		void OnCharacterComponentAddedOrRemoved(entt::registry& registry, entt::entity handle);
+		// Makes, changes or removes the vehicle of an entity after its Vehicle component, its body, its definition or a curve
+		// the definition names changed: made again (PhysicsScene::AddVehicle, the structure version moves) when it is new, its
+		// component names another definition or its definition's Up or Forward changed; given the new values in place
+		// (PhysicsScene::SetVehicleSettings) when only values changed; left alone when the world already carried it over to a
+		// rebuilt body. An entity whose Vehicle cannot make one (no definition that loads, no dynamic body, values the world
+		// refuses) is no vehicle, said once for each reason.
+		void UpdateVehicle(entt::entity handle);
+		// When the data asset registry's epoch moved: marks for UpdateVehicle the vehicles whose definition or curves changed
+		// version (an edit, a reload, a file that starts or stops loading), in the order of their UUIDs.
+		void SyncVehicles();
+		void OnVehicleComponentChanged(entt::registry& registry, entt::entity handle);
+		void OnVehicleWheelComponentRemoved(entt::registry& registry, entt::entity handle);
+		// The wheels of the vehicles (Docs/Architecture.md §8, "Interpolated wheels"). After each step, each vehicle's wheels
+		// as the step left them (suspension length, steering, angle and spin) are recorded, and the VehicleWheel entities placed
+		// there. Draws each VehicleWheel entity whose wheel names (in any letter case) a wheel of the nearest entity above it
+		// that has a made vehicle: the chassis entity's world translation and rotation as they are now, times the wheel's
+		// transform in the chassis's space (ComposeVehicleWheelTransform) the part `alpha` of the way from the step before
+		// (0) to the last one (1), or at the last step when the chassis's RigidBody does not interpolate; set in the wheel's
+		// parent's space, its scale kept. alpha 1 places them exactly where their last step left them (before the physics
+		// changes and steps of a frame). A wheel entity with a body or a character of its own, or without a vehicle or wheel
+		// to draw, is left alone, said once.
+		void RecordVehicleWheelSteps(float step);
+		void DrawVehicleWheels(float alpha);
+		// Why a VehicleWheel entity draws no wheel, and what was last said about it: the reason, and for a wheel its vehicle
+		// lacks, the chassis and the name. Compared at every drawing without allocating; the warning is made and said only
+		// when they change.
+		enum class WheelDrawProblem : uint8_t
+		{
+			Drawn,
+			OwnBody,
+			NoVehicleAbove,
+			UnknownWheel,
+		};
+		struct VehicleWheelSaid
+		{
+			WheelDrawProblem Problem = WheelDrawProblem::Drawn;
+			entt::entity Chassis = entt::null;
+			std::string Wheel;
+		};
+		void SayVehicleWheelProblem(Entity wheel, WheelDrawProblem problem, Entity chassis, std::string const& name);
+		// The entities whose vehicles the scene made, in the order of their UUIDs (a snapshot's vehicles).
+		std::vector<entt::entity> GetMadeVehicleOrder() const;
 
 		// Audio runtime (SceneAudio.cpp).
 		struct AudioSourceState;
@@ -927,6 +1004,39 @@ namespace Strada
 		std::unordered_map<entt::entity, CharacterSyncState> m_Characters;
 		// Entities whose CharacterController changed while running; their characters are updated before the next step.
 		std::unordered_set<entt::entity> m_ChangedCharacters;
+		// The curve assets a vehicle's definition names: each wheel's longitudinal and lateral friction, then the engine's
+		// torque.
+		static constexpr size_t VehicleCurveCount = 2 * VehicleWheelCount + 1;
+		// What the scene asked of the world for an entity's Vehicle: the definition its component named and the version it
+		// read (0: none applied), the curves the definition named and theirs, the values the world was given while it has the
+		// vehicle (Made), and what was last said about it, so that each reason is said once.
+		struct VehicleSyncState
+		{
+			UUID Entity = UUID::Invalid();
+			AssetHandle Definition;
+			uint64_t DefinitionVersion = 0;
+			std::array<AssetHandle, VehicleCurveCount> Curves{};
+			std::array<uint64_t, VehicleCurveCount> CurveVersions{};
+			bool Made = false;
+			VehicleDesc Desc;
+			std::string Said;
+			// While Made: what its wheels are drawn with (Desc's wheels without their curves, their directions normalized, and
+			// the chassis's axes as the world takes them, NormalizeVehicleAxes), the definition's wheel names, and how the
+			// wheels are drawn between steps.
+			std::array<VehicleWheelDesc, VehicleWheelCount> WheelGeometry{};
+			glm::vec3 Up = glm::vec3(0.0f, 1.0f, 0.0f);
+			glm::vec3 Forward = glm::vec3(0.0f, 0.0f, -1.0f);
+			std::array<std::string, VehicleWheelCount> WheelNames{};
+			ScenePhysicsSnapshot::WheelDrawing Wheels;
+		};
+		std::unordered_map<entt::entity, VehicleSyncState> m_Vehicles;
+		// What was last said about each VehicleWheel entity (SayVehicleWheelProblem); an entry goes with its VehicleWheel.
+		std::unordered_map<entt::entity, VehicleWheelSaid> m_VehicleWheelsSaid;
+		// Entities whose Vehicle, body, definition or curves changed while running; their vehicles are updated before the next
+		// step, after the bodies and characters.
+		std::unordered_set<entt::entity> m_ChangedVehicles;
+		// The data asset registry's epoch when the vehicles' definitions were last compared.
+		uint64_t m_VehicleEpoch = 0;
 		std::vector<ContactEvent> m_ContactEvents;
 
 		// While running: the actions' state, set at runtime start (no edge for what is already held) and cleared at stop,

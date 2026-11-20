@@ -185,6 +185,15 @@ namespace Strada
 			return field;
 		}
 
+		// Arrays (std::vector fields) only, checked at compile time: editors keep the elements' order (see
+		// FieldHints::FixedOrder).
+		constexpr StructField FixedOrder() const
+		{
+			StructField field = *this;
+			field.Hints.FixedOrder = true;
+			return field;
+		}
+
 	private:
 		constexpr StructField WithDisplay(FieldDisplay display) const
 		{
@@ -449,7 +458,8 @@ namespace Strada
 			}
 			// Nested structs are switched by their own fields (editors show them as groups, without a value to disable).
 			return (hints.AssetTypeName.empty() || IsAssetField<T>()) &&
-			       (hints.EnabledBy.empty() || GetFieldKind<T>() != FieldKind::Struct) && (hints.MaxCount == 0 || VectorTraits<T>::value);
+			       (hints.EnabledBy.empty() || GetFieldKind<T>() != FieldKind::Struct) && (hints.MaxCount == 0 || VectorTraits<T>::value) &&
+			       (!hints.FixedOrder || VectorTraits<T>::value);
 		}
 
 		// Whether the field is the enum field `name` with the enumerator `value`, or the bool field `name` and `value` is "true"

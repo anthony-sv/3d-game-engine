@@ -6,6 +6,7 @@
 #include "Strada/Asset/InputActionsAsset.h"
 #include "Strada/Asset/MixerAsset.h"
 #include "Strada/Asset/PhysicsMaterialAsset.h"
+#include "Strada/Asset/VehicleAsset.h"
 #include "Strada/Core/FileSystem.h"
 
 #include <algorithm>
@@ -253,6 +254,7 @@ namespace Strada
 		AddEngineType<InputActionMap>(InputActionsAssetSpecification);
 		AddEngineType<Mixer>(MixerAssetSpecification);
 		AddEngineType<PhysicsMaterial>(PhysicsMaterialAssetSpecification);
+		AddEngineType<Vehicle>(VehicleAssetSpecification);
 		return true;
 	}
 

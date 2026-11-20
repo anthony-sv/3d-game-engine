@@ -125,10 +125,10 @@ executable with Project's reader before logging starts (§13.1).
 | Serialization | JSON conversions for glm, UUIDs, enums and reflected structs; deserialization warnings; versioned documents of one struct, with migrations; profiler captures and telemetry's CSV exports (§7.3) | `JsonTraits<T>`, `EnumTraits<T>`, `StructTraits<T>`, `DeserializationContext`, `StructDocumentFormat`, `ProfilerCaptureSerializer`, `TelemetryCsvWriter` |
 | Platform | Child processes (reproc++): spawning, output capture, exit codes, termination | `Process` |
 | RHI | Vulkan instance/device creation, NVRHI device, swapchains (one per OS window), frame pacing, embedded shader library, texture readback | `GraphicsDevice`, `Swapchain`, `ShaderLibrary`, `ReadbackTexture` |
-| Asset | Asset handles and metadata, the persistent registry, the asset manager, CPU asset types, data asset types (one registration each, with their structs), model importers, built-in primitives, the visual script format and its layout, the player's rebound input bindings and their profile (§7.4) | `AssetHandle`, `AssetManager`, `AssetRegistry`, `MeshSource`, `MaterialAsset`, `TextureAsset`, `EnvironmentAsset`, `PrefabAsset`, `AudioClipAsset`, `FontAsset`, `VisualScriptAsset`, `VisualScriptSerializer`, `MeshImporter`, `DataAssetRegistry`, `DataAsset`, `TypedDataAsset<T>`, `DataAssetSerializer`, `PhysicsMaterial`, `InputActionMap`, `InputRebinding`, `InputBindingProfile` |
+| Asset | Asset handles and metadata, the persistent registry, the asset manager, CPU asset types, data asset types (one registration each, with their structs), model importers, built-in primitives, the visual script format and its layout, the player's rebound input bindings and their profile (§7.4) | `AssetHandle`, `AssetManager`, `AssetRegistry`, `MeshSource`, `MaterialAsset`, `TextureAsset`, `EnvironmentAsset`, `PrefabAsset`, `AudioClipAsset`, `FontAsset`, `VisualScriptAsset`, `VisualScriptSerializer`, `MeshImporter`, `DataAssetRegistry`, `DataAsset`, `TypedDataAsset<T>`, `DataAssetSerializer`, `PhysicsMaterial`, `InputActionMap`, `InputRebinding`, `InputBindingProfile`, `Vehicle` |
 | Renderer | GPU resources created from assets (meshes, textures, materials, environments, fonts), samplers and fallback textures, the scene renderer and its passes, environment processing, shadow math, the quality presets of the player's settings (§6.2), text layout, sprites, picking, presentation blits | `Renderer`, `SceneRenderer`, `QualityPreset`, `EnvironmentProcessor`, `QuadRenderer`, `FontAtlas`, `TextureBlitter` |
 | ImGui | ImGui context/layer, NVRHI renderer backend with multi-viewport support, UI helpers | `ImGuiLayer`, `ImGuiRenderer` |
-| Physics | Jolt init/shutdown, per-scene physics world, layers, contact events, queries | `PhysicsSystem`, `PhysicsScene` |
+| Physics | Jolt init/shutdown, per-scene physics world, layers, contact events, queries, vehicles (§8) | `PhysicsSystem`, `PhysicsScene` |
 | Audio | miniaudio engine, the audio queue, voices, buses and their effects (the mixer, §9), per-scene sound sources and listener, waveforms of clips | `AudioEngine`, `AudioScene`, `AudioMixer`, `AudioVoice`, `AudioBusNode`, `AudioEffect`, `ComputeAudioWaveform` |
 | Script | .NET runtime hosting (hostfxr), managed bridge, native bindings, script instances and fields, hot reload, the public variables of visual scripts as script fields, the visual scripts of the runtime (node library, analysis, programs, graph instances), the literal codec of visual scripts (the C++ forms of document literals: floats written as their shortest text that reads back exactly, integral floats as integers), the game's save slots and the player's settings (§13.1) | `ScriptEngine`, `DotNet::LoadAssembly`, `ScriptBinding`, `DescribeVisualScriptVariables`, `VisualScriptEngine`, `VisualScriptLibrary`, `DecodeVisualScriptLiteral`, `EncodeVisualScriptLiteral`, `SaveSlotStore`, `PlayerSettingsStore` |
 | Scene | ECS scene, entities, components, component registry/reflection, serialization, prefab instantiation, runtime lifecycle (C# scripts and visual scripts), post-process volume blending, screen-space UI layout and interaction, render submission | `Scene`, `Entity`, `ComponentRegistry`, `ComponentTraits`, `SceneSerializer`, `PostProcessVolumes`, `UILayout`, `RenderScene` |
@@ -214,7 +214,10 @@ Profiler panel, the `profiler.*` commands and `StradaRuntime --profile` read its
     each fixed step `Scene.FixedUpdateScripts`, `Scene.SyncToPhysics`, `Physics.Step` and `Scene.SyncFromPhysics`,
     and `Scene.Telemetry` while telemetry records, with `Telemetry.Collect` inside it (§4.5);
     `Scene.SyncPhysicsMaterials` only in the frames after a data asset changed, where the bodies take the new values of
-    their physics materials (§8);
+    their physics materials, and `Scene.SyncVehicles` there too, where the vehicles take their definitions', and in the
+    frames where a `Vehicle` component or a chassis's body changed, where the scene makes or updates the vehicles (§8);
+    `Physics.Vehicles` inside `Physics.Step`, once per collision step on the thread that runs Jolt's step listeners
+    (§8, "Vehicles");
   - each C# script's update and fixed update under `Script.<class>`, and each graph invoke (every event) under
     `Graph.<asset path>` with the count `Steps`: the steps of the VM's outermost executions the invoke ran, the graphs
     they ran in turn included. The engine reads the VM's step counter (`VisualScriptReadSteps`) before and after the
@@ -1642,6 +1645,8 @@ category), and script interop component lookups.
 | `CapsuleCollider` | `CapsuleColliderComponent` | `Radius`, `HalfHeight`, `Offset`, `IsTrigger`, `Material`, `Friction`, `Restitution` |
 | `MeshCollider` | `MeshColliderComponent` | `Mesh` asset (0 = use `Mesh` component), `Convex`, `IsTrigger`, `Material`, `Materials` (`.sphysmat`[], one per submesh of a triangle mesh, at most 31; 0 or missing = `Material`), `Friction`, `Restitution` |
 | `Joint` | `JointComponent` | `Type` (Fixed/Hinge/Ball/Distance/Slider), `ConnectedEntity` UUID (0 = the world), `Anchor` (local), `ConnectedAnchor` (the connected entity's local space, or world), `Axis` (local), `LimitsEnabled`, `MinLimit`/`MaxLimit` (hinges: deg; sliders: m), `MinDistance`/`MaxDistance` (-1 = the starting distance), `MotorEnabled`, `MotorSpeed` (deg/s or m/s), `MotorMaxForce` |
+| `Vehicle` | `VehicleComponent` | `Definition` (a `.svehicle`, §7.3; 0 = none); on an entity with a dynamic `RigidBody` and a collider, the chassis; the rider's inputs are run-time state, not fields (§8, "Vehicles") |
+| `VehicleWheel` | `VehicleWheelComponent` | `Wheel` (the name of a wheel of the nearest `Vehicle` above the entity, any letter case); the entity's local X is the axle, and it has no collider; while the scene runs, the vehicle places it at every step and draws it between steps (§8, "Vehicles", "Interpolated wheels") |
 | `CharacterController` | `CharacterControllerComponent` | `Radius`, `Height` (the whole capsule), `Offset` (the capsule's center), `StepHeight`, `MaxSlopeAngle` (deg, 1..89), `Mass` (kg), `PushForce` (N), `GravityFactor` (0..1000), `Layer` |
 | `AudioSource` | `AudioSourceComponent` | `Clip` asset, `Stream` (read the clip's file while playing), `Volume`, `Pitch`, `Loop`, `PlayOnStart`, `Spatial`, `MinDistance`, `MaxDistance`, `Bus` (the mixer's bus by name, any letter case; empty, or a name the mixer lacks, is Master), `Priority` (0 to 255; lower goes silent first at the engine's limit), `MaxVoices` (1 to 64; its main voice and its one-shots), `DopplerLevel` (0 to 5; how much of the doppler effect a spatial source takes, §9.8) |
 | `AudioListener` | `AudioListenerComponent` | `Active` |
@@ -1868,8 +1873,9 @@ every number finite.
 ```
 
 Physics material (`.sphysmat`, the data asset type `PhysicsMaterial`, version 1, §8): `"PhysicsMaterial": { "Friction",
-"Restitution", "FrictionCombine", "RestitutionCombine", "RollingResistance", "Surface", "ImpactSound", "ImpactParticles" }`.
-`Friction` and `RollingResistance` are at least 0 and `Restitution` 0 to 1; the combine modes are `GeometricMean`,
+"Restitution", "FrictionCombine", "RestitutionCombine", "RollingResistance", "TyreGrip", "Surface", "ImpactSound",
+"ImpactParticles" }`. `Friction`, `RollingResistance` and `TyreGrip` are at least 0 and `Restitution` 0 to 1 (`TyreGrip`,
+1 when missing, is a compatible field of version 1); the combine modes are `GeometricMean`,
 `Average`, `Minimum`, `Multiply` or `Maximum`; `Surface` is any text (empty for none); `ImpactSound` references an
 `AudioClip` and `ImpactParticles` a `Prefab` (0 for none). A new material (`{}`) is what a collider without one does:
 friction 0.6 by the geometric mean, restitution 0 by the maximum.
@@ -1942,6 +1948,51 @@ before any `.smixer` existed outside it, so no migration reads an older file.
 				{ "Bus": "Engine", "Target": "Effect", "Effect": 0, "Parameter": "Frequency", "Value": 800.0 }
 			] }
 		]
+	}
+}
+```
+
+Vehicle (`.svehicle`, the data asset type `Vehicle`, version 1, §8 "Vehicles"; `Strada/Asset/Vehicle.h` and
+`VehicleAsset.h`): `"Vehicle": { "Wheels": [ { "Name", "Position", "SuspensionDirection", "SuspensionMinLength",
+"SuspensionMaxLength", "SuspensionPreload", "SuspensionFrequency", "SuspensionDamping", "SteeringAxis", "MaxSteerAngle",
+"Radius", "Width", "Inertia", "AngularDamping", "FrontBrakeTorque", "RearBrakeTorque", "LongitudinalFriction",
+"LateralFriction" } ], "Up", "Forward", "MaxPitchRoll", "Engine": { "MaxTorque", "MinRPM", "MaxRPM", "Torque", "Inertia",
+"AngularDamping" }, "Transmission": { "Mode", "GearRatios", "FinalDrive", "SwitchTime", "ClutchReleaseTime",
+"SwitchLatency", "ShiftUpRPM", "ShiftDownRPM", "ClutchStrength" }, "Lean": { "MaxLeanAngle", "SpringConstant",
+"SpringDamping", "SmoothingFactor", "SteeringLimit" } }`. Exactly two wheels, the front then the rear (an editor keeps
+their order): the front steers (`MaxSteerAngle` above 0, at most 90) and the rear does not (0); names are 1 to 64 bytes,
+unique ignoring letter case. Lengths are meters in the chassis's local space without its scale, angles degrees
+(`MaxPitchRoll` 0 to 180, 180 for no limit; `MaxLeanAngle` 0 to 90), torques newton meters, engine speeds revolutions per
+minute; the directions and `Up` and `Forward` are not zero, and `Up` and `Forward` not parallel; `Radius`, the inertias,
+the spring's frequency, `MaxTorque`, the gear ratios, `FinalDrive` and `ClutchStrength` are above 0 and every other number
+at least 0; `MinLength <= MaxLength`; `MinRPM < MaxRPM`; 1 to 16 gear ratios, first gear first, and no reverse gear;
+`Mode` is `Automatic` or `Manual`; `ShiftDownRPM < ShiftUpRPM`, and in `Automatic` mode `ShiftUpRPM < MaxRPM`. The three
+curve fields (`LongitudinalFriction` over the slip ratio, `LateralFriction` over the slip angle in degrees, `Torque` over
+the engine's speed as a fraction of `MaxTorque`) reference `Curve` assets, 0 or a reference that is no loadable curve for
+Jolt's default. There are no fields only a car uses (anti-roll bars, a differential between wheels, a handbrake, a
+reverse gear). A new definition (`{}`) is a bike with the proportions of Jolt's motorcycle sample, its front along -Z, on
+springs of 2.5 Hz that hold a 250 kg chassis off their stops (the sample's 1.5 Hz front spring lets it sit on its shortest
+length).
+
+```json
+{
+	"Strada": { "Version": 1, "Type": "Vehicle" },
+	"Vehicle": {
+		"Wheels": [
+			{ "Name": "Front", "Position": [0.0, 0.66, -0.55], "SuspensionDirection": [0.0, -0.866, -0.5], "SuspensionMinLength": 0.3,
+			  "SuspensionMaxLength": 0.5, "SuspensionPreload": 0.0, "SuspensionFrequency": 2.5, "SuspensionDamping": 0.5,
+			  "SteeringAxis": [0.0, 0.866, 0.5], "MaxSteerAngle": 30.0, "Radius": 0.31, "Width": 0.12, "Inertia": 0.9,
+			  "AngularDamping": 0.2, "FrontBrakeTorque": 1500.0, "RearBrakeTorque": 0.0, "LongitudinalFriction": "0", "LateralFriction": "0" },
+			{ "Name": "Rear", "Position": [0.0, 0.71, 0.75], "SuspensionDirection": [0.0, -1.0, 0.0], "SuspensionMinLength": 0.3,
+			  "SuspensionMaxLength": 0.5, "SuspensionPreload": 0.0, "SuspensionFrequency": 2.5, "SuspensionDamping": 0.5,
+			  "SteeringAxis": [0.0, 1.0, 0.0], "MaxSteerAngle": 0.0, "Radius": 0.31, "Width": 0.19, "Inertia": 1.2,
+			  "AngularDamping": 0.2, "FrontBrakeTorque": 0.0, "RearBrakeTorque": 600.0, "LongitudinalFriction": "0", "LateralFriction": "0" }
+		],
+		"Up": [0.0, 1.0, 0.0], "Forward": [0.0, 0.0, -1.0], "MaxPitchRoll": 60.0,
+		"Engine": { "MaxTorque": 110.0, "MinRPM": 1700.0, "MaxRPM": 16000.0, "Torque": "4815162342", "Inertia": 0.4, "AngularDamping": 0.2 },
+		"Transmission": { "Mode": "Manual", "GearRatios": [2.714, 2.2, 1.85, 1.6, 1.42, 1.304], "FinalDrive": 4.6125, "SwitchTime": 0.05,
+			"ClutchReleaseTime": 0.1, "SwitchLatency": 0.5, "ShiftUpRPM": 15500.0, "ShiftDownRPM": 6000.0, "ClutchStrength": 2.0 },
+		"Lean": { "MaxLeanAngle": 55.0, "SpringConstant": 5000.0, "SpringDamping": 1000.0, "SmoothingFactor": 0.8, "SteeringLimit": true }
 	}
 }
 ```
@@ -2649,7 +2700,8 @@ surface slides, bounces and rolls and what it is called. In this slice its field
 | `Friction` | 0.6 | The surface's friction coefficient, combined with the other side's per contact |
 | `Restitution` | 0 | Its bounciness (0 to 1), combined likewise |
 | `FrictionCombine`, `RestitutionCombine` | `GeometricMean`, `Maximum` | How a contact combines the two sides' values: `GeometricMean` (the square root of the product), `Average`, `Minimum`, `Multiply` or `Maximum` |
-| `RollingResistance` | 0 | A rolling resistance coefficient (force per newton of load) for scripts, graphs and, later, the vehicle; rigid-body contacts ignore it |
+| `RollingResistance` | 0 | A rolling resistance coefficient (force per newton of load): vehicles apply it as a drag on each wheel by its load ("Vehicles", below), and scripts and graphs read it; rigid-body contacts ignore it |
+| `TyreGrip` | 1 | What a vehicle's tyres multiply their friction curves by on the surface ("Vehicles", below); read by vehicles alone, so that a surface can hold blocks and tyres differently |
 | `Surface` | empty | A name scripts and graphs compare (`"Asphalt"`, `"Gravel"`) |
 | `ImpactSound`, `ImpactParticles` | none | An `AudioClip` and a `Prefab` (a particle system) for impacts. A collision that begins plays each side's `ImpactSound` where it begins when the project's mixer names a bus for impact sounds (`Mixer::Impacts`, §9.8; none by default); scripts and graphs read both and spawn the particles, which contacts never spawn |
 
@@ -2991,8 +3043,8 @@ the editor's edits of a running scene rebuild the body, as for every RigidBody f
 whatever the frame rate: the state after step n depends on the scene, on what scripts do in their fixed steps and on n,
 not on how the steps were spread over frames. Jolt is deterministic when it is called in the same order (Jolt's
 `Docs/Architecture.md`, "Deterministic Simulation"), and the scene calls it in an order that depends neither on the
-frame rate nor on the order entities were made in: bodies, characters and joints are made, rebuilt and removed in the
-order of their entities' UUIDs, the syncs before each step (kinematic targets, teleports, characters moved by edits)
+frame rate nor on the order entities were made in: bodies, characters, vehicles and joints are made, rebuilt and removed
+in the order of their entities' UUIDs, the syncs before each step (kinematic targets, teleports, characters moved by edits)
 run in that order, and the world's own tables are ordered by entity; contact events are sorted per step and awake
 bodies are read back sorted. Entities made while a scene runs (by scripts, prefab instances, duplicates) take their
 UUIDs from a sequence the scene seeds from its entities' UUIDs as it starts, so every run makes the same IDs and their
@@ -3016,7 +3068,8 @@ the `fixedDeltaTime` each call receives, and calls `Random.Seed` before it draws
 the values, little-endian) of the fixed step count, then of every body in UUID order (its UUID, motion type, position,
 rotation, linear and angular velocity and whether it is awake, as Jolt holds them) and every character in UUID order
 (position, velocity, its own and walking velocity, ground state, ground entity and displacement, and the step positions
-it is drawn between). Equal hashes at one step count mean equal simulations. The accumulator is left out: at one step
+it is drawn between), then, only in a world with vehicles, their count and every vehicle in UUID order (its state as
+"Vehicles" below lists it; a world without one hashes as it did before vehicles existed). Equal hashes at one step count mean equal simulations. The accumulator is left out: at one step
 count it holds a different remainder at each frame rate, which is what the hash must not see; snapshots carry it. With
 `SceneRuntimeSettings::PhysicsHashStep` set to n, the scene records its hash right after step n, inside the frame that
 runs it (`Scene::GetRecordedPhysicsHash`); the player's test summary prints it (`--hash-step`), or the hash after the
@@ -3027,16 +3080,17 @@ it at step 0, so a test run that moves on to another scene reports the hash and 
 saves (`PhysicsSystem::SaveState` in full: the last step's length and gravity, the bodies' positions, rotations,
 velocities, forces and sleep state, the contacts and the joints' warm starts), each character's state
 (`CharacterVirtual::SaveState`, which the system does not save, with the engine's own velocities and ground
-displacement), the contacts the world has reported and the events not yet taken, and the scene's step state: the step
+displacement), the contacts the world has reported and the events not yet taken, each vehicle's state Jolt leaves out
+("Vehicles" below), and the scene's step state: the step
 count, the accumulator, the state of the sequence entities made while running take their UUIDs from, the poses last
 exchanged with the bodies, the local poses moving bodies are drawn between (and which parts of each are drawn, or
-whether it was moved since its step), and the characters' step positions and ground. Entities made after a restore so
+whether it was moved since its step), the characters' step positions and ground, and the wheels' step values. Entities made after a restore so
 take the UUIDs entities made after the save took, except one an entity made since (and not destroyed) still holds,
 which is skipped.
 `Scene::RestorePhysicsState` puts it all back and places the entities of bodies and characters where they were then, so
 the steps that follow run as they did from there (given the same fixed-step inputs). Its limit: a snapshot belongs to
-the world it was saved from and to the bodies, joints and characters that world had. Once one was added, removed or
-rebuilt (a physics component changed), restoring is refused and changes nothing, because Jolt's state recorder neither
+the world it was saved from and to the bodies, joints, characters and vehicles that world had. Once one was added,
+removed or rebuilt (a physics component changed), restoring is refused and changes nothing, because Jolt's state recorder neither
 adds nor removes bodies. Nor does a snapshot hold what the simulation does not change: settings scripts or components set
 since (gravity factors, damping, layers, what characters ignore), the scripts' own state, entities without bodies, sounds
 and particles.
@@ -3098,6 +3152,281 @@ are drawn where the last step left them. Entities moved between steps stay where
 teleports their characters there. Removing the component or destroying the entity removes the character.
 `Scene::TeleportCharacter` places the entity and stops its character at once. The scene view draws a selected
 character's capsule (with the colliders).
+
+**Vehicles.** A vehicle is a motorcycle: Jolt's `MotorcycleController` on a `VehicleConstraint`
+(`Jolt/Physics/Vehicle/`; Jolt's header calls the motorcycle controller "still in development",
+`MotorcycleController.h:12` of the pinned Jolt), with two wheels, a steerable front and a driven rear. `PhysicsScene`
+keeps it behind its public header (`Physics/PhysicsScene.h`, the types in `Physics/PhysicsTypes.h`); Jolt's vehicle code
+lives in `Physics/VehicleWorld.cpp` behind the internal `Physics/VehicleWorld.h`, and the surface lookup it shares with
+the contact listener and the queries in the internal `Physics/PhysicsSurfaces.h`. There are no cars: no anti-roll bars,
+no differential between two driven wheels, no handbrake as a car has one and no reverse gear. Where the motorcycle
+controller is built on Jolt's wheeled controller (its engine, gearbox, brakes and tyres), that is how Jolt is made, not a
+feature: the definition names the one ratio a motorcycle has between its gearbox and its rear wheel, the final drive,
+which Jolt holds as a differential with one wheel (`WheeledVehicleController.cpp:404-408` gives such a differential's
+wheel all of its torque).
+
+- **The world's vehicles.** `PhysicsScene::AddVehicle(VehicleDesc)` makes the vehicle of an entity on the entity's body,
+  which must be dynamic, replacing the vehicle it has; `RemoveVehicle` removes it, and so does `RemoveBody` (as it removes
+  the body's joints). `AddBody` replacing a chassis's body (a collider changed) makes its vehicle again on the new body when
+  that body is dynamic and removes it otherwise. A vehicle made again (on a new body, or with values that cannot change in
+  place) keeps its latest inputs, its engine's speed (within the new range), its gear (within the new gears) and each
+  wheel's spin and angle; its contacts, suspension, gearbox timers and lean start again. Making, replacing and removing a
+  vehicle moves the world's structure version, so a snapshot of another structure is refused; changing its values in place
+  (`SetVehicleSettings`) does not. The chassis's centre of mass and inertia are its colliders' alone, as any dynamic body's
+  are: a bike that must carry its mass low places its chassis collider low, and the vehicle adds no offset of its own.
+  The colliders also give the chassis its roll inertia, which the lean spring needs: Jolt applies the spring's impulse at
+  every velocity iteration of the solver against what it applied before (`MotorcycleController.cpp:218-226`), so its
+  damping term changes the roll rate by `LeanSpringDamping` times the collision step over the roll inertia about the
+  front at each iteration, and the iterations settle only while that ratio is below 1 (for the default damping of 1,000
+  at 60 steps a second, a roll inertia above 16.7 kg m²; more collision steps a step lower the bound). A case of the
+  engine's tests stands on each side of it: a 250 kg chassis box 0.5 m wide and 1 m high (26 kg m²) stands and rides,
+  and a 200 kg one 0.3 m wide and 0.5 m high (5.7 kg m²) is thrown over at its first contact, spinning at Jolt's largest
+  angular velocity, yet stands with a damping of 200. A chassis whose roll inertia is too low takes less damping; nothing
+  checks or warns of it when a vehicle is made.
+  **Order.** Jolt removes a constraint by moving the last one into its slot
+  (`ConstraintManager.cpp:49-59`) and solves the constraints of an island in the order of their priority and then their
+  index (`:103-115`), so after any change to the vehicles the world takes every vehicle's constraint and every joint out
+  of Jolt's list and adds them again: the vehicles in the order of their chassis's UUIDs, then the joints in the order of
+  their entities'. A constraint taken out and added again is the same object with its state. Joints made later are
+  appended after the vehicles, and the scene makes every joint again in UUID order whenever a body is made, rebuilt or
+  removed, so Jolt's list is in that order after every change, whatever the history. **One step listener.** Jolt steps a
+  vehicle through `PhysicsStepListener::OnStep` (`VehicleConstraint.h:44`, `:65`). The world registers one listener of
+  its own while it has a vehicle, which calls each vehicle constraint's `OnStep` in the order of the chassis's UUIDs: Jolt
+  keeps its listeners in a list from which a removal moves the last one into the removed slot (`PhysicsSystem.cpp:123-131`),
+  and a listener per vehicle would have to be taken out and put back in order at every change, as the constraints are.
+- **The threads.** `PhysicsSystem::Update` locks every body and constraint (`PhysicsSystem.cpp:241-246`) and in each
+  collision step runs the step listeners first, as jobs on which gravity and the active constraints wait (`:401-412`);
+  `OnStep` runs once per collision step with that collision step's length (`PhysicsStepListener.h:28`). Jolt makes one
+  listener job per 8 listeners and at least one (`PhysicsSystem.cpp:253`, `PhysicsSettings.h:39`, `:42`); a job takes
+  batches of 8 by an atomic counter (`:697-726`) and is run by a worker or by the main thread while it waits for the step
+  (`JobSystem.h:63`). With its one listener, a world's vehicles step one after another on one thread, in UUID order:
+  **that is the limit this design sets**, so no two vehicles' callbacks ever run at once and no ordering between threads
+  enters a vehicle's step. At the budget of 50 µs a vehicle, sixteen bikes take 0.8 ms of one thread per step. In each
+  vehicle's `OnStep` (`VehicleConstraint.cpp:152-326`) run, in this order: a Manual gearbox's gear and clutch over the
+  collision step (Strada's, below), Jolt's `PreCollide` (the steering and the lean's target, `:184`), the wheel tests
+  (Strada's tester, below), Strada's post-collide callback (`:276`: each wheel's surface and its rolling drag, below),
+  Jolt's `PostCollide` (`:303`: the engine, the gearbox, the brakes, and each wheel's slips and frictions in
+  `WheelWV::Update`, `WheeledVehicleController.cpp:94-142`, which calls Strada's friction combine function), and the sleep
+  test (`:310-322`). Later in the step the constraint solver applies the tyre and lean impulses
+  (`WheeledVehicleController.cpp:658-739`, `MotorcycleController.cpp:190-261`) island by island, with Jolt's default tyre
+  impulse callback: no Strada code runs there. What Strada's callbacks read: the vehicle's own record (written by the
+  main thread between steps), the bodies its wheels touch (their shapes, positions and velocities, which nothing writes
+  while the listeners run: the listener job grants itself velocities, `PhysicsSystem.cpp:697-705`) and the world's collider
+  table, which only the main thread writes, between steps. What they write: the vehicle's own wheels and gearbox and its
+  record's slots for the surfaces its wheels found (with the entity under each, read from the body's user data, never
+  through a body lock: every body is locked while the listeners run), which the main thread reads after the step. Never
+  another body's velocity (the rolling drag slows the wheel, not a body), nothing of the engine's and no log. Strada's own
+  callbacks allocate nothing: they are made with the vehicle on the main thread, and the friction combine function, which
+  Jolt copies for each wheel at every step (`WheeledVehicleController.cpp:130`), is a trivially copyable object of one
+  pointer (a `static_assert` holds it to two pointers' size), which every standard library's `std::function` keeps without
+  allocating. Jolt's own wheeled controller does allocate on the listener thread: its `PostCollide` builds two small
+  arrays and a small matrix system per vehicle per collision step (`WheeledVehicleController.cpp:303-304`, `:375-376`,
+  `:487-488`) through Jolt's allocator, which is thread-safe; that time is inside the vehicle's budget below.
+  ThreadSanitizer runs the vehicles' cases with workers under the `PhysicsScene:` prefix (`tsan.yml`'s selection).
+- **The wheel tests.** Each wheel casts its cylinder down its suspension, as Jolt's `VehicleCollisionTesterCastCylinder`
+  does (`VehicleCollisionTester.cpp:241-329`, with half the wheel's width as its convex radius, as Jolt's motorcycle
+  sample, `MotorcycleTest.cpp:129`), on the chassis's object layer with the project's layer pairs and past the chassis's own
+  body. Jolt's testers skip sensor bodies only (`VehicleCollisionTester.cpp:290`), and a Strada trigger is a collider of a
+  body, not a body, so the engine's tester (a subclass of Jolt's cylinder tester whose `Collide` makes the same cast with
+  the shape filter that refuses trigger colliders, the one the queries and characters use) passes through triggers: a trigger volume never carries a wheel, and a
+  wheel on a character's inner body stands on it. A wheel entity is drawn only and has no collider (a collider of its own
+  would be a body its wheel's cast stands on). Every wheel is tested in full at every collision step (Jolt's steps between
+  tests, active and inactive, stay at their default of 1, `VehicleConstraint.h:174`, `:182`): a predicted contact keeps the
+  sub-shape of an earlier test, which Jolt's snapshot does not save (`VehicleConstraint.cpp:646-671` saves the contact
+  body, not its sub-shape), and the wheel's surface is found from that sub-shape.
+- **Grip and rolling drag from the surface under each wheel.** A physics material gains `TyreGrip` (at least 0, default
+  1), read by vehicles alone; `ColliderSurface` carries it with the material's `RollingResistance`, given by
+  `SetMaterialValues` like the other values. An edit of these two alone wakes nothing (only the values contacts read
+  wake what a surface touches): a vehicle's wheels read them at every step the vehicle moves in, and a vehicle asleep is
+  at rest, where neither acts. A
+  collider without a material, and a sub-shape without a collider entry (a character's inner body), has a grip of 1 and no
+  rolling resistance. A tyre's grip cannot be the surface's `Friction`: a sample's gravel has the higher friction, combined
+  by `Maximum`, so that blocks slow on it (`Projects/Moto/Assets/Surfaces/Gravel.sphysmat`). In the post-collide callback
+  each wheel in contact finds its surface (`FindSubShapeMaterial` on the shape of the body its test hit and the sub-shape),
+  keeps it in its record's slot, and loses the spin its rolling resistance takes in the collision step: the torque
+  `RollingResistance × load × radius` against the spin, the load being the suspension's impulse of the collision step
+  before over that step's length (`Wheel::GetSuspensionLambda`, which Jolt's snapshot carries in the suspension parts'
+  state), so the spin falls by `RollingResistance × impulse × radius / inertia` times this step's length over the last
+  one's (Jolt's own scale for impulses of the step before, `WheeledVehicleController.cpp:503`; 0 in the vehicle's first
+  step), never past 0. The tyre then passes the deficit to the chassis: on a
+  free-rolling wheel the solver applies the longitudinal impulse that brings the wheel's speed back to the ground's
+  (`WheeledVehicleController.cpp:705-718`), clamped by the tyre's friction at that slip, so a bike coasting on a level
+  surface slows by about `g × RollingResistance` while the tyre holds (a stopped wheel has nothing to lose). Strada's
+  friction combine function, called from `WheelWV::Update` with the wheel's curve values
+  (`WheeledVehicleController.cpp:130-133`), multiplies both by the slot's `TyreGrip`: it replaces Jolt's default, the
+  geometric mean with the body's friction (`VehicleConstraint.h:238-244`), so the surface's `Friction` does not reach
+  tyres. The surfaces are fixed for the step, and a wheel's slot is written and read by its vehicle's callbacks alone, on
+  the one thread that steps the vehicles.
+- **What the stock friction gives.** Jolt's default tyre impulse callback limits the forward and the sideways impulse
+  separately, each the combined friction times the suspension's impulse (`WheeledVehicleController.h:191-196`), and the
+  solver solves the two one after the other (`WheeledVehicleController.cpp:665-739`). So a wheel braked to a stop keeps its
+  sideways grip, and trail braking and rear-brake slides as a simulation has them are not promised: each wheel brakes by
+  its own input and weight moves to the front under braking as the rigid body allows, nothing more. A limit that combines
+  the two (a friction ellipse through the impulse callback, which is given both slips but not the impulse the other
+  direction takes) is a tyre model of its own, to design and tune against bands of its own; it is left to the efforts that
+  take up the tyre and the chassis (the Roadmap's V2 and V3).
+- **The brakes.** A wheel's brake torque is Jolt's brake input times the wheel's `mMaxBrakeTorque` plus its hand-brake
+  input times its `mMaxHandBrakeTorque` (`WheeledVehicleController.cpp:537`, `:629`), and neither input is read anywhere
+  else in Jolt's controllers but by their debug drawing and their save and restore (`:766`, `:831-844`). So the front
+  brake is Jolt's brake input and the rear brake its hand-brake input, and each wheel takes the definition's
+  `FrontBrakeTorque` and `RearBrakeTorque` as those two torques (both always set: Jolt's default hand-brake torque is
+  4,000 N m, `WheeledVehicleController.h:37`). The front brake's torque at the rear wheel and the rear brake's at the front
+  are usually 0, and a wheel given both adds them. Scaling a brake by the lean, as Jolt's sample does
+  (`MotorcycleTest.cpp:178-187`), is a rider assist's business, not the vehicle's.
+- **The inputs, once per fixed step.** `VehicleInputs` holds the throttle (0 to 1), the front and the rear brake (0 to 1
+  each) and the lean (-1 to 1, Jolt's steering input, which the lean controller turns into the lean: positive steers,
+  leans and turns the bike to its right). `SetVehicleInputs` keeps the latest, clamped (a value that is not finite is 0;
+  Jolt's setters do not clamp, `WheeledVehicleController.h:100-121`), and `PhysicsScene::Step` gives the latest to every
+  vehicle's controller before Jolt's update, in the order of the chassis's UUIDs: the throttle as Jolt's forward input, the
+  lean as its right input, the front brake as its brake and the rear brake as its hand brake. A frame that runs no step
+  applies nothing, and one that runs eight applies the same values to all eight; the scene runs `OnFixedUpdate` before
+  each step, so what a script sets there reaches that step, and a ride that must compare across frame rates sets the
+  inputs there as a function of the simulation. Inputs that are not all 0 wake the chassis before the step (a sleeping
+  chassis's constraint is not solved; Jolt's sample does the same, `MotorcycleTest.cpp:196-198`), in the same order. The
+  throttle is never negative, so Jolt's automatic gearbox never picks a reverse gear (`VehicleTransmission.cpp:58-62`),
+  and the definition has none.
+- **Shifts, and the manual mode's clutch.** Gears run from 1 to the definition's count, with neutral (0) below the
+  first. In `Automatic` mode Jolt's gearbox shifts by itself (`VehicleTransmission::Update`,
+  `VehicleTransmission.cpp:51-127`: up past `ShiftUpRPM`, down below `ShiftDownRPM`, with its switch, clutch-release and
+  latency times; from neutral it takes first gear at the first throttle, and with the throttle closed it shifts down to
+  neutral), and shift requests do nothing. In `Manual` mode Jolt takes the gear and the clutch's friction from its caller
+  (`VehicleTransmission::Set`, `VehicleTransmission.h:51`) and runs no times (`VehicleTransmission.cpp:54`), so the shift is
+  Strada's state: `RequestVehicleShift(entity, ±1)` requests add up (in the record's one pending count) until the next
+  step, whose first collision step moves the gear by their sum within neutral and the gear count. Leaving a gear holds
+  the clutch open (friction 0) for `SwitchTime` and then closes it in a straight line over `ClutchReleaseTime`, as Jolt's
+  automatic gearbox does (`VehicleTransmission.cpp:100-126`: the collision step that shifts holds it open without
+  counting down, the next ones count; from neutral, the release alone); a request during a shift starts again from the
+  gear it reached, and a sum that moves no gear (down in neutral, up in top gear) changes nothing. The manual gearbox
+  starts in neutral. The throttle does not lift during a manual shift, so the engine revs freely while the clutch is open
+  (Jolt cuts the throttle by the clutch in `Automatic` mode only, `WheeledVehicleController.cpp:282-284`). **The gear
+  stays within the gears the definition has.** Jolt reads a gear's ratio without checking its index
+  (`VehicleTransmission::GetCurrentRatio`, `VehicleTransmission.cpp:131-139`), so whenever the gears can change under a
+  running vehicle, the world brings the gear back within them: `SetVehicleSettings` takes Jolt's gear and Strada's
+  Manual gear down to the new count (and the engine's speed into the new range), and `RestoreState` does the same after
+  Jolt's state is restored, so that a snapshot taken before an in-place edit restores to a gear that exists. An edit that
+  changes the mode hands the gear over: a gearbox made `Manual` takes Jolt's current gear as its own (its timers at 0 and
+  any pending requests dropped), and one made `Automatic` keeps the gear Strada last gave Jolt, from which Jolt's gearbox
+  goes on by itself.
+- **The state in the hash.** `PhysicsScene::ComputeStateHash` adds, after the bodies and the characters and **only when
+  the world has a vehicle** (so that a world without one hashes bit for bit as before), this sequence (`HashBuilder`, each
+  float by its bit pattern): the number of vehicles (`AddUInt64`); then for each vehicle in the order of its chassis's
+  UUID: the UUID (`AddUInt64`); the four inputs as applied, in Jolt's order (forward, right, brake, hand brake, read back
+  from the controller); the engine's speed in revolutions per minute; the gearbox's state as the bytes
+  `VehicleTransmission::SaveState` writes (`VehicleTransmission.cpp:141-148`: the gear as a 32-bit integer, the clutch's
+  friction and the three timers, since Jolt keeps them private), written into a recorder of a fixed buffer, which
+  allocates nothing, and added as bytes (`AddBytes`); the length of the controller's last
+  collision step; the lean's target as Jolt's vector (x, y, z); Strada's Manual gear (`AddInt32`) and its two timers,
+  which stay 0 in `Automatic` mode, so they are added for every vehicle; then for each of the two wheels, front first,
+  its spin, its angle, its steering angle, its suspension length and its contact entity (`AddUInt64` of the UUID found
+  from the body under it, as a character's ground is read; invalid, 0, without contact). Not in it: the latest inputs and
+  the pending shift count (set between frames, they would make the hash depend on when it is taken), the lean spring's
+  integral (below), and what each step derives before it reads it (slips, combined frictions, contact frames,
+  surfaces).
+- **Snapshots.** Jolt saves the vehicle with its constraints (`PhysicsScene::SaveState` passes
+  `EStateRecorderState::All`): the constraint's wheels' spin, angle, contact body, point, normal and lateral axis,
+  suspension length and constraint parts, its pitch and roll part and step counter (`VehicleConstraint.cpp:646-671`); the
+  controller's four inputs, its last step's length, the engine's speed and the gearbox's gear, clutch and timers
+  (`WheeledVehicleController.cpp:827-849`); the motorcycle's lean target (`MotorcycleController.cpp:263-275`). A restored
+  wheel forgets the pointer to its contact body (`VehicleConstraint.cpp:688`) but keeps its ID, which is what
+  `Wheel::HasContact` tests (`Wheel.h:76`), so the lean target of the first step after a restore reads the saved contacts.
+  What Jolt leaves out of the lean: the applied lean impulse is set to 0 by every `PreCollide`
+  (`MotorcycleController.cpp:187`) before the solver of that step reads it (`:224`), so it carries nothing from one step to
+  the next; the lean spring's integral does carry from step to step (`:128`, `:136`, `:256`) and reaches the impulse
+  multiplied by `mLeanSpringIntegrationCoefficient` (`:218`), whose default is 0 (`MotorcycleController.h:33`). **The
+  engine keeps the coefficient at 0 and the definition does not offer it** (a lean spring that becomes a PID controller is
+  a correction the motorcycle does not need: the spring's constant and damping hold the lean, and the rider assist gives
+  the target), **and Strada's part of the snapshot carries the integral as well** (4 bytes a vehicle, read through the
+  controller subclass, which reaches Jolt's protected members as it reaches the target lean; not hashed). A multiply by 0
+  alone would not make a restore exact: the integral term is then a zero whose sign is the integral's, and when the other
+  terms sum to a zero too (an upright bike at rest has an angle error of -0, since Jolt's `Sign(0)` is 1, `Math.h:154`,
+  `MotorcycleController.cpp:214`), the sign bit of the impulse would come from the integral the restoring world holds.
+  Restored with the rest, the integral makes the restore exact by construction. Strada saves its own part after the
+  characters and contacts: the number of vehicles, then vehicle by vehicle in UUID order its entity, the latest and
+  applied inputs, the pending shift count, the gearbox's mode and a Manual gearbox's state, the lean spring's integral,
+  and each wheel's steering angle, slips and surface slot (with the entity under it), which Jolt does not save but the
+  vehicle's state and the hash read (`PreCollide` and `PostCollide` set the steering, slips and surfaces again before the
+  next step reads them), so that what a script reads right after a restore is what it read when the snapshot was taken.
+  The restore reads the whole part before any of it applies, and a part that does not hold the world's vehicles is
+  refused. A gearbox whose mode was changed in place since the snapshot is handed over at the restore as the edit handed
+  it over: a gearbox now `Manual` takes the gear Jolt's state was restored to (and drops the pending requests), so it
+  neither falls to neutral nor keeps an automatic gearbox's empty state, and one now `Automatic` keeps no manual shift.
+  After the restore the gear is brought within the definition's gears, as above. The scene's
+  snapshot adds how each wheel entity is drawn (below). `Scene::RestorePhysicsState` refuses, changing nothing, once a
+  vehicle was made, made again or removed. The engine sets every controller value from the definition when it makes the
+  vehicle and when the definition changes, and never reads them back through `GetSettings()` (which gives the lean
+  spring's damping its own default, `MotorcycleController.cpp:299`).
+- **The scene's side.** A `Vehicle` component on an entity with a dynamic `RigidBody` and a collider makes it a vehicle
+  of its `Definition` (a `.svehicle`, §7.3); a `VehicleWheel` component draws the wheel its `Wheel` names (ignoring letter
+  case) of the nearest entity above it with a `Vehicle`. The scene makes the vehicles after the bodies and characters and
+  before the joints in `RebuildChangedBodies`, in UUID order, when the scene starts, when a `Vehicle` component changes
+  and when its definition starts or stops applying (a reference that is no loadable `Vehicle` counts as unset, and so does
+  a curve reference that is no loadable `Curve`: the field tables accept any asset reference, as they do for physics
+  materials; an entity with a `Vehicle` but no dynamic body or no definition is no vehicle; each reason is said once, when
+  the vehicle is made or found not to be one, and not again while it stays the reason); the world makes it again with its
+  body, which the scene leaves alone, and a component that names another definition makes it again too. An edit of the definition, or of a curve it names, while the
+  scene plays reaches the vehicle before the next step without making it again (`PhysicsScene::SetVehicleSettings`, in the
+  frames after the data asset registry's epoch moved, zone `Scene.SyncVehicles`): every value applies in place (the wheel
+  settings are the engine's own objects, which Jolt reads at every step; the engine's, the gearbox's and the final
+  drive's settings through the controller's writable engine, transmission and differentials, keeping their running
+  state; the lean through the controller's setters, and its largest angle, which Jolt has no setter for, through the
+  controller subclass; the largest pitch and roll through the constraint's setter), except the chassis's `Up` and
+  `Forward`, which Jolt's constraint takes when it is made, so an
+  edit of those makes the vehicle again and moves the structure version. **Curves** are references to `.scurve` assets,
+  sampled into Jolt's piecewise linear curves (`LinearCurve`) when the vehicle is made or a curve changes: at each key, and
+  at 15 points between each two keys of different times (`Curve::Evaluate` there; a jump keeps both values at its time),
+  at most 16,384 points (`SampleVehicleCurve`), each value kept within 0 and 100 (a friction or a torque below 0 is none,
+  and Jolt's impulses stay finite); a curve of one key is its value everywhere, and a curve of no key 0 everywhere, as it
+  evaluates; before the first and past the last key Jolt's curve keeps the end values (`LinearCurve.cpp:25-39`), so a curve's
+  extrapolation does not apply. A missing curve is Jolt's default for that input: longitudinal friction (0, 0), (0.06,
+  1.2), (0.2, 1.0) over the slip ratio and lateral friction (0, 0), (3, 1.2), (20, 1.0) over the slip angle in degrees
+  (`WheeledVehicleController.cpp:44-56`), and the engine's torque 0.8, 1.0 and 0.8 of its largest at 0, 0.66 and 1 times
+  its largest speed (`VehicleEngine.cpp:25-31`). The engine's curve is read over the engine's speed in revolutions per
+  minute, its value the fraction of `MaxTorque`; Jolt reads it at the speed over `MaxRPM` (`VehicleEngine.h:63`), which the
+  sampling divides by. Each wheel's `mWheelUp` and `mWheelForward` are the chassis's `Up` and `Forward` (Jolt's defaults
+  are +Y and +Z, `Wheel.h:33-34`, and a Strada model's front is -Z).
+- **Interpolated wheels.** After each step the scene records each wheel's suspension length, steering angle, angle and
+  spin, with the angle's advance in the step: Jolt keeps the angle within a turn, so its change is unwrapped by the turns
+  the wheel's mean spin over the step makes up, and a wheel that turns more than half a turn in a step is drawn turning
+  forward. It then places each `VehicleWheel` entity where the step leaves its wheel: the chassis entity's world
+  translation and rotation (not its scale) times the wheel's transform in the chassis's space
+  (`ComposeVehicleWheelTransform`, which composes it as Jolt's `VehicleConstraint::GetWheelLocalTransform` does,
+  `VehicleConstraint.cpp:116-145`, for a model whose axle is its local X and whose up is its local Y, from the vehicle's
+  values with its directions normalized as the world takes them), set in the entity's parent's space with the entity's own
+  scale kept. Between steps each is drawn from the chassis as drawn and the wheel's values the part of the way from the
+  step before to the last one that the time left over makes up, as bodies are (at its last step when the chassis's
+  `RigidBody` does not interpolate), and before the next physics changes and steps each goes back exactly to where its last
+  step left it. A wheel is placed from its vehicle's first step on (before it, the entity stays where it was put), and a
+  vehicle made again starts again. Nothing about the wheels is in the hash or reaches the simulation: a wheel entity has
+  no body, and the vehicle writes its transform at every step and frame, so a script's or the editor's edit of it lasts
+  until then. **Every write is made in the wheel's parent's space from the parent's world transform at the moment of the
+  write, and from nothing else** (after the step, in `Scene.Interpolate`, in `Scene.ReturnToSteps`, and when physics
+  changes made between frames return the entities to their steps and draw them again), so the wheel's world pose is the
+  vehicle's whatever its parent is or does, and the same step and parent give the same bits whatever the wheel showed
+  before: a wheel may be the child of a fork that a script turns, and the tests compare world poses. A `VehicleWheel` on an
+  entity with a body or a character of its own (which the writes would move), with no `Vehicle` above it, or whose name the
+  definition of its vehicle lacks is left as it is, each reason said once; one below a `Vehicle` that makes no vehicle says
+  nothing, as its `Vehicle` says why. The scene's snapshot keeps each vehicle's last two steps of its wheels, and a
+  restore draws the wheels again from them and the chassis as it was. The frame runs the scripts' `OnUpdate` before `Scene.UpdatePhysics` and each `OnFixedUpdate` before its step
+  (`Scene.cpp:673-680`, `RunFixedStep`), so a fork turned there is in place when the wheel is written; a parent moved
+  after `Scene.UpdatePhysics` in the same frame (by the editor, or contact handlers) moves the wheel with it until the
+  next write. A fork that follows the steering takes the steering angle the last step left (`VehicleWheelState::
+  SteerAngle`), which lags the drawn wheel's by at most one step's change of steering; the wheel itself is drawn right.
+- **The fixed step's order.** `Scene::RunFixedStep` runs `OnFixedUpdate`, then the physics changes it made
+  (`RebuildChangedBodies`: bodies, characters, vehicles, joints), the syncs to physics, the step (`PhysicsScene::Step`:
+  the vehicles' inputs and shift requests reach their controllers inside it, before Jolt's update), and the syncs back,
+  where the wheels' step poses are recorded with the bodies' (`Scene.SyncFromPhysics`); then it counts the step and
+  records the hash. **Its last statement stays telemetry's one named call** (§4.5), after the count and the recorded hash
+  and outside the physics block, so that it runs with and without physics, sees `GetFixedStepCount()` as the number of the
+  step that just ended (as `ContactEvent::Step` counts), and reads every body, character, vehicle and wheel where that
+  step left them; the vehicles add nothing after it.
+- **Profiler zones** (§4.4): `Physics.Vehicles` around the world's step listener, once per collision step on the thread
+  that runs it; the inputs and shifts reach the controllers inside `Physics.Step`; `Scene.SyncVehicles` only in the frames
+  after a data asset changed or a vehicle's component or body changed; the wheels are recorded inside `Scene.SyncFromPhysics`, drawn inside `Scene.Interpolate` and
+  returned inside `Scene.ReturnToSteps`.
+- **Budget.** The vehicle constraint within 50 µs per vehicle per step in Release on the reference machine (Roadmap.md's
+  targets), read by a benchmark behind `STRADA_VEHICLE_BENCHMARK=1`, which reads the state hash's and a snapshot's share
+  of each vehicle beside it; a scene benchmark behind the same switch reads what drawing the wheels costs in the zones
+  that record, draw and return them.
 
 Jolt computes in single precision and asserts on (or, in Release, is corrupted by) values its math overflows, so
 `PhysicsScene` keeps everything within limits (`Physics/PhysicsTypes.h`): positions within 10,000 km of the origin

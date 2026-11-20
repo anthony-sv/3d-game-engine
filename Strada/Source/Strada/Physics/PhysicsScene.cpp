@@ -6,7 +6,9 @@
 #include "Strada/Core/Profiler.h"
 #include "Strada/Math/Math.h"
 #include "Strada/Physics/JoltContext.h"
+#include "Strada/Physics/PhysicsSurfaces.h"
 #include "Strada/Physics/PhysicsSystem.h"
+#include "Strada/Physics/VehicleWorld.h"
 
 #include <Jolt/Core/TempAllocator.h>
 #include <Jolt/Geometry/AABox.h>
@@ -226,58 +228,15 @@ namespace Strada
 			uint32_t m_Mask;
 		};
 
-		// Collider properties referenced by the user data of their shapes (index + 1; 0 = none): whether the collider is a
-		// trigger, its surface and, for a triangle mesh with submesh surfaces, those. Such a mesh's triangles carry Jolt
-		// material indices: 0 for the collider's surface, i > 0 for Submeshes[i - 1] (its material list holds placeholders,
-		// so that the indices are valid). The main thread writes the table between steps only; Jolt's worker threads read it
-		// during steps.
-		struct ColliderMaterial
-		{
-			bool IsTrigger = false;
-			ColliderSurface Surface;
-			std::vector<ColliderSurface> Submeshes;
-		};
-
-		// The values a contact may use: friction at least 0, restitution within [0, 1].
+		// The values a contact may use: friction at least 0, restitution within [0, 1]; and the values a tyre may use, at least
+		// 0 (and finite: a value that is not keeps its default).
 		ColliderSurface ClampSurface(ColliderSurface surface)
 		{
 			surface.Friction = std::max(surface.Friction, 0.0f);
 			surface.Restitution = std::clamp(surface.Restitution, 0.0f, 1.0f);
+			surface.RollingResistance = std::isfinite(surface.RollingResistance) ? std::max(surface.RollingResistance, 0.0f) : 0.0f;
+			surface.TyreGrip = std::isfinite(surface.TyreGrip) ? std::max(surface.TyreGrip, 0.0f) : 1.0f;
 			return surface;
-		}
-
-		// What a sub-shape of a body is: its collider's entry and its surface (the submesh's on a triangle mesh with submesh
-		// surfaces). Both null for a shape without an entry (a character's inner body).
-		struct SubShapeMaterial
-		{
-			ColliderMaterial const* Collider = nullptr;
-			ColliderSurface const* Surface = nullptr;
-		};
-
-		// Any thread, while the table does not change. Compound and decorated shapes pass the ID on to their leaf
-		// (CompoundShape::GetLeafShape, DecoratedShape::GetLeafShape); a leaf's user data names its collider, and a mesh
-		// shape's remaining ID its triangle.
-		SubShapeMaterial FindSubShapeMaterial(std::vector<ColliderMaterial> const& materials, JPH::Shape const& shape,
-		                                      JPH::SubShapeID const& subShape)
-		{
-			JPH::SubShapeID triangle;
-			JPH::Shape const* leaf = shape.GetLeafShape(subShape, triangle);
-			uint64_t const index = leaf != nullptr ? leaf->GetUserData() : 0;
-			if (index == 0 || index > materials.size())
-			{
-				return {};
-			}
-			ColliderMaterial const& collider = materials[index - 1];
-			ColliderSurface const* surface = &collider.Surface;
-			if (!collider.Submeshes.empty() && leaf->GetSubType() == JPH::EShapeSubType::Mesh)
-			{
-				JPH::uint const material = static_cast<JPH::MeshShape const*>(leaf)->GetMaterialIndex(triangle);
-				if (material > 0 && material <= collider.Submeshes.size())
-				{
-					surface = &collider.Submeshes[material - 1];
-				}
-			}
-			return {&collider, surface};
 		}
 
 		// Two bodies (Jolt reports them with the lower ID first) and whether they touch through a trigger collider.
@@ -1041,32 +1000,6 @@ namespace Strada
 			return JPH::RefConst<JPH::Shape>(result.Get());
 		}
 
-		// Lets character queries pass through trigger colliders (the user data of a collider's shapes indexes its material).
-		class SolidShapeFilter final : public JPH::ShapeFilter
-		{
-		public:
-			explicit SolidShapeFilter(std::vector<ColliderMaterial> const& materials)
-				: m_Materials(materials)
-			{
-			}
-
-			bool ShouldCollide(JPH::Shape const* shape, JPH::SubShapeID const&) const override { return !IsTrigger(*shape); }
-
-			bool ShouldCollide(JPH::Shape const*, JPH::SubShapeID const&, JPH::Shape const* shape, JPH::SubShapeID const&) const override
-			{
-				return !IsTrigger(*shape);
-			}
-
-		private:
-			bool IsTrigger(JPH::Shape const& shape) const
-			{
-				uint64_t const index = shape.GetUserData();
-				return index > 0 && index <= m_Materials.size() && m_Materials[index - 1].IsTrigger;
-			}
-
-			std::vector<ColliderMaterial> const& m_Materials;
-		};
-
 		// Lets character queries pass through the bodies of the entities the character ignores (the user data of bodies are
 		// their entities' IDs).
 		class ExcludedBodyFilter final : public JPH::BodyFilter
@@ -1474,7 +1407,8 @@ namespace Strada
 			: LayerCount(std::clamp<uint32_t>(settings.LayerCount, 1, static_cast<uint32_t>(MaxPhysicsLayers))),
 			  CollisionSteps(std::clamp<uint32_t>(settings.CollisionSteps, 1, MaxPhysicsCollisionSteps)),
 			  LayerPairs(settings),
-			  Contacts(Materials, Exclusions)
+			  Contacts(Materials, Exclusions),
+			  Vehicles(CreateScope<VehicleWorld>(System, Materials))
 		{
 		}
 
@@ -1504,6 +1438,9 @@ namespace Strada
 		// Ordered by entity: characters move one after the other, in the same order on every run. After the system, whose
 		// bodies their destructors remove.
 		std::map<UUID, CharacterRecord> Characters;
+		// After the system, whose constraints and step listener the vehicles remove when they go (PhysicsScene's destructor
+		// removes them first, before the bodies they are on).
+		Scope<VehicleWorld> Vehicles;
 		bool OptimizeBroadPhase = false;
 
 		BodyRecord const* Find(UUID entity) const
@@ -1708,7 +1645,8 @@ namespace Strada
 
 	PhysicsScene::~PhysicsScene()
 	{
-		// Constraints go before the bodies they join.
+		// Constraints go before the bodies they join: the vehicles' (with the step listener), then the joints.
+		m_Data->Vehicles.reset();
 		for (auto const& [entity, joint] : m_Data->Joints)
 		{
 			m_Data->System.RemoveConstraint(joint.Constraint);
@@ -1725,6 +1663,41 @@ namespace Strada
 	}
 
 	Result<void> PhysicsScene::AddBody(BodyDesc const& desc)
+	{
+		Data& data = *m_Data;
+		if (desc.Colliders.empty())
+		{
+			// Refused before anything changes.
+			return MakeBody(desc);
+		}
+		// A chassis's vehicle is made again on its new body when that body is dynamic, keeping what a replaced vehicle keeps.
+		VehicleDesc vehicle;
+		std::optional<VehicleCarriedState> const carried = data.Vehicles->TakeVehicle(desc.Entity, vehicle);
+		Result<void> made = MakeBody(desc);
+		if (!carried)
+		{
+			return made;
+		}
+		BodyRecord const* const body = data.Find(desc.Entity);
+		if (made && body != nullptr && body->Type == RigidBodyType::Dynamic)
+		{
+			JPH::ObjectLayer objectLayer = JPH::cObjectLayerInvalid;
+			{
+				JPH::BodyLockRead const lock(data.System.GetBodyLockInterface(), body->Id);
+				objectLayer = lock.Succeeded() ? lock.GetBody().GetObjectLayer() : objectLayer;
+			}
+			Result<void> const restored = data.Vehicles->RestoreVehicle(vehicle, *carried, body->Id, objectLayer);
+			if (!restored)
+			{
+				ST_CORE_WARN("Physics: the vehicle of entity {} could not be made again on its new body: {}", desc.Entity,
+				             restored.GetError());
+			}
+		}
+		ReaddVehicleConstraints();
+		return made;
+	}
+
+	Result<void> PhysicsScene::MakeBody(BodyDesc const& desc)
 	{
 		if (desc.Colliders.empty())
 		{
@@ -1883,6 +1856,9 @@ namespace Strada
 			return;
 		}
 		data.Structure++;
+		// Its vehicle goes first, before the body its constraint holds.
+		bool const hadVehicle = data.Vehicles->HasVehicle(entity);
+		data.Vehicles->RemoveVehicle(entity);
 		// The body's joints go first, whichever side of them it is on.
 		for (auto joint = data.Joints.begin(); joint != data.Joints.end();)
 		{
@@ -1905,6 +1881,10 @@ namespace Strada
 		data.ReleaseMaterials(it->second.Materials);
 		data.Bodies.erase(it);
 		data.RefreshCharacters(standing);
+		if (hadVehicle)
+		{
+			ReaddVehicleConstraints();
+		}
 	}
 
 	bool PhysicsScene::HasBody(UUID entity) const
@@ -2312,6 +2292,111 @@ namespace Strada
 		return state;
 	}
 
+	Result<void> PhysicsScene::AddVehicle(VehicleDesc const& desc)
+	{
+		Data& data = *m_Data;
+		// The structure version moves when the world's vehicles change: a refusal that made and removed nothing keeps the
+		// snapshots taken before it.
+		bool const had = data.Vehicles->HasVehicle(desc.Entity);
+		Result<VehicleDesc> prepared = VehicleWorld::PrepareDesc(desc);
+		BodyRecord const* const body = data.Find(desc.Entity);
+		if (!prepared || body == nullptr || body->Type != RigidBodyType::Dynamic)
+		{
+			// Like every refusal, it leaves the entity without a vehicle.
+			if (had)
+			{
+				data.Structure++;
+				data.Vehicles->RemoveVehicle(desc.Entity);
+				ReaddVehicleConstraints();
+			}
+			if (!prepared)
+			{
+				return MakeError("the vehicle of entity {}: {}", desc.Entity, prepared.GetError());
+			}
+			return MakeError("entity {} has no dynamic body for its vehicle", desc.Entity);
+		}
+		JPH::ObjectLayer objectLayer = JPH::cObjectLayerInvalid;
+		{
+			JPH::BodyLockRead const lock(data.System.GetBodyLockInterface(), body->Id);
+			objectLayer = lock.Succeeded() ? lock.GetBody().GetObjectLayer() : objectLayer;
+		}
+		Result<void> made = data.Vehicles->AddVehicle(prepared.GetValue(), body->Id, objectLayer);
+		if (made || had)
+		{
+			data.Structure++;
+		}
+		ReaddVehicleConstraints();
+		return made;
+	}
+
+	void PhysicsScene::RemoveVehicle(UUID entity)
+	{
+		Data& data = *m_Data;
+		if (!data.Vehicles->HasVehicle(entity))
+		{
+			return;
+		}
+		data.Structure++;
+		data.Vehicles->RemoveVehicle(entity);
+		ReaddVehicleConstraints();
+	}
+
+	bool PhysicsScene::HasVehicle(UUID entity) const
+	{
+		return m_Data->Vehicles->HasVehicle(entity);
+	}
+
+	size_t PhysicsScene::GetVehicleCount() const
+	{
+		return m_Data->Vehicles->GetVehicleCount();
+	}
+
+	Result<void> PhysicsScene::SetVehicleSettings(UUID entity, VehicleDesc const& desc)
+	{
+		if (desc.Entity != entity)
+		{
+			return MakeError("the values are of entity {}, not of entity {}", desc.Entity, entity);
+		}
+		Result<VehicleDesc> prepared = VehicleWorld::PrepareDesc(desc);
+		if (!prepared)
+		{
+			return MakeError("the vehicle of entity {}: {}", entity, prepared.GetError());
+		}
+		return m_Data->Vehicles->SetVehicleSettings(entity, prepared.GetValue());
+	}
+
+	void PhysicsScene::SetVehicleInputs(UUID entity, VehicleInputs const& inputs)
+	{
+		m_Data->Vehicles->SetVehicleInputs(entity, inputs);
+	}
+
+	void PhysicsScene::RequestVehicleShift(UUID entity, int32_t gears)
+	{
+		m_Data->Vehicles->RequestVehicleShift(entity, gears);
+	}
+
+	std::optional<VehicleState> PhysicsScene::GetVehicleState(UUID entity) const
+	{
+		return m_Data->Vehicles->GetVehicleState(entity);
+	}
+
+	std::optional<glm::mat4> PhysicsScene::GetVehicleWheelTransform(UUID entity, size_t wheel) const
+	{
+		return m_Data->Vehicles->GetVehicleWheelTransform(entity, wheel);
+	}
+
+	void PhysicsScene::ReaddVehicleConstraints()
+	{
+		Data& data = *m_Data;
+		std::vector<JPH::Constraint*> joints;
+		joints.reserve(data.Joints.size());
+		for (auto const& [entity, joint] : data.Joints)
+		{
+			joints.push_back(joint.Constraint.GetPtr());
+		}
+		data.Vehicles->ReaddConstraints(joints);
+	}
+
 	void PhysicsScene::Step(float deltaTime)
 	{
 		Data& data = *m_Data;
@@ -2331,6 +2416,8 @@ namespace Strada
 		{
 			data.StepCharacter(entity, record, deltaTime);
 		}
+		// The vehicles' latest inputs reach their controllers once per step, in the order of their entities.
+		data.Vehicles->BeginStep();
 		JPH::EPhysicsUpdateError const error =
 			data.System.Update(deltaTime, static_cast<int>(data.CollisionSteps), &data.TempAllocator, &Jolt::GetJobSystem());
 		if (error != JPH::EPhysicsUpdateError::None)
@@ -2399,6 +2486,8 @@ namespace Strada
 			record.Character->SaveState(recorder);
 		}
 		data.Contacts.SaveState(recorder);
+		// What Jolt does not save of the vehicles (their constraints are in the system's state).
+		data.Vehicles->SaveState(recorder);
 		PhysicsSnapshot snapshot;
 		snapshot.m_World = data.World;
 		snapshot.m_Structure = data.Structure;
@@ -2415,7 +2504,7 @@ namespace Strada
 		}
 		if (snapshot.m_Structure != data.Structure)
 		{
-			return Error{"bodies, joints or characters were added, removed or replaced since the snapshot"};
+			return Error{"bodies, joints, characters or vehicles were added, removed or replaced since the snapshot"};
 		}
 		JPH::StateRecorderImpl recorder;
 		recorder.WriteBytes(snapshot.m_State.data(), snapshot.m_State.size());
@@ -2436,11 +2525,14 @@ namespace Strada
 			restored = !recorder.IsFailed();
 		}
 		restored = restored && data.Contacts.RestoreState(recorder) && !recorder.IsFailed();
+		restored = restored && data.Vehicles->RestoreState(recorder) && !recorder.IsFailed();
 		ST_CORE_ASSERT(restored, "A physics snapshot of the same structure could not be restored");
 		if (!restored)
 		{
 			return Error{"the physics snapshot could not be restored"};
 		}
+		// A vehicle's gears may have been changed in place since the snapshot: the restored gear is one it has.
+		data.Vehicles->KeepWithinDefinitions();
 		return {};
 	}
 
@@ -2485,6 +2577,8 @@ namespace Strada
 			hash.AddUInt32(static_cast<uint32_t>(character.GetGroundState()));
 			hash.AddUInt64(data.GetBodyEntity(character.GetGroundBodyID()).GetValue());
 		}
+		// Only in a world with vehicles: one without hashes as before they existed.
+		data.Vehicles->AddToHash(hash);
 		return hash.GetHash();
 	}
 
@@ -2694,6 +2788,8 @@ namespace Strada
 		surface.Restitution = values.Restitution;
 		surface.FrictionCombine = values.FrictionCombine;
 		surface.RestitutionCombine = values.RestitutionCombine;
+		surface.RollingResistance = values.RollingResistance;
+		surface.TyreGrip = values.TyreGrip;
 		ColliderSurface const clamped = ClampSurface(surface);
 		Data& data = *m_Data;
 		size_t named = 0;
@@ -2702,7 +2798,12 @@ namespace Strada
 		{
 			if (target.Material == material)
 			{
-				differs = differs || target != clamped;
+				// Only the values contacts read wake bodies: a vehicle's wheels read RollingResistance and TyreGrip at every step
+				// it moves in, and one asleep is at rest, so an edit of those alone wakes nothing.
+				bool const contactsDiffer = target.Friction != clamped.Friction || target.Restitution != clamped.Restitution ||
+				                            target.FrictionCombine != clamped.FrictionCombine ||
+				                            target.RestitutionCombine != clamped.RestitutionCombine;
+				differs = differs || contactsDiffer;
 				target = clamped;
 				named++;
 			}

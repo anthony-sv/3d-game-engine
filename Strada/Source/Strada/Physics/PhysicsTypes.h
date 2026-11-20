@@ -2,6 +2,7 @@
 
 #include "Strada/Asset/AssetHandle.h"
 #include "Strada/Asset/PhysicsMaterial.h"
+#include "Strada/Asset/Vehicle.h"
 #include "Strada/Core/Base.h"
 #include "Strada/Core/UUID.h"
 
@@ -15,6 +16,7 @@
 namespace Strada
 {
 	class MeshSource;
+	struct Curve;
 
 	// Physics layers a project can define (RigidBodyComponent::Layer indexes them).
 	inline constexpr size_t MaxPhysicsLayers = 16;
@@ -114,6 +116,10 @@ namespace Strada
 		float Restitution = 0.0f;
 		PhysicsMaterialCombine FrictionCombine = PhysicsMaterialCombine::GeometricMean;
 		PhysicsMaterialCombine RestitutionCombine = PhysicsMaterialCombine::Maximum;
+		// The material's values that vehicles alone read (PhysicsMaterial::RollingResistance, TyreGrip; at least 0, clamped
+		// when the body is made): a collider's own values roll without resistance and keep the tyres' grip.
+		float RollingResistance = 0.0f;
+		float TyreGrip = 1.0f;
 
 		bool operator==(ColliderSurface const& other) const = default;
 	};
@@ -476,4 +482,185 @@ namespace Strada
 		glm::vec3 Position = glm::vec3(0.0f);
 		glm::quat Rotation = glm::quat(1.0f, 0.0f, 0.0f, 0.0f);
 	};
+
+	// --- Vehicles (Architecture.md section 8, "Vehicles") ---
+
+	// What the rider asks of a vehicle (PhysicsScene::SetVehicleInputs), applied to each of its steps until replaced. Values
+	// outside their ranges are clamped, and values that are not finite are 0.
+	struct VehicleInputs
+	{
+		// 0 to 1.
+		float Throttle = 0.0f;
+		// 0 to 1 each: the front brake and the rear brake, each applying its torque at each wheel
+		// (VehicleWheelDesc::FrontBrakeTorque, RearBrakeTorque).
+		float FrontBrake = 0.0f;
+		float RearBrake = 0.0f;
+		// -1 to 1: Jolt's steering input, which the lean controller turns into a lean. Positive steers, leans and turns the
+		// vehicle to its right.
+		float Lean = 0.0f;
+
+		bool operator==(VehicleInputs const& other) const = default;
+	};
+
+	// A piecewise linear curve's points (x, y), x not decreasing, as Jolt's LinearCurve holds them: before the first point
+	// and past the last it keeps their values. Empty is Jolt's default for what the curve sets. At most MaxVehicleCurvePoints,
+	// each finite.
+	using VehicleCurve = std::vector<glm::vec2>;
+	// The most points a VehicleCurve holds (a curve asset sampled at its keys and 15 points between each two).
+	inline constexpr size_t MaxVehicleCurvePoints = 16384;
+
+	// A wheel of a vehicle, in the chassis's local space without its scale (meters), angles in radians.
+	struct VehicleWheelDesc
+	{
+		glm::vec3 Position = glm::vec3(0.0f);
+		// Normalized when the vehicle is made; zero is refused.
+		glm::vec3 SuspensionDirection = glm::vec3(0.0f, -1.0f, 0.0f);
+		glm::vec3 SteeringAxis = glm::vec3(0.0f, 1.0f, 0.0f);
+		float SuspensionMinLength = 0.3f;
+		float SuspensionMaxLength = 0.5f;
+		float SuspensionPreload = 0.0f;
+		float SuspensionFrequency = 1.5f;
+		float SuspensionDamping = 0.5f;
+		float MaxSteerAngle = 0.0f;
+		float Radius = 0.31f;
+		float Width = 0.05f;
+		float Inertia = 0.9f;
+		float AngularDamping = 0.2f;
+		// Newton meters at full input: the wheel's torque for Jolt's brake input and for its hand-brake input.
+		float FrontBrakeTorque = 0.0f;
+		float RearBrakeTorque = 0.0f;
+		// The tyre's friction over the longitudinal slip ratio, and over the slip angle in degrees.
+		VehicleCurve LongitudinalFriction;
+		VehicleCurve LateralFriction;
+
+		bool operator==(VehicleWheelDesc const& other) const = default;
+	};
+
+	// A motorcycle on an entity's dynamic body (PhysicsScene::AddVehicle): Jolt's motorcycle controller on a vehicle
+	// constraint, its front wheel steering and its rear wheel driven through the final drive. The scene makes it from a
+	// Vehicle definition (Strada/Asset/Vehicle.h), its angles in radians and its curves sampled.
+	struct VehicleDesc
+	{
+		UUID Entity = UUID::Invalid();
+		// Wheels[0] is the front, Wheels[1] the rear.
+		std::array<VehicleWheelDesc, VehicleWheelCount> Wheels{};
+		// The chassis's up and front in its local space; normalized when the vehicle is made (the front made square to the up),
+		// zero or parallel refused.
+		glm::vec3 Up = glm::vec3(0.0f, 1.0f, 0.0f);
+		glm::vec3 Forward = glm::vec3(0.0f, 0.0f, -1.0f);
+		// Radians; pi does not limit them.
+		float MaxPitchRoll = 1.0471976f;
+		float MaxTorque = 150.0f;
+		float MinRPM = 1000.0f;
+		float MaxRPM = 10000.0f;
+		// The torque's fraction of MaxTorque over the engine's speed divided by MaxRPM, as Jolt reads it
+		// (VehicleEngine::GetTorque).
+		VehicleCurve NormalizedTorque;
+		float EngineInertia = 0.5f;
+		float EngineAngularDamping = 0.2f;
+		VehicleTransmissionMode TransmissionMode = VehicleTransmissionMode::Automatic;
+		// 1 to MaxVehicleGears forward gears, each above 0.
+		std::vector<float> GearRatios = {2.27f, 1.63f, 1.3f, 1.09f, 0.96f, 0.88f};
+		float FinalDrive = 4.825f;
+		float SwitchTime = 0.5f;
+		float ClutchReleaseTime = 0.3f;
+		float SwitchLatency = 0.5f;
+		float ShiftUpRPM = 8000.0f;
+		float ShiftDownRPM = 2000.0f;
+		float ClutchStrength = 2.0f;
+		// Radians.
+		float MaxLeanAngle = 0.7853982f;
+		float LeanSpringConstant = 5000.0f;
+		float LeanSpringDamping = 1000.0f;
+		float LeanSmoothingFactor = 0.8f;
+		bool LeanSteeringLimit = true;
+
+		bool operator==(VehicleDesc const& other) const = default;
+	};
+
+	// A wheel as the last step left it (PhysicsScene::GetVehicleState).
+	struct VehicleWheelState
+	{
+		// What the wheel stands on; invalid without contact. Surface is the physics material of the collider (or submesh)
+		// under it, none when that collider has its own values, and TyreGrip and RollingResistance are the values the step
+		// used (1 and 0 off a material).
+		UUID ContactEntity = UUID::Invalid();
+		AssetHandle Surface;
+		float TyreGrip = 1.0f;
+		float RollingResistance = 0.0f;
+		// World space; zero without contact.
+		glm::vec3 ContactPoint = glm::vec3(0.0f);
+		glm::vec3 ContactNormal = glm::vec3(0.0f);
+		// Meters from the attachment to the wheel's center along the suspension.
+		float SuspensionLength = 0.0f;
+		// Radians per second around the axle (positive rolls forward), the angle it has turned (radians within (-2 pi, 2 pi):
+		// Jolt keeps it as the remainder of a division by 2 pi, so its sign is the sign of the turning that brought it there,
+		// WheeledVehicleController.cpp:105), and its steering angle (radians, positive to the vehicle's left, as Jolt turns it).
+		float AngularVelocity = 0.0f;
+		float RotationAngle = 0.0f;
+		float SteerAngle = 0.0f;
+		// Jolt's slips of the step: the longitudinal slip ratio, and the slip angle in radians; 0 without contact.
+		float LongitudinalSlip = 0.0f;
+		float LateralSlip = 0.0f;
+	};
+
+	// A vehicle as the last step left it, and the inputs it was given since.
+	struct VehicleState
+	{
+		UUID Entity = UUID::Invalid();
+		// The latest inputs (SetVehicleInputs), which its next steps apply, and those its last step applied.
+		VehicleInputs Inputs;
+		VehicleInputs AppliedInputs;
+		// Revolutions per minute.
+		float EngineSpeed = 0.0f;
+		// Newton meters: the torque the engine gives at EngineSpeed with the applied throttle (in Automatic mode times the
+		// clutch's friction, as Jolt cuts the throttle while it shifts), from the definition's torque curve. Jolt keeps no
+		// torque of its own; this is its VehicleEngine::GetTorque at the state the last step left.
+		float EngineTorque = 0.0f;
+		// 0 is neutral, 1 the first gear.
+		int32_t Gear = 0;
+		// 0 open to 1 closed, and whether a gear change is under way (the clutch open, or closing after one).
+		float ClutchFriction = 1.0f;
+		bool IsShifting = false;
+		// Meters per second along the chassis's front; the chassis's lean from the world's up around its front, and the lean
+		// controller's target lean (radians, positive to its right).
+		float ForwardSpeed = 0.0f;
+		float LeanAngle = 0.0f;
+		float TargetLeanAngle = 0.0f;
+		std::array<VehicleWheelState, VehicleWheelCount> Wheels{};
+	};
+
+	// The chassis's up and front as a vehicle uses them (PhysicsScene::AddVehicle): up normalized, and the front made square
+	// to it and normalized. False, changing neither, when either is zero or not finite or they are parallel. Pure; any
+	// thread: the scene's wheel drawing and the editor's overlay take the axes from it as the world does.
+	[[nodiscard]] bool NormalizeVehicleAxes(glm::vec3& up, glm::vec3& forward);
+
+	// The transform of a wheel in its chassis's local space without the chassis's scale, at a suspension length, a steering
+	// angle and a rotation angle (radians), for a wheel model whose axle is its local X and whose up is its local Y: what
+	// Jolt's VehicleConstraint::GetWheelLocalTransform composes (VehicleConstraint.cpp:127-145 of the pinned Jolt) from the
+	// vehicle's up and forward (normalized and square, NormalizeVehicleAxes) and the wheel's normalized suspension direction
+	// and steering axis, so that the scene draws a wheel between two steps from the values each step left
+	// (VehicleWheelState). PhysicsScene::GetVehicleWheelTransform gives Jolt's own at the last step. Pure; any thread.
+	glm::mat4 ComposeVehicleWheelTransform(VehicleWheelDesc const& wheel, glm::vec3 up, glm::vec3 forward, float suspensionLength,
+	                                       float steerAngle, float rotationAngle);
+
+	// A vehicle's values from its definition (Strada/Asset/Vehicle.h): the angles in radians, Wheels[0] the definition's
+	// first wheel (the front) and Wheels[1] its second (the rear; a wheel the definition lacks keeps VehicleWheelDesc's
+	// defaults), and every curve empty, which is Jolt's default: the caller samples the definition's curve assets into
+	// LongitudinalFriction, LateralFriction and NormalizedTorque (SampleVehicleCurve). Pure; any thread.
+	VehicleDesc MakeVehicleDesc(UUID entity, Vehicle const& definition);
+
+	// The largest value a sampled curve's point keeps (SampleVehicleCurve): a friction coefficient or a fraction of the
+	// engine's largest torque far beyond any tyre's or engine's, which keeps Jolt's impulses finite.
+	inline constexpr float MaxVehicleCurveValue = 100.0f;
+
+	// A curve asset's keys as a VehicleCurve, Jolt's piecewise linear curve (Docs/Architecture.md §8, "Vehicles"): a point
+	// at each key, and 15 points evenly between each two keys of different times (Curve::Evaluate there), so that a cubic
+	// segment is followed closely; keys at one time (a jump) keep both values at that time. Each point's x is its key time
+	// times inputScale (the engine's torque curve, over revolutions per minute, is read by Jolt over the speed divided by
+	// MaxRPM: 1 / MaxRPM), and its y the curve's value within 0 to MaxVehicleCurveValue (a negative friction or torque is
+	// none). A curve of one key is that value everywhere, as Jolt's curve keeps its end values; a curve of no key is 0
+	// everywhere (one point), as Curve::Evaluate gives. At most MaxVehicleCurvePoints points, which a curve of at most
+	// MaxCurveKeys keys never reaches. The curve's extrapolation does not apply. Pure; any thread.
+	VehicleCurve SampleVehicleCurve(Curve const& curve, float inputScale = 1.0f);
 }

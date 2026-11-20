@@ -48,7 +48,11 @@ namespace Strada
 			Field("RollingResistance", &PhysicsMaterial::RollingResistance)
 				.AtLeast(0.0)
 				.Doc("The force opposing a wheel that rolls on the surface, per newton of load (about 0.01 for a tyre on asphalt). "
-		             "Read by scripts and graphs (later by the vehicle); rigid bodies roll without it."),
+		             "A vehicle's wheels slow by it under their load, and scripts and graphs read it; rigid bodies roll without it."),
+			Field("TyreGrip", &PhysicsMaterial::TyreGrip)
+				.AtLeast(0.0)
+				.Doc("What a vehicle's tyres multiply their friction by on the surface: 1 keeps the tyres as they are, lower slides "
+		             "sooner (gravel, grass). Read by vehicles alone; rigid bodies take Friction."),
 			Field("Surface", &PhysicsMaterial::Surface)
 				.Doc("The surface's name (Asphalt, Gravel, Ice), which scripts and graphs compare to tell surfaces apart; empty for "
 		             "none."),

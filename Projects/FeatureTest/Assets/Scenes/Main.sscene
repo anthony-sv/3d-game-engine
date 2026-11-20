@@ -2673,6 +2673,155 @@
 					"SendLevel": 0.6000000238418579
 				}
 			}
+		},
+		{
+			"ID": "14303094226925333308",
+			"Components": {
+				"Tag": {
+					"Tag": "Bike"
+				},
+				"Transform": {
+					"Translation": [
+						-7.0,
+						0.05000000074505806,
+						6.0
+					],
+					"Rotation": [
+						0.0,
+						0.0,
+						0.0,
+						1.0
+					],
+					"Scale": [
+						1.0,
+						1.0,
+						1.0
+					]
+				},
+				"Relationship": {
+					"Parent": "0",
+					"Children": [
+						"11469649125852962928",
+						"13716686427720884995"
+					]
+				},
+				"RigidBody": {
+					"Type": "Dynamic",
+					"Mass": 250.0,
+					"LinearDamping": 0.05000000074505806,
+					"AngularDamping": 0.05000000074505806,
+					"GravityFactor": 1.0,
+					"Layer": 0,
+					"LockTranslation": [
+						false,
+						false,
+						false
+					],
+					"LockRotation": [
+						false,
+						false,
+						false
+					],
+					"ContinuousCollision": false,
+					"AllowSleep": true,
+					"Interpolation": "Interpolate",
+					"InitialLinearVelocity": [
+						0.0,
+						0.0,
+						0.0
+					],
+					"InitialAngularVelocity": [
+						0.0,
+						0.0,
+						0.0
+					]
+				},
+				"BoxCollider": {
+					"HalfExtents": [
+						0.25,
+						0.5,
+						0.6000000238418579
+					],
+					"Offset": [
+						0.0,
+						0.75,
+						0.0
+					],
+					"IsTrigger": false,
+					"Material": "0",
+					"Friction": 0.6000000238418579,
+					"Restitution": 0.0
+				},
+				"Vehicle": {
+					"Definition": "16927299108182019562"
+				}
+			}
+		},
+		{
+			"ID": "11469649125852962928",
+			"Components": {
+				"Tag": {
+					"Tag": "Front Wheel"
+				},
+				"Transform": {
+					"Translation": [
+						0.0,
+						0.3100000023841858,
+						-0.8700000047683716
+					],
+					"Rotation": [
+						0.0,
+						0.0,
+						0.0,
+						1.0
+					],
+					"Scale": [
+						1.0,
+						1.0,
+						1.0
+					]
+				},
+				"Relationship": {
+					"Parent": "14303094226925333308",
+					"Children": []
+				},
+				"VehicleWheel": {
+					"Wheel": "Front"
+				}
+			}
+		},
+		{
+			"ID": "13716686427720884995",
+			"Components": {
+				"Tag": {
+					"Tag": "Rear Wheel"
+				},
+				"Transform": {
+					"Translation": [
+						0.0,
+						0.3199999928474426,
+						0.7200000286102295
+					],
+					"Rotation": [
+						0.0,
+						0.0,
+						0.0,
+						1.0
+					],
+					"Scale": [
+						1.0,
+						1.0,
+						1.0
+					]
+				},
+				"Relationship": {
+					"Parent": "14303094226925333308",
+					"Children": []
+				},
+				"VehicleWheel": {
+					"Wheel": "Rear"
+				}
+			}
 		}
 	]
 }
