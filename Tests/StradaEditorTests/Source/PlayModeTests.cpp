@@ -2457,6 +2457,15 @@ TEST_CASE("PlayCommands: play mode flies the Moto sample's camera tour, a graph'
 		return tours->second.GetInt32();
 	};
 	glm::vec3 const home = findCamera().GetComponent<TransformComponent>().Translation;
+	// The race director starts without its title, as the test scenes start it (Tools/Checks.py, SWITCHES): no attract mode
+	// for a director of the cameras to cut through, so the tour and the cameras play as Moto played before it had a race.
+	{
+		Entity const race = fixture.Context.GetScene().FindEntityByName("Race");
+		REQUIRE(race);
+		VisualScriptComponent director = race.GetComponent<VisualScriptComponent>();
+		director.Variables["TitleOnStart"] = ScriptFieldValue::FromBool(false);
+		REQUIRE(fixture.Operations.SetComponent(race.GetUUID(), director).IsOk());
+	}
 
 	// Ten seconds in, the tour has flown the camera hundreds of meters down the circuit (Tools/Tour.py puts it 473 m from
 	// the home view), and no tour has come home yet.
