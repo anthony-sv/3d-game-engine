@@ -6834,8 +6834,8 @@ graphs alone keeps its best lap and its settings screen, and none exposes a path
   the ride writes nothing more, for the checks that join the scene later. It takes about 1,875 steps (31 s), and about
   15 s more when a brake never stops the bike (a stop gives up after 900 steps). A module whose checks join
   `Ride.sscene` (a line of `MODULES` naming `Ride`) runs them after the seven, from about step 1,875, with the bike on
-  the grid in neutral and `Driver` still 2, and raises the scene's test timeout (60 s, in `Checks.SCENES` and in
-  `MotoRideTests.cpp`'s `--timeout`) by what they add; a check's wait (`BikeChecks.WAIT`) stays below it. A module that
+  the grid in neutral and `Driver` still 2, and raises the scene's test timeout (120 s since the assists' checks joined, in
+  `Checks.SCENES` and in `MotoRideTests.cpp`'s `--timeout`) by what they add; a check's wait (`BikeChecks.WAIT`) stays below it. A module that
   needs the bike from the grid at the first step (a ride compared across frame rates from the start) registers a test
   scene of its own instead, one line of `SCENES`: it too is the main scene without its props, its runner runs only the
   modules that name it, the ride is not in it, and the riding graph's `Driver` is what that module's `prepare` sets (0,

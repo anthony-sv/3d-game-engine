@@ -490,6 +490,16 @@
 			"Path": "Scripts/Ghost.sgraph"
 		},
 		{
+			"Handle": "9787406575040700368",
+			"Type": "VisualScript",
+			"Path": "Scripts/MotoLib.sgraph"
+		},
+		{
+			"Handle": "5784894381786492430",
+			"Type": "VisualScript",
+			"Path": "Scripts/Ride.sgraph"
+		},
+		{
 			"Handle": "4025246513693565950",
 			"Type": "VisualScript",
 			"Path": "Scripts/RideTests.sgraph"

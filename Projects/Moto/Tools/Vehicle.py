@@ -17,7 +17,9 @@ The definition takes its figures from the bike's tools, so that the bike rides a
   only as a body's linear damping: matched to it at the line's average speed.
 
 The gearbox is Manual: the rider shifts with ShiftUp and ShiftDown, one gear per press, and the bike waits on the grid in
-neutral. Each brake has its own wheel: the front lever the front wheel, the rear pedal the rear one.
+neutral; the riding graph's automatic shifts (a rider assist, below) shift it by the engine's speed. Each brake has its own
+wheel: the front lever the front wheel, the rear pedal the rear one, and the linked brakes (an assist) add the rear to the
+front lever.
 
 The chassis collider is a box low between the wheels (never the wheels: a wheel entity has no collider): its center is
 the body's center of mass, and its roll inertia must stay above the lean spring's damping times the collision step, or
@@ -36,7 +38,10 @@ write the graph's public Throttle, FrontBrake, RearBrake and Lean, which the ste
 each one gear; the actions' presses do nothing then, as the events do while Driver is 0. A value a writer sets in its own
 Event.FixedUpdate before this graph's runs reaches the same step, one set after it the next; which runs first is the
 scene's order of its graphs, the same in every run (a sender made after the bike in the test scene ran first: its
-throttle and its ShiftUp reached the step it sent them in). A sent ShiftUp moves one gear at that step.
+throttle and its ShiftUp reached the step it sent them in). A sent ShiftUp moves one gear at that step. Every driver's
+values pass through the rider assists (LeanAssist, LinkedBrakes with LinkedBrakeShare, AutoShift: public switches, on by
+default; with all three off the vehicle gets the driver's values as given), and each frame the graph poses the rider and
+turns the fork from the bike as it is drawn (the rider assist's and the pose's sections below).
 
     python Projects/Moto/Tools/Vehicle.py      (prints the figures check() asserts)
 """
@@ -47,8 +52,9 @@ import sys
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import Bike  # noqa: E402  (the motorcycle's geometry)
 import Graphs  # noqa: E402  (writing graphs)
+import MotoLib  # noqa: E402  (the assist's mapping and the brakes' easing, which the riding graph calls)
 import RacingLine  # noqa: E402  (the line's figures: mass, power, gearbox, engine speeds)
-from Graphs import EFFECTS, EVENTS, public  # noqa: E402
+from Graphs import EFFECTS, ENTITY as ENTITY_TYPE, EVENTS, private, public  # noqa: E402
 
 DEFINITION = "Vehicles/Moto.svehicle"
 TORQUE_CURVE = "Vehicles/EngineTorque.scurve"
@@ -323,19 +329,114 @@ def coast(start, seconds, rolling, step=1.0 / 600.0):
     return speed
 
 
+def linked_force(share=None):
+    """The rear brake's force (N) when the linked brakes give it a share of the front lever at full input."""
+    return (LINKED_SHARE if share is None else share) * REAR_BRAKE / Bike.REAR_RADIUS
+
+
+def linked_deceleration(share=None):
+    """The front lever's deceleration in neutral with the linked brakes on (m/s^2): the front tyre sliding (its brake locks
+    it) under the load the deceleration moves onto it, and the rear brake's share by its torque's force, which stays under
+    what the lightened rear tyre holds (check() asserts it), so the rear wheel rolls on."""
+    return (SLIDING_FRICTION * GRAVITY / 2.0 + linked_force(share) / MASS) / (1.0 - SLIDING_FRICTION * load_transfer())
+
+
+def rear_holds(deceleration, force):
+    """Whether the rear tyre holds a brake force at its peak friction under the load a deceleration leaves on it."""
+    return force <= PEAK_FRICTION * MASS * (GRAVITY / 2.0 - deceleration * load_transfer())
+
+
 def ride_figures():
-    """The figures the ride's checks are drawn from (Architecture.md section 15, the ridden bike): the brakes in neutral."""
+    """The figures the ride's checks are drawn from (Architecture.md section 15, the ridden bike): the brakes in neutral,
+    each lever alone, and the front lever with the linked brakes on."""
     front = brake_deceleration(FRONT_BRAKE, Bike.FRONT_RADIUS, front_brake_limit)
     rear = brake_deceleration(REAR_BRAKE, Bike.REAR_RADIUS, rear_brake_limit)
+    linked = linked_deceleration()
     return {
         "launch_3s": launch(),
         "front_stop_20": stop(20.0, front),
         "rear_stop_20": stop(20.0, rear),
+        "linked_stop_20": stop(20.0, linked),
         "front_deceleration": front,
         "rear_deceleration": rear,
+        "linked_deceleration": linked,
         "coast_asphalt_15": coast(15.0, 1.0, ASPHALT_ROLLING),
         "coast_gravel_15": coast(15.0, 1.0, GRAVEL_ROLLING),
     }
+
+
+# --- The rider assist ----------------------------------------------------------------------------------------------------------
+#
+# The rider asks for a lean (the Lean input, -1 to 1, as a share of MAX_LEAN) and the assist gives the vehicle the steering that
+# holds that lean at the bike's speed: Jolt's motorcycle turns on a radius of wheelbase / (sin(steer) cos(caster)) and leans
+# to atan(v^2 / (g R)) (MotorcycleController.cpp:141-147, whose steering limit is this mapping at the lean limit), so
+# sin(steer) = wheelbase g tan(lean) / (v^2 cos(caster)), the steering input that steer over the lock. The speed is taken at
+# ASSIST_MIN_SPEED at least, so that a request at a crawl turns the bars to its share of the lock and no further.
+#
+# The linked brakes: the front lever also applies the rear brake by LINKED_SHARE of its input, a share small enough that the
+# lightened rear tyre rolls on under the front's hardest stop (check()), and both brakes are eased by the lean as Jolt's own
+# motorcycle sample eases them ((1 - sin|lean|)^2, MotorcycleTest.cpp:179-186): a tyre braking hard while leaned pulls the
+# bike off its line, since the stock friction limits its grip forwards and sideways apart. With the linked brakes off each
+# lever is its own brake, as given.
+#
+# The shifts: with AutoShift on the riding graph shifts the Manual gearbox itself, at the definition's own speeds (so an edit
+# of them moves its shifts), reading the engine's speed at the road's speed in the gear (the rear wheel's radius, the gear's
+# ratio and the final drive), which a spinning rear tyre or a slipping clutch does not raise: out of neutral once the throttle
+# opens, up at ShiftUpRPM, down below ShiftDownRPM while the gear
+# below stays under ShiftUpRPM less SHIFT_DOWN_ROOM, never into neutral, and no shift within SHIFT_HOLD steps of the last
+# (a shift opens the clutch for SWITCH_TIME and closes it over CLUTCH_RELEASE). The rider's ShiftUp and ShiftDown shift as
+# well. A gearbox the definition makes Automatic would shift by Jolt's rules alone, the same for every rider and only with an
+# edit of the definition; the assist is the rider's, a switch the player turns off to shift alone.
+
+# The wheelbase as Jolt measures it (between the suspensions' farthest reach, along the bike's forward axis:
+# MotorcycleController::GetWheelBase), the cosine of the steering axis' caster angle and the slowest speed the mapping takes.
+ASSIST_WHEELBASE = 1.5033
+CASTER_COS = round(Bike.STEERING_AXIS[1], 6)
+ASSIST_MIN_SPEED = 4.0
+LINKED_SHARE = 0.3
+SHIFT_HOLD = 12
+SHIFT_DOWN_ROOM = 1000.0
+
+
+def assist_steer(request, speed):
+    """The steering input (-1 to 1) the assist gives for a lean request (-1 to 1) at a speed (m/s), as MotoLib.sgraph's
+    AssistSteer computes it."""
+    lean = math.radians(request * MAX_LEAN)
+    v = max(speed, ASSIST_MIN_SPEED)
+    ratio = max(-1.0, min(1.0, ASSIST_WHEELBASE * GRAVITY * math.tan(lean) / (v * v * CASTER_COS)))
+    return max(-1.0, min(1.0, math.degrees(math.asin(ratio)) / STEER_LOCK))
+
+
+def brake_ease(lean):
+    """The linked brakes' share of each lever at a lean (degrees)."""
+    return (1.0 - abs(math.sin(math.radians(lean)))) ** 2
+
+
+# --- The rider's pose --------------------------------------------------------------------------------------------------------
+#
+# The rider is rigid and posed by the riding graph each frame from the bike as it is drawn: he leans with the bike (he is its
+# child), hangs off to the inside of a lean (his hips shifted HANG_SHIFT and his body turned HANG_ROLL more into the turn at
+# the lean limit, in proportion below it) and tucks in at speed (from TUCK_FROM to TUCK_FULL, a smoothstep: lowered
+# TUCK_DROP, moved TUCK_FORWARD towards the bars and pitched TUCK_PITCH forward). The fork turns about the steering axis with
+# the front wheel: its steer is read from the wheel as the vehicle drew it (the wheel's axle against the bike's), a frame
+# late at most; the vehicle draws the wheel in the fork's space, so turning the fork moves the wheel nowhere.
+HANG_SHIFT = 0.12
+HANG_ROLL = 10.0
+TUCK_FROM = 20.0
+TUCK_FULL = 45.0
+TUCK_DROP = 0.09
+TUCK_FORWARD = 0.08
+TUCK_PITCH = 14.0
+
+
+def rider_pose(lean, speed):
+    """The rider's translation in the bike's frame and his turns (roll about the bike's forward axis, positive to the right,
+    and pitch forward, degrees) at a drawn lean (degrees, positive right) and a speed (m/s)."""
+    hang = max(-1.0, min(1.0, lean / MAX_LEAN))
+    t = max(0.0, min(1.0, (speed - TUCK_FROM) / (TUCK_FULL - TUCK_FROM)))
+    tuck = t * t * (3.0 - 2.0 * t)
+    return ((Bike.HIP[0] + HANG_SHIFT * hang, Bike.HIP[1] - TUCK_DROP * tuck, Bike.HIP[2] - TUCK_FORWARD * tuck),
+            HANG_ROLL * hang, TUCK_PITCH * tuck)
 
 
 RIDE = None
@@ -393,6 +494,19 @@ def check():
     # The launch's 3 s stay in first gear, under the shift.
     if road_speed(SHIFT_UP, 1) <= figures["launch_3s"]:
         problems.append("the launch reaches first gear's shift within 3 s")
+    # The linked brakes: the rear tyre rolls on under the front lever's hardest stop, which stays short of a stoppie and
+    # stops the bike shorter than the front brake alone.
+    if not rear_holds(figures["linked_deceleration"], linked_force()):
+        problems.append("the linked brakes' share of the rear brake locks the rear wheel under the front's hardest stop")
+    if figures["linked_deceleration"] >= stoppie or not figures["linked_stop_20"] < figures["front_stop_20"]:
+        problems.append("the linked brakes do not stop the bike shorter than the front brake alone, short of a stoppie")
+    # The assist's wheelbase is Jolt's: the suspensions' farthest reach, along the forward axis.
+    reach = [[p + d * row["SuspensionMaxLength"] for p, d in zip(row["Position"], row["SuspensionDirection"])] for row in (front, rear)]
+    if abs(reach[1][2] - reach[0][2] - ASSIST_WHEELBASE) > 1e-4:
+        problems.append(f"the assist's wheelbase {ASSIST_WHEELBASE} is not Jolt's {reach[1][2] - reach[0][2]:.4f}")
+    # At the lean limit the assist steers as far as Jolt's own limit lets the bars turn, and never past the lock.
+    if not 0.0 < assist_steer(1.0, 20.0) < 1.0 or assist_steer(1.0, 0.0) != 1.0 or assist_steer(-0.5, 20.0) != -assist_steer(0.5, 20.0):
+        problems.append("the assist's mapping is not within the lock, odd in its request and full at a crawl")
     assert not problems, "; ".join(problems)
     RIDE = figures
     tops = ", ".join(f"{road_speed(RacingLine.RED_LINE, gear) * 3.6:.0f}" for gear in range(1, 7))
@@ -401,7 +515,8 @@ def check():
             f"against the lean spring's {bound:.2f}; launch {figures['launch_3s']:.1f} m/s after 3 s (the rear tyre holds "
             f"{drive_limit(SLIDING_FRICTION):.2f} m/s^2 sliding); from 20 m/s in neutral the front brake stops in "
             f"{figures['front_stop_20']:.1f} m ({figures['front_deceleration']:.2f} m/s^2), the rear in "
-            f"{figures['rear_stop_20']:.1f} m ({figures['rear_deceleration']:.2f} m/s^2); coasting 1 s from 15 m/s: "
+            f"{figures['rear_stop_20']:.1f} m ({figures['rear_deceleration']:.2f} m/s^2), the front lever with the linked "
+            f"brakes in {figures['linked_stop_20']:.1f} m ({figures['linked_deceleration']:.2f} m/s^2); coasting 1 s from 15 m/s: "
             f"{figures['coast_asphalt_15']:.2f} m/s on the asphalt, {figures['coast_gravel_15']:.2f} m/s in the gravel")
 
 
@@ -412,13 +527,15 @@ SHIFT_UP_CALL = "Call:Strada.VehicleComponent.ShiftUp()"
 SHIFT_DOWN_CALL = "Call:Strada.VehicleComponent.ShiftDown()"
 GET_ACTION = "Call:Strada.Input.GetAction(string)"
 ACTION_PRESSED = "Call:Strada.Input.IsActionPressed(string)"
+ANGLE_AXIS = "Call:Strada.Quaternion.AngleAxis(float,Strada.Vector3)"
 # The drivers Driver names.
 PLAYER, AUTOPILOT, TEST = 0, 1, 2
 
 
 def declare(author):
     author.declare(BIKE, "The bike's riding graph: at each fixed step it gives the vehicle its driver's throttle, brakes and "
-                   "lean, and it shifts when its driver asks. The only writer of the bike's inputs and shifts.", variables=(
+                   "lean through the rider assists, and it shifts when its driver asks or the automatic shifts say; each frame "
+                   "it poses the rider and turns the fork. The only writer of the bike's inputs and shifts.", variables=(
         public("Driver", "int", PLAYER, "Who rides the bike: 0 the player (the actions), 1 the autopilot, 2 a test (both write "
                "Throttle, FrontBrake, RearBrake and Lean, and send ShiftUp and ShiftDown)", (PLAYER, TEST)),
         public("Throttle", "float", 0.0, "The throttle the autopilot or a test asks for, 0 to 1 (read while Driver is not 0)",
@@ -429,34 +546,132 @@ def declare(author):
                (0.0, 1.0)),
         public("Lean", "float", 0.0, "The lean the autopilot or a test asks for, -1 left to 1 right (read while Driver is not 0)",
                (-1.0, 1.0)),
+        public("LeanAssist", "bool", True, "The rider assist: the lean asked for is a lean, a share of the lean limit, which the "
+               "assist steers the bike into at its speed (off: it is the steering itself)"),
+        public("LinkedBrakes", "bool", True, "The linked brakes: the front brake also applies the rear by LinkedBrakeShare, and "
+               "both ease as the bike leans (off: each brake alone, as given)"),
+        public("LinkedBrakeShare", "float", LINKED_SHARE, "How much of the front brake the linked brakes give the rear, 0 to 1",
+               (0.0, 1.0)),
+        public("AutoShift", "bool", True, "The automatic shifts: out of neutral when the throttle opens, up and down by the "
+               "engine's speed at the definition's shift speeds (off: only the rider shifts)"),
+        public("Rider", ENTITY_TYPE, None, "The rider, found among the bike's children at the start (a read-out)"),
+        public("Fork", ENTITY_TYPE, None, "The fork, found among the bike's children at the start (a read-out)"),
+        public("FrontWheel", ENTITY_TYPE, None, "The front wheel, the fork's child, found at the start (a read-out)"),
+        private("ShiftWait", "int", 0),
     ), events=(("ShiftUp", ()), ("ShiftDown", ())))
 
 
+def _chosen(b, action, variable):
+    """The driver's value of an input: the action's while the player rides, else the public value."""
+    return b.expr(f"driver == {PLAYER} ? action : value", driver=b.var("Driver"), action=b.pure(GET_ACTION, Action=action),
+                  value=b.var(variable))
+
+
+def _definition(b):
+    """The vehicle's definition, read by one node per region."""
+    return b.once("definition", lambda: b.pure("Get:Strada.VehicleComponent.Definition", "Value"))
+
+
+def _hold(b):
+    """No automatic shift for SHIFT_HOLD steps after a shift."""
+    return b.set("ShiftWait", SHIFT_HOLD)
+
+
 def write(author):
-    with author.region(BIKE, "Ride: each fixed step, the driver's throttle, brakes and lean", EVENTS) as b:
+    with author.region(BIKE, "Ride: each step, the driver's inputs through the assists, and shifts", EVENTS) as b:
         fixed = b.event("Event.FixedUpdate")
-        player = b.branch(b.expr(f"driver == {PLAYER}", driver=b.var("Driver")), comment="0: the player rides on the actions")
-        steps = b.sequence(3)
-        ridden = b.call(SET_INPUT, Throttle=b.pure(GET_ACTION, Action="Throttle"), FrontBrake=b.pure(GET_ACTION, Action="FrontBrake"),
-                        RearBrake=b.pure(GET_ACTION, Action="RearBrake"), Lean=b.pure(GET_ACTION, Action="Lean"))
-        up = b.branch(b.pure(ACTION_PRESSED, Action="ShiftUp"), comment="Each press is seen by one step")
-        down = b.branch(b.pure(ACTION_PRESSED, Action="ShiftDown"))
-        driven = b.call(SET_INPUT, comment="The autopilot's or a test's values", Throttle=b.var("Throttle"),
-                        FrontBrake=b.var("FrontBrake"), RearBrake=b.var("RearBrake"), Lean=b.var("Lean"))
-        b.chain(fixed, player)
-        b.flow(player["True"], steps)
+        steps = b.sequence(4)
+        throttle = _chosen(b, "Throttle", "Throttle")
+        front, rear, request = _chosen(b, "FrontBrake", "FrontBrake"), _chosen(b, "RearBrake", "RearBrake"), _chosen(b, "Lean", "Lean")
+        speed = b.pure("Get:Strada.VehicleComponent.ForwardSpeed", "Value")
+        lean = b.pure("Get:Strada.VehicleComponent.LeanAngle", "Value")
+        steer = b.library(MotoLib.LIB, "AssistSteer", output="Steer", Request=request, Speed=speed).out
+        ease = b.library(MotoLib.LIB, "BrakeEase", output="Share", Lean=lean).out
+        linked = b.var("LinkedBrakes")
+        ridden = b.call(SET_INPUT, comment="The assists off give each input as the driver gave it",
+                        Throttle=throttle,
+                        FrontBrake=b.expr("linked ? front * ease : front", linked=linked, front=front, ease=ease),
+                        RearBrake=b.expr("linked ? max(rear, share * front) * ease : rear", linked=linked, rear=rear,
+                                         share=b.var("LinkedBrakeShare"), front=front, ease=ease),
+                        Lean=b.expr("assist ? steer : request", assist=b.var("LeanAssist"), steer=steer, request=request))
+        up = b.branch(b.expr(f"driver == {PLAYER} && pressed", driver=b.var("Driver"), pressed=b.pure(ACTION_PRESSED, Action="ShiftUp")),
+                      comment="Each press is seen by one step")
+        down = b.branch(b.expr(f"driver == {PLAYER} && pressed", driver=b.var("Driver"),
+                               pressed=b.pure(ACTION_PRESSED, Action="ShiftDown")))
+        gear = b.pure("Get:Strada.VehicleComponent.Gear", "Value")
+        definition = _definition(b)
+        lower = b.pure("Call:Strada.Vehicle.GetGearRatio(int)", Target=definition, Gear=b.expr("gear - 1", gear=gear))
+        ratio = b.pure("Call:Strada.Vehicle.GetGearRatio(int)", Target=definition, Gear=gear)
+        waited = b.set("ShiftWait", b.expr("max(wait - 1, 0)", wait=b.var("ShiftWait")))
+        # The engine's speed at the road's speed in the gear (rpm), not the engine's own: a rear tyre spinning on a full
+        # throttle, or the clutch slipping, would shift too soon.
+        road = b.expr(f"max(speed, 0) / {round(Bike.REAR_RADIUS, 6)} * ratio * final * {round(30.0 / math.pi, 6)}", speed=speed,
+                      ratio=ratio, final=b.pure("Get:Strada.Vehicle.FinalDrive", "Value", Target=definition))
+        shift = b.expr(f"auto && wait <= 0 ? (gear == 0 ? (throttle > 0 ? 1 : 0) : (rpm >= up && gear < count ? 1 : "
+                       f"(gear > 1 && rpm < down && rpm * lower / ratio < up - {SHIFT_DOWN_ROOM} ? -1 : 0))) : 0",
+                       auto=b.var("AutoShift"), wait=b.var("ShiftWait"), gear=gear, throttle=throttle, rpm=road,
+                       up=b.pure("Get:Strada.Vehicle.ShiftUpRPM", "Value", Target=definition),
+                       count=b.pure("Get:Strada.Vehicle.GearCount", "Value", Target=definition),
+                       down=b.pure("Get:Strada.Vehicle.ShiftDownRPM", "Value", Target=definition), lower=lower, ratio=ratio)
+        auto_up = b.branch(b.expr("shift == 1", shift=shift), comment="The automatic shifts, at the definition's speeds")
+        auto_down = b.branch(b.expr("shift == -1", shift=shift))
+        b.chain(fixed, steps)
         b.flow(steps["Then0"], ridden)
         b.flow(steps["Then1"], up)
-        b.flow(up["True"], b.call(SHIFT_UP_CALL))
+        b.chain(up["True"], b.call(SHIFT_UP_CALL), _hold(b))
         b.flow(steps["Then2"], down)
-        b.flow(down["True"], b.call(SHIFT_DOWN_CALL))
-        b.flow(player["False"], driven)
+        b.chain(down["True"], b.call(SHIFT_DOWN_CALL), _hold(b))
+        b.flow(steps["Then3"], waited)
+        b.chain(waited, auto_up)
+        b.chain(auto_up["True"], b.call(SHIFT_UP_CALL), _hold(b))
+        b.flow(auto_up["False"], auto_down)
+        b.chain(auto_down["True"], b.call(SHIFT_DOWN_CALL), _hold(b))
     with author.region(BIKE, "Shifts: the autopilot or a test sends ShiftUp and ShiftDown", EFFECTS) as b:
         for event, call in (("ShiftUp", SHIFT_UP_CALL), ("ShiftDown", SHIFT_DOWN_CALL)):
             sent = b.custom(event)
             driven = b.branch(b.expr(f"driver != {PLAYER}", driver=b.var("Driver")), comment="The player shifts on the actions")
             b.chain(sent, driven)
-            b.flow(driven["True"], b.call(call))
+            b.chain(driven["True"], b.call(call), _hold(b))
+    with author.region(BIKE, "Start: the rider, the fork and the front wheel, among the children", EVENTS) as b:
+        each = b.add("Flow.ForEach", Array=b.pure("Get:Strada.Entity.Children", "Value", Target=b.self_()))
+        name = b.pure("Get:Strada.Entity.Name", "Value", Target=each["Element"])
+        rider = b.branch(b.equal(name, b.lit("string", "Rider")))
+        fork = b.branch(b.equal(name, b.lit("string", "Fork")))
+        wheels = b.pure("Get:Strada.Entity.Children", "Value", Target=each["Element"])
+        has_wheel = b.branch(b.expr("count > 0", count=b.add("Array.Length", None, "Length", Array=wheels).out))
+        b.chain(b.event("Event.Create"), each)
+        b.chain(each["Body"], rider)
+        b.flow(rider["True"], b.set("Rider", each["Element"]))
+        b.flow(rider["False"], fork)
+        found = b.set("Fork", each["Element"])
+        b.flow(fork["True"], found)
+        b.chain(found, has_wheel)
+        b.flow(has_wheel["True"], b.set("FrontWheel", b.add("Array.Get", None, "Element", Array=wheels, Index=0).out))
+    with author.region(BIKE, "Pose: the rider hangs off and tucks in, the fork turns with the wheel", EFFECTS) as b:
+        rider, fork, wheel = b.var("Rider"), b.var("Fork"), b.var("FrontWheel")
+        ready = b.branch(b.expr("r && f && w", r=b.pure("IsValid", Value=rider), f=b.pure("IsValid", Value=fork),
+                                w=b.pure("IsValid", Value=wheel)), comment="Once the start has found them")
+        right = b.pure("Get:Strada.TransformComponent.Right", "Value")
+        up = b.pure("Get:Strada.TransformComponent.Up", "Value")
+        forward = b.pure("Get:Strada.TransformComponent.Forward", "Value")
+        drawn = b.expr("degrees(asin(clamp(-right.Y, -1, 1)))", right=right)
+        hang = b.expr(f"clamp(lean / {MAX_LEAN}, -1, 1)", lean=drawn)
+        tuck = b.expr(f"smoothstep({TUCK_FROM}, {TUCK_FULL}, speed)", speed=b.pure("Get:Strada.VehicleComponent.ForwardSpeed", "Value"))
+        hip = Bike.HIP
+        place = b.call("Set:Strada.TransformComponent.Translation", Target=rider, comment="Hips to the inside, low and forward",
+                       Value=b.expr(f"vec3({hip[0]} + {HANG_SHIFT} * hang, {hip[1]} - {TUCK_DROP} * tuck, {hip[2]} - {TUCK_FORWARD} * tuck)",
+                                    hang=hang, tuck=tuck))
+        roll = b.pure(ANGLE_AXIS, Degrees=b.expr(f"-{HANG_ROLL} * hang", hang=hang), Axis=[0.0, 0.0, 1.0])
+        pitch = b.pure(ANGLE_AXIS, Degrees=b.expr(f"-{TUCK_PITCH} * tuck", tuck=tuck), Axis=[1.0, 0.0, 0.0])
+        turn = b.call("Set:Strada.TransformComponent.Rotation", Target=rider, Value=b.pure("Operator.Multiply", A=roll, B=pitch))
+        rake = math.radians(Bike.RAKE)
+        steer = b.expr(f"degrees(atan2(dot(axle, up * {math.sin(rake):.6f} + forward * {math.cos(rake):.6f}), dot(axle, right)))",
+                       axle=b.pure("Get:Strada.TransformComponent.Right", "Value", Target=wheel), up=up, forward=forward, right=right)
+        raked = b.pure(ANGLE_AXIS, Degrees=Bike.RAKE, Axis=[1.0, 0.0, 0.0])
+        steered = b.call("Set:Strada.TransformComponent.Rotation", Target=fork, comment="The front wheel's steer, as drawn",
+                         Value=b.pure("Operator.Multiply", A=raked, B=b.pure(ANGLE_AXIS, Degrees=steer, Axis=[0.0, 1.0, 0.0])))
+        b.chain(b.event("Event.Update"), ready)
+        b.chain(ready["True"], place, turn, steered)
 
 
 if __name__ == "__main__":

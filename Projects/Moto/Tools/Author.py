@@ -20,7 +20,9 @@ visual scripts alone (no C#). In order:
    body, fork, wheels and rider; the Bike is a vehicle (Vehicle.py: a dynamic body with a chassis collider, a Vehicle on
    Vehicles/Moto.svehicle and the curve of its engine's torque, its wheels the vehicle's), ridden by its riding graph
    (Scripts/Bike.sgraph), the bike's only writer of its inputs and shifts: the player's actions, or the values the
-   autopilot or a test writes;
+   autopilot or a test writes, each through the rider assists (the lean asked for steered into, the linked brakes, the
+   automatic shifts), which also poses the rider and turns the fork, and the graph library it calls (Scripts/MotoLib.sgraph,
+   MotoLib.py);
 8. the sound part: the sounds GenerateAudio.py makes (Audio/*.wav: the engine's layers on and off load, the wind, a tyre
    squeal, a shift blip and a crowd), the mixer they play through (Audio/Moto.smixer, Sound.py), which the project file
    names, the echo under the footbridge (the Footbridge Echo entity, a reverb zone) and the audio director (the Audio
@@ -31,9 +33,12 @@ visual scripts alone (no C#). In order:
    with a voice for each layer, Scripts/EngineSound.sgraph and the curve assets it crossfades the layers through);
 10. the trackside part: the four trackside cameras and the camera director (Trackside.py: the Trackside entity, whose
     children the cameras are, and Scripts/CameraDirector.sgraph), which cuts between them and the tour on actions;
-11. the tests part: the test scenes (Checks.py's SCENES, each the main scene with its checks and without the props:
-    Scenes/Tests.sscene, and Scenes/Ride.sscene, whose graph rides the bike, BikeChecks.py) and their graphs (Checks.py);
-12. checks: spheres dropped on the road, a kerb, a gravel trap, a verge, the ground, a barrier and the footbridge come to
+11. the ride part: the Ride entity and its graph (Ride.py: Scripts/Ride.sgraph), which keeps the bike's place on the lap
+    (Ride.Distance in telemetry) and rides it round the racing line when its autopilot is on (off, as Moto starts);
+12. the tests part: the test scenes (Checks.py's SCENES, each the main scene with its checks and without the props:
+    Scenes/Tests.sscene, and Scenes/Ride.sscene, whose graph rides the bike, BikeChecks.py, and its assists and its
+    autopilot, RideChecks.py) and their graphs (Checks.py);
+13. checks: spheres dropped on the road, a kerb, a gravel trap, a verge, the ground, a barrier and the footbridge come to
     rest on their surfaces; the test scene's checks pass in a test run; the tour plays in play mode, the camera where its
     path puts it, and so does the ghost, where its line puts it; and nothing logs a warning.
 
@@ -83,8 +88,10 @@ import EngineSound  # noqa: E402  (the engine's sound)
 import GenerateAudio  # noqa: E402  (the sounds)
 import Ghost  # noqa: E402  (the ghost bike)
 import Graphs  # noqa: E402  (writing graphs)
+import MotoLib  # noqa: E402  (the graph library the ride's graphs share)
 import Props  # noqa: E402  (the props' placement)
 import RacingLine  # noqa: E402  (the line the ghost rides)
+import Ride  # noqa: E402  (the ride: the bike's place on the lap, its telemetry and the autopilot)
 import Sound  # noqa: E402  (the mixer)
 import Tour  # noqa: E402  (the camera tour)
 import Trackside  # noqa: E402  (the trackside cameras and their director)
@@ -155,6 +162,14 @@ def _ghost_graphs(write):
     return run
 
 
+def _bike_graphs(write):
+    """Declares or writes the bike's graphs: the library first, since the riding graph calls it."""
+    def run(author):
+        getattr(MotoLib, write)(author)
+        getattr(Vehicle, write)(author)
+    return run
+
+
 # The graphs of the parts, each group written together (every graph's declarations before any body names them), one line
 # per group: the part that makes them, the graphs, and how to declare and write them.
 GRAPH_GROUPS = (
@@ -162,8 +177,11 @@ GRAPH_GROUPS = (
     ("sound", (Sound.AUDIO_DIRECTOR,), Sound.declare, Sound.write),
     ("ghost", (EngineSound.ENGINE_SOUND, Ghost.GHOST), _ghost_graphs("declare"), _ghost_graphs("write")),
     ("trackside", (Trackside.CAMERA_DIRECTOR,), Trackside.declare, Trackside.write),
-    ("bike", (Vehicle.BIKE,), Vehicle.declare, Vehicle.write),
+    ("bike", (MotoLib.LIB, Vehicle.BIKE), _bike_graphs("declare"), _bike_graphs("write")),
+    ("ride", (Ride.RIDE,), Ride.declare, Ride.write),
 )
+# The function libraries among them, made as libraries.
+LIBRARIES = Checks.LIBRARIES + (MotoLib.LIB,)
 # Every graph of the project, in the order they are written.
 GRAPHS = tuple(graph for _, graphs, _, _ in GRAPH_GROUPS for graph in graphs) + Checks.GRAPHS
 # The camera part writes every graph of the parts again (the tour's is its own), so it owns their files.
@@ -367,7 +385,7 @@ class Moto:
         """Writes graphs from scratch, keeping the handles of those that exist: declare(author) adds their interfaces and
         write(author) their regions."""
         for graph in graphs:
-            self.handles[graph] = Graphs.prepare(self, PROJECT, graph, graph in Checks.LIBRARIES)
+            self.handles[graph] = Graphs.prepare(self, PROJECT, graph, graph in LIBRARIES)
         author = Graphs.Author(self)
         declare(author)
         write(author)
@@ -618,6 +636,17 @@ class Moto:
         for name, position in placed:
             self.entity(name, Trackside.camera(position), root)
 
+    def make_ride(self):
+        """The Ride entity (Ride.py), whose graph keeps the bike's place on the lap and its telemetry, and rides it round
+        the racing line when its autopilot is on (off, as Moto starts)."""
+        print("ride:", Ride.check())
+        self.write_part_graphs("ride")
+        roots = self.root_ids()
+        if "Bike" not in roots:
+            raise SystemExit("the ride part follows the bike part: the scene has no Bike")
+        self.entity(Ride.ROOT, {"VisualScript": {"Graph": self.handles[Ride.RIDE], "Variables": {
+            "Bike": {"Type": "Entity", "Value": roots["Bike"]}}}})
+
     def make_lighting(self):
         self.call("scene_settings", {"name": "Main", "settings": {"Renderer": {
             "Tonemapper": "ACES", "EV100": 0.0, "Shadows": True, "SoftShadows": True, "ShadowDistance": 220.0, "CascadeCount": 4,
@@ -730,6 +759,11 @@ class Moto:
             self.call("play_start", {"paused": True})
             try:
                 bike = self.root_ids()["Bike"]
+                # The raw vehicle that Vehicle.py's figures are: the rider assists off in play mode's copy of the scene.
+                component = self.call("component_get", {"entity": bike, "component": "VisualScript"})["fields"]
+                variables = dict(component.get("Variables", {}))
+                variables.update({name: {"Type": "Bool", "Value": False} for name in ("LeanAssist", "LinkedBrakes", "AutoShift")})
+                self.call("component_set", {"entity": bike, "component": "VisualScript", "fields": {"Variables": variables}})
 
                 def actions(**values):
                     self.call("input_set", {"actions": values})
@@ -887,10 +921,11 @@ PARTS = {
     "camera": (("Main Camera",), CAMERA_FILES, Moto.make_camera),
     "props": (("Props",), ("Assets/Meshes/Props/*.gltf", "Assets/Textures/Props/*.png", "Assets/Materials/Props/*.smat", MAIN, REGISTRY), Moto.make_props),
     "input": ((), ("Assets/Input/*.sinput", "Moto.sproj", REGISTRY), Moto.make_input),
-    "bike": (("Bike",), ("Assets/Meshes/Bike/*.gltf", "Assets/Textures/Bike/*.png", "Assets/Materials/Bike/*.smat", "Assets/Vehicles/*.svehicle", "Assets/Vehicles/*.scurve", MAIN, graph_file(Vehicle.BIKE), REGISTRY), Moto.make_bike),
+    "bike": (("Bike",), ("Assets/Meshes/Bike/*.gltf", "Assets/Textures/Bike/*.png", "Assets/Materials/Bike/*.smat", "Assets/Vehicles/*.svehicle", "Assets/Vehicles/*.scurve", MAIN, graph_file(MotoLib.LIB), graph_file(Vehicle.BIKE), REGISTRY), Moto.make_bike),
     "sound": ((Sound.DIRECTOR, Sound.ECHO), ("Assets/Audio/*.wav", "Assets/Audio/Engine/*.wav", "Assets/Audio/*.smixer", "Moto.sproj", MAIN, graph_file(Sound.AUDIO_DIRECTOR), REGISTRY), Moto.make_sound),
     "ghost": ((Ghost.ENTITY,), (MAIN, graph_file(Ghost.GHOST), graph_file(EngineSound.ENGINE_SOUND), "Assets/Curves/*.scurve", REGISTRY), Moto.make_ghost),
     "trackside": ((Trackside.ROOT,), (MAIN, graph_file(Trackside.CAMERA_DIRECTOR), REGISTRY), Moto.make_trackside),
+    "ride": ((Ride.ROOT,), (MAIN, graph_file(Ride.RIDE), REGISTRY), Moto.make_ride),
     "tests": ((), Checks.FILES, None),
 }
 ORDER = tuple(PARTS)

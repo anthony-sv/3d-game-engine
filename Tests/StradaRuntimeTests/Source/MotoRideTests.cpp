@@ -19,24 +19,30 @@ using namespace Strada::RuntimeTesting;
 // its props). The scene's graph (Scripts/RideTests.sgraph, written by Tools/BikeChecks.py) rides the grid bike from its
 // Event.FixedUpdate as a function of its count of fixed steps and of what the bike reads, never of a frame: a launch, two
 // stops on one brake each, a coast on the asphalt and one in the gravel trap outside Turn 6, the shifts and a lean to the
-// left; its checks are bands drawn from the figures the bike's definition gives (Tools/Vehicle.py). So the ride is the same
-// ride at every frame rate, step for step: its readings, which the graph logs in one line, and the physics state at a step
-// of it are compared exactly between the rates. A ctest entry of its own (StradaRuntimeTests.Ride, Shards.cmake), which
-// later rides of the sample join. The scene has no props, so a start of the player on it costs less than the 25 s one on
-// Moto's main scene takes on CI's macOS runners: the shard's two starts stay well within its 200 s there.
+// left; its checks are bands drawn from the figures the bike's definition gives (Tools/Vehicle.py). Then, with the rider
+// assists on (Tools/RideChecks.py), the throttle alone shifts it out of neutral, the front lever with the linked brakes stops
+// it, a lean request turns it, and the autopilot (Scripts/Ride.sgraph) rides it from the grid through the corners after
+// Turn 2; the rider's pose is read as the bike rides. So the ride is the same ride at every frame rate, step for step: its
+// readings, which the graph logs in two lines, and the physics state at a step of it are compared exactly between the rates.
+// A ctest entry of its own (StradaRuntimeTests.Ride, Shards.cmake), which later rides of the sample join. The scene has no
+// props, so a start of the player on it costs less than the 25 s one on Moto's main scene takes on CI's macOS runners: the
+// shard's two starts stay well within its 200 s there.
 
 namespace
 {
-	// The ride test scene's checks.
-	constexpr std::string_view RideChecks = "Tests passed: 7 checks";
+	// The ride test scene's checks: the bike's seven (Tools/BikeChecks.py), then the assists' and the autopilot's seven.
+	constexpr std::string_view RideChecks = "Tests passed: 14 checks";
 	// A fixed step of the ride after it was teleported into the gravel trap and back (by about step 1,650) and before it ends
 	// (about step 1,870): the physics state there is the same at every frame rate.
 	constexpr std::string_view HashStep = "1750";
+	// The start of the line of the assists' and the autopilot's readings.
+	constexpr std::string_view AssistReadings = "Moto's assists and autopilot: ";
 
-	// The line in which the ride's graph logs every reading it took ("Moto's ride: ..."); empty without one.
-	std::string_view RideReadings(std::string_view output)
+	// The line in which the ride's graph logs every reading of a part of the ride it took ("Moto's ride: ..." for the bike's,
+	// "Moto's assists and autopilot: ..." for the assists' and the autopilot's); empty without one.
+	std::string_view RideReadings(std::string_view output, std::string_view part = "Moto's ride: ")
 	{
-		size_t const start = output.find("Moto's ride: ");
+		size_t const start = output.find(part);
 		if (start == std::string_view::npos)
 		{
 			return {};
@@ -57,9 +63,8 @@ namespace
 	// A test run of the ride test scene of a copy of Moto: at 1/60 s a frame, a test run's, or at a frame's time step.
 	std::vector<std::string> RideRun(std::filesystem::path const& project, char const* timestep = nullptr)
 	{
-		std::vector<std::string> arguments = {
-			"--project",   Native(project),      "--scene", "Scenes/Ride.sscene", "--test", "--timeout", "60",
-			"--hash-step", std::string(HashStep)};
+		std::vector<std::string> arguments = {"--project", Native(project), "--scene",     "Scenes/Ride.sscene", "--test",
+		                                      "--timeout", "120",           "--hash-step", std::string(HashStep)};
 		if (timestep != nullptr)
 		{
 			arguments.insert(arguments.end(), {"--timestep", timestep});
@@ -79,6 +84,7 @@ TEST_CASE("Runtime: Moto's ride test scene rides the grid bike through its check
 	CHECK(sixty.ExitCode == 0);
 	CHECK(Contains(sixty.Output, RideChecks));
 	REQUIRE_FALSE(RideReadings(sixty.Output).empty());
+	REQUIRE_FALSE(RideReadings(sixty.Output, AssistReadings).empty());
 	REQUIRE_FALSE(PhysicsState(sixty.Output).empty());
 
 	// Two fixed steps a frame: the ride's inputs change between them as they do between frames at 1/60 s.
@@ -87,6 +93,7 @@ TEST_CASE("Runtime: Moto's ride test scene rides the grid bike through its check
 	CHECK(thirty.ExitCode == 0);
 	CHECK(Contains(thirty.Output, RideChecks));
 	CHECK(RideReadings(thirty.Output) == RideReadings(sixty.Output));
+	CHECK(RideReadings(thirty.Output, AssistReadings) == RideReadings(sixty.Output, AssistReadings));
 	CHECK(PhysicsState(thirty.Output) == PhysicsState(sixty.Output));
 	CHECK(Contains(PhysicsState(sixty.Output), std::string("at step ") + std::string(HashStep)));
 }
@@ -111,6 +118,8 @@ TEST_CASE("Runtime: Moto's ride test scene rides the grid bike through its check
 	CHECK(Contains(fast.Output, RideChecks));
 	REQUIRE_FALSE(RideReadings(sixty.Output).empty());
 	CHECK(RideReadings(fast.Output) == RideReadings(sixty.Output));
+	REQUIRE_FALSE(RideReadings(sixty.Output, AssistReadings).empty());
+	CHECK(RideReadings(fast.Output, AssistReadings) == RideReadings(sixty.Output, AssistReadings));
 	REQUIRE_FALSE(PhysicsState(sixty.Output).empty());
 	CHECK(PhysicsState(fast.Output) == PhysicsState(sixty.Output));
 }

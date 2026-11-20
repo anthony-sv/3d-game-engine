@@ -42,7 +42,7 @@ import Bike  # noqa: E402  (the grid)
 import Circuit  # noqa: E402  (the layout)
 import Vehicle  # noqa: E402  (the ridden bike: its figures and its riding graph)
 from Checks import Suite, run  # noqa: E402
-from Graphs import EVENTS, private  # noqa: E402
+from Graphs import private  # noqa: E402
 
 VECTOR = "Strada.Vector3"
 BIKE = Vehicle.BIKE
@@ -421,12 +421,11 @@ def phase_call(b, function, inputs, reading):
 
 
 def write_ride(b):
-    """The ride: each fixed step, the phase's function, then the count of a ShiftUp sent SHIFT_SETTLE steps ago, then the
-    step's count."""
-    fixed = b.event("Event.FixedUpdate")
+    """The ride: each fixed step (the runner graph's Event.FixedUpdate calls it, Checks.Suite.steps), the phase's function,
+    then the count of a ShiftUp sent SHIFT_SETTLE steps ago, then the step's count."""
     steps = b.sequence(3)
     phases = b.add("Flow.Switch", {"Type": STRING, "Cases": [name for name, *_ in PHASES]}, Selection=b.var("Phase"))
-    b.chain(fixed, steps)
+    b.chain(b.entry, steps)
     b.flow(steps["Then0"], phases)
     for name, function, inputs, reading in PHASES:
         b.flow(phases[f"Case:{name}"], phase_call(b, function, inputs, reading))
@@ -438,10 +437,10 @@ def write_ride(b):
     b.flow(steps["Then1"], due)
     b.flow(due["True"], counted)
     b.chain(counted, exact)
-    b.flow(steps["Then2"], b.set("Step", b.expr("step + 1", step=b.var("Step"))))
+    b.chain(steps["Then2"], b.set("Step", b.expr("step + 1", step=b.var("Step"))), b.ret)
 
 
-EVENTS_REGIONS = (("Ride: each fixed step, the phase's driving, the shifts counted", EVENTS, write_ride),)
+STEPS = (("BikeRide", "Ride: each fixed step, the phase's driving, the shifts counted", write_ride),)
 
 # --- The checks ------------------------------------------------------------------------------------------------------------
 
@@ -562,4 +561,4 @@ def prepare_scene(session, found):
         "Variables": {"Driver": {"Type": "Int32", "Value": Vehicle.TEST}}}})
 
 
-SUITE = Suite(checks, write_check, ENTITIES, VARIABLES, HELPERS, prepare=prepare_scene, events=EVENTS_REGIONS)
+SUITE = Suite(checks, write_check, ENTITIES, VARIABLES, HELPERS, prepare=prepare_scene, steps=STEPS)

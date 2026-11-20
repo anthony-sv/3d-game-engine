@@ -1,4 +1,5 @@
 #include "Audio/AudioTestUtilities.h"
+#include "Core/TelemetryTestUtilities.h"
 #include "Physics/PhysicsTestUtilities.h"
 #include "Script/ScriptTestUtilities.h"
 #include "TestUtilities.h"
@@ -32,6 +33,7 @@
 #include "Strada/Core/InputActions.h"
 #include "Strada/Core/InputCapture.h"
 #include "Strada/Core/Log.h"
+#include "Strada/Core/Telemetry.h"
 #include "Strada/Physics/PhysicsScene.h"
 #include "Strada/Physics/PhysicsTypes.h"
 #include "Strada/Project/PlayerWindow.h"
@@ -2424,8 +2426,9 @@ TEST_CASE("PlayCommands: Prism Break's title rebinds Launch to the key the playe
 
 TEST_CASE("PlayCommands: play mode flies the Moto sample's camera tour, a graph's timeline, from the home view, its actions cut "
           "to a trackside camera and back and muffle the mix, and stopping brings the camera back; an injected gamepad rides "
-          "the grid bike off, leans it each way, slows it on each brake and shifts it back to neutral, and stopping brings "
-          "it back; with PlayOnStart off the "
+          "the grid bike off on the throttle alone through the rider assists, leans it each way, slows it on the linked "
+          "brakes and on the rear brake and shifts it back to neutral, its distance along the lap recorded, and stopping "
+          "brings it back; with PlayOnStart off the "
           "camera stays home; a start on a camera that does not exist is warned of, and one on a trackside camera follows the "
           "ghost")
 {
@@ -2433,6 +2436,7 @@ TEST_CASE("PlayCommands: play mode flies the Moto sample's camera tour, a graph'
 	Testing::AssetManagerScope assets;
 	Testing::PhysicsSystemScope physics;
 	Testing::ScriptRuntimeScope scripting;
+	Testing::TelemetryScope telemetry;
 	InputScope input;
 	Testing::TemporaryDirectory directory;
 	PlayFixture fixture;
@@ -2519,10 +2523,12 @@ TEST_CASE("PlayCommands: play mode flies the Moto sample's camera tour, a graph'
 	CHECK(shows("Main Camera"));
 	CHECK_FALSE(shows("Start Line Camera"));
 
-	// The grid bike ridden on an injected gamepad, as a player rides it through the project's actions: it waits in neutral,
-	// so the right bumper (ShiftUp) shifts it into first; the right trigger (Throttle) takes it off the grid, the left stick
-	// (Lean) leans it each way, the left trigger (FrontBrake) alone slows it, then the X button (RearBrake) alone, and the
-	// left bumper (ShiftDown) shifts it into neutral; stopping brings it back to the grid.
+	// The grid bike ridden on an injected gamepad, as a player rides it through the project's actions with the rider assists
+	// a new player has (Tools/Vehicle.py): it waits in neutral, and the right trigger (Throttle) alone takes it out of neutral
+	// and off the grid; the left stick (Lean) asks for a lean each way, which the assist steers into; the left trigger
+	// (FrontBrake) slows it on the linked brakes, the front and a share of the rear, then the X button (RearBrake) on the
+	// rear alone, and the left bumper (ShiftDown) shifts it into neutral; stopping brings it back to the grid. Telemetry
+	// recorded meanwhile holds the ride graph's Ride.Distance (meters along the lap) and Ride.Speed (km/h).
 	auto const bikeAt = [&fixture]
 	{
 		Entity const found = fixture.Context.GetScene().FindEntityByName("Bike");
@@ -2540,24 +2546,42 @@ TEST_CASE("PlayCommands: play mode flies the Moto sample's camera tour, a graph'
 		REQUIRE(vehicles.size() == 1);
 		return vehicles[0];
 	};
+	REQUIRE(Telemetry::Start().IsOk());
 	CHECK(fixture.Ok("play.start")["state"] == "play");
 	fixture.Ok("play.pause");
 	CHECK(ridden()["gear"] == 0);
-	pad(Json::object({{"buttons", Json::object({{"RightBumper", true}})}}));
-	fixture.Ok("play.advance", Json::object({{"frames", 1}}));
-	pad(Json::object({{"buttons", Json::object({{"RightBumper", false}})}}));
-	fixture.Ok("play.advance", Json::object({{"frames", 1}}));
-	CHECK(ridden()["gear"] == 1);
-	// Two seconds of full throttle in first gear: Tools/Vehicle.py's launch gives about 13 m/s.
+	// Two seconds of full throttle, which the automatic shifts take into first gear and keep there: Tools/Vehicle.py's
+	// launch gives about 13 m/s.
 	pad(Json::object({{"axes", Json::object({{"RightTrigger", 1.0}})}}));
 	fixture.Ok("play.advance", Json::object({{"frames", 120}}));
 	Json const launched = ridden();
 	CAPTURE(launched.dump());
+	CHECK(launched["gear"] == 1);
 	CHECK(launched["applied"]["throttle"].get<float>() >= 0.99f);
 	CHECK(launched["applied"]["frontBrake"] == 0.0);
 	float const launchSpeed = launched["forwardSpeed"].get<float>();
 	CHECK(launchSpeed > 8.0f);
-	CHECK(glm::distance(bikeAt(), grid) > 8.0f);
+	float const launchDistance = glm::distance(bikeAt(), grid);
+	CHECK(launchDistance > 8.0f);
+	// The ride graph's distance along the lap (from the grid, across the start and finish line) is about the distance the bike
+	// went down the straight: within 1.5 m, since it is the center line's at the bike's foot on the racing line, which runs
+	// across the road from where the grid stands (3 m left of the center line), and the last row's place is a step old
+	// (0.2 m). Its speed is the bike's a step earlier at most (one step at about 6 m/s^2: 0.4 km/h).
+	{
+		TelemetrySession const& session = Testing::GetNewestTelemetrySession();
+		std::vector<std::optional<float>> const distances = Testing::GetTelemetryColumn(session, "Ride.Distance");
+		std::vector<std::optional<float>> const speeds = Testing::GetTelemetryColumn(session, "Ride.Speed");
+		REQUIRE(distances.size() > 100);
+		REQUIRE(distances.front().has_value());
+		REQUIRE(distances.back().has_value());
+		REQUIRE(speeds.back().has_value());
+		// Circuit.LENGTH (Tools/Circuit.py): the lap's length along the center line.
+		constexpr float LapLength = 2638.561f;
+		float const along = std::fmod(*distances.back() - *distances.front() + LapLength, LapLength);
+		CHECK(std::abs(along - launchDistance) < 1.5f);
+		CHECK(std::abs(*speeds.back() - launchSpeed * 3.6f) < 1.0f);
+	}
+	Telemetry::Stop();
 	// The left stick (Lean), the throttle let go: half a second to the left leans the bike to the left, then three quarters
 	// of a second to the right lean it to the right (the lean angle is positive to the right), each short enough that the
 	// bike stays on the straight; then half a second with the stick at rest.
@@ -2566,13 +2590,15 @@ TEST_CASE("PlayCommands: play mode flies the Moto sample's camera tour, a graph'
 	Json const leftLean = ridden();
 	CAPTURE(leftLean.dump());
 	CHECK(leftLean["applied"]["throttle"] == 0.0);
-	CHECK(leftLean["applied"]["lean"].get<float>() <= -0.99f);
+	// The assist steers by what the lean asked for balances at the speed: the full stick's lean steers as far as the
+	// vehicle's own limit for that lean lets it (a share of the lock at this speed).
+	CHECK(leftLean["applied"]["lean"].get<float>() < -0.05f);
 	CHECK(leftLean["leanAngle"].get<float>() < -1.0f);
 	pad(Json::object({{"axes", Json::object({{"LeftX", 1.0}})}}));
 	fixture.Ok("play.advance", Json::object({{"frames", 45}}));
 	Json const rightLean = ridden();
 	CAPTURE(rightLean.dump());
-	CHECK(rightLean["applied"]["lean"].get<float>() >= 0.99f);
+	CHECK(rightLean["applied"]["lean"].get<float>() > 0.05f);
 	CHECK(rightLean["leanAngle"].get<float>() > 1.0f);
 	pad(Json::object({{"axes", Json::object({{"LeftX", 0.0}})}}));
 	fixture.Ok("play.advance", Json::object({{"frames", 30}}));
@@ -2582,24 +2608,28 @@ TEST_CASE("PlayCommands: play mode flies the Moto sample's camera tour, a graph'
 	CHECK(upright["gear"] == 1);
 	float const brakeFrom = upright["forwardSpeed"].get<float>();
 	CHECK(brakeFrom > 4.0f);
-	// A second on the front brake alone (the left trigger), still in first gear: the bike loses about 4 m/s (in gear the
+	// A second on the front lever (the left trigger), still in first gear: the linked brakes apply the rear too, by its share
+	// of the front, both eased a little by what lean is left (1 upright), and the bike loses more than 2 m/s (in gear the
 	// engine's inertia rides on with it, so it slows about half as fast as in neutral, Tools/Vehicle.py).
 	pad(Json::object({{"axes", Json::object({{"LeftTrigger", 1.0}})}}));
 	fixture.Ok("play.advance", Json::object({{"frames", 60}}));
 	Json const braked = ridden();
 	CAPTURE(braked.dump());
 	CHECK(braked["applied"]["throttle"] == 0.0);
-	CHECK(braked["applied"]["frontBrake"].get<float>() >= 0.99f);
-	CHECK(braked["applied"]["rearBrake"] == 0.0);
+	float const frontApplied = braked["applied"]["frontBrake"].get<float>();
+	CHECK(frontApplied >= 0.9f);
+	// Tools/Vehicle.py's LINKED_SHARE.
+	CHECK(braked["applied"]["rearBrake"].get<float>() == doctest::Approx(0.3f * frontApplied).epsilon(0.001));
 	float const frontBraked = braked["forwardSpeed"].get<float>();
 	CHECK(frontBraked < brakeFrom - 2.0f);
-	// A second on the rear brake alone (the X button), the left trigger let go: the bike slows on.
+	// A second on the rear brake alone (the X button), the left trigger let go: the linked brakes leave the front off, and
+	// the bike slows on.
 	pad(Json::object({{"buttons", Json::object({{"X", true}})}, {"axes", Json::object({{"LeftTrigger", -1.0}})}}));
 	fixture.Ok("play.advance", Json::object({{"frames", 60}}));
 	Json const rearBraked = ridden();
 	CAPTURE(rearBraked.dump());
 	CHECK(rearBraked["applied"]["frontBrake"] == 0.0);
-	CHECK(rearBraked["applied"]["rearBrake"].get<float>() >= 0.99f);
+	CHECK(rearBraked["applied"]["rearBrake"].get<float>() >= 0.9f);
 	CHECK(rearBraked["forwardSpeed"].get<float>() < frontBraked - 0.5f);
 	// The left bumper (ShiftDown) shifts first gear down into neutral.
 	pad(Json::object({{"buttons", Json::object({{"X", false}, {"LeftBumper", true}})}}));

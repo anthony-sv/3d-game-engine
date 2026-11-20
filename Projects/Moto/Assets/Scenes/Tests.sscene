@@ -2478,6 +2478,45 @@
 			}
 		},
 		{
+			"ID": "11135121611126164166",
+			"Components": {
+				"Tag": {
+					"Tag": "Ride"
+				},
+				"Transform": {
+					"Translation": [
+						0.0,
+						0.0,
+						0.0
+					],
+					"Rotation": [
+						0.0,
+						0.0,
+						0.0,
+						1.0
+					],
+					"Scale": [
+						1.0,
+						1.0,
+						1.0
+					]
+				},
+				"Relationship": {
+					"Parent": "0",
+					"Children": []
+				},
+				"VisualScript": {
+					"Graph": "5784894381786492430",
+					"Variables": {
+						"Bike": {
+							"Type": "Entity",
+							"Value": "1233048084916068541"
+						}
+					}
+				}
+			}
+		},
+		{
 			"ID": "6319871157374525983",
 			"Components": {
 				"Tag": {
