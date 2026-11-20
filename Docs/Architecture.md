@@ -6857,11 +6857,102 @@ graphs alone keeps its best lap and its settings screen, and none exposes a path
   state at step 1,750, after both teleports; behind `STRADA_LONG_RIDES=1`, with a timeout of 10 minutes, it also plays it at
   1/144 s a frame. The scene has no props, so the shard's two starts of the player stay well within its 200 s on CI's
   macOS runners, where one start on Moto with its props costs about 25 s. `Tests.sscene` keeps its 24 checks and gains no
-  ride. `PlayModeTests` rides the main scene's bike on an injected gamepad (`input.set`'s `gamepads`): the right bumper
-  shifts it into first, the right trigger takes it more than 8 m off the grid at over 8 m/s in 2 s (it reads 13.5), the
-  left stick leans it to the left and then to the right (the input applied and the lean's sign), the left trigger alone
-  slows it by more than 2 m/s in 1 s still in gear, then the X button alone slows it on, the left bumper shifts it into
-  neutral, and stopping brings it back to the grid.
+  ride. `PlayModeTests` rides the main scene's bike on an injected gamepad (`input.set`'s `gamepads`) with the rider
+  assists a new player has (the ride in graphs, below): the right trigger alone takes it out of neutral into first and
+  more than 8 m off the grid at over 8 m/s in 2 s (it reads 13.5), the left stick asks for a lean to the left and then to
+  the right (the steering applied and the lean's sign), the left trigger slows it by more than 2 m/s in 1 s still in
+  gear on the linked brakes (the rear at 0.3 of the front), then the X button alone (the front off) slows it on, the left
+  bumper shifts it into neutral, and stopping brings it back to the grid.
+  **The ride in graphs** (slice 4's GR). The bike's graphs make the ridden bike a rider's: the riding graph
+  (`Scripts/Bike.sgraph`, `Tools/Vehicle.py`) stays the one writer of `SetDriverInput` and the shifts and gives every
+  driver (`Driver` 0 the player's actions, 1 the autopilot, 2 a test) its **rider assists**, each a public switch on by
+  default that a settings screen writes and keeps (`Settings.Set` of its name, section 13.1):
+  - `LeanAssist`: the `Lean` input is a lean asked for, a share of the lean limit (50.2°), and the assist gives the vehicle
+    the steering that holds that lean at the bike's speed. Jolt's motorcycle turns on a radius of wheelbase /
+    (sin(steer) cos(caster)) and balances at atan(v² / (g R)) (`MotorcycleController.cpp:141-147`, whose steering limit is
+    this mapping at the lean limit), so the assist steers by sin(steer) = wheelbase g tan(lean) / (v² cos(caster)) over
+    the 28° lock, with Jolt's wheelbase (1.5033 m between the suspensions' farthest reach), cos(caster) 0.9135 and the
+    speed taken at 4 m/s at least, so a request at a crawl turns the bars by its share and no further. Off, `Lean` is the
+    steering itself (−1 to 1 of the lock), as the vehicle takes it.
+  - `LinkedBrakes` and `LinkedBrakeShare` (0.3): the front lever also applies the rear brake by the share of its input, and
+    both brakes are eased by the lean as Jolt's motorcycle sample eases them, (1 − sin|lean|)² (`MotorcycleTest.cpp:179-186`):
+    adopted, since the stock tyre friction limits forward and sideways grip apart, so a tyre braking hard while leaned
+    pulls the bike off its line rather than giving up its grip. The share is the largest under which the lightened rear
+    tyre rolls on through the front's hardest stop (0.3 × 300 N m on 0.326 m is 276 N, against 442 N the rear holds at its
+    peak at that deceleration), so one trigger stops the bike from 20 m/s in 20.1 m (9.46 m/s², `Vehicle.ride_figures()`)
+    where the front alone takes 24.2 m. Off, each lever is its own brake, as given (FR-R49.2.3). What the brakes will not
+    do stays as section 8 says: a locked rear wheel keeps its sideways grip, and trail braking and rear-brake slides as a
+    simulation has them are not promised.
+  - `AutoShift`: the riding graph shifts the `Manual` gearbox itself (a new player's default; off, only the rider shifts,
+    on `ShiftUp` and `ShiftDown`, which shift with it on as well): out of neutral once the throttle opens, up at the
+    definition's `ShiftUpRPM`, down below its `ShiftDownRPM` while the gear below stays 1,000 rpm under `ShiftUpRPM`, never
+    into neutral, and none within 12 steps of the last shift. It reads the engine's speed at the road's speed in the gear
+    (the rear wheel's radius, the gear's ratio and the final drive), which a rear tyre spinning on a full throttle or a
+    slipping clutch does not raise. An assist over the `Manual` gearbox rather than the definition's `Automatic` mode, so
+    that the player turns it off in a settings screen while the definition stays one file, and an edit of the shift
+    speeds (`vehicle.set`) moves the shifts at once. A closed throttle stays exactly 0 (the clutch rule of section 8).
+  The graph rides in `Event.FixedUpdate`, so the assists are a function of the simulation (rule of the rides compared
+  across frame rates); with the three off it gives the vehicle exactly the driver's values, so the ridden bike's seven
+  checks above ride the raw vehicle (the ride scene starts with them off). **The rider's pose**, in its `Event.Update`
+  from the bike as drawn: the rigid rider (a child of the bike, so he leans with it) hangs off to the inside, his hips
+  0.12 m and his body 10° further over at the lean limit and in proportion below it, and tucks in from 20 to 45 m/s (a
+  smoothstep: 0.09 m lower, 0.08 m towards the bars, 14° forward); the fork turns about the steering axis by the front
+  wheel's steer, read from the wheel as the vehicle drew it (its axle against the bike's), a frame late at most, and the
+  vehicle draws the wheel in the fork's space, so turning the fork moves the wheel nowhere. The riding graph finds the
+  rider, the fork and the front wheel among the bike's children at its start (public read-outs `Rider`, `Fork`,
+  `FrontWheel`). **The graph library** `Scripts/MotoLib.sgraph` (`Tools/MotoLib.py`, written with the riding graph,
+  which calls it): `AssistSteer`, `CurvatureLean` (the lean request whose lean turns on a curvature), `BrakeEase`,
+  `LineDistance` (a point's foot on a stretch of the line, along the lap) and `Kmh`, each the formula of a figure the
+  tools state. **The ride** (the `ride` part, `Tools/Ride.py`): the `Ride` root runs `Scripts/Ride.sgraph`, which holds the
+  racing line as private arrays (`Line`, its 1,306 points every 2 m of its 2,612 m; `LineDistance`, the center line's
+  lap distance at each; `LineSpeed`, the autopilot's speeds; `LineCurvature`), none public, so the inspector, which reads
+  a selected entity's public lists back whole on every draw while a game plays, never copies them. Each fixed step,
+  whoever rides, it follows the line's point nearest the bike (on from the last, up to three a step, and the whole line
+  again past 15 m), publishes `Distance` (meters along the lap's center line from the start and finish line, where the
+  gates are) and `Offset` (meters right of the line), and while the editor records telemetry, records **`Ride.Distance`**,
+  `Ride.Speed` (km/h) and `Ride.Offset`. **The autopilot** (`Autopilot`, off: Moto starts as it did, the player riding;
+  the events `StartAutopilot` and `StopAutopilot`) rides by the simulation alone from that fixed step: it sets the riding
+  graph's `Driver` to 1 and writes its public inputs, never `SetDriverInput`, and the assists steer, brake and shift for
+  it. It steers onto a curvature, the line's own 0.3 s ahead times 1.3 (the bike's turn builds behind its steering, so it
+  asks for more than the line's curvature: found by probing the ride), less its heading's error from the line's over 0.4 s of its speed, the heading it aims for bringing
+  it back from its offset over 1.2 s (at most 0.3 rad); it asks the assist for the lean that turns on that curvature. It
+  holds the speed of the line 0.5 s ahead: `LineSpeed` is the line's corners at 0.7 g, slowed for at 4 m/s² besides the
+  drag, never faster than the line's own point mass, times `Pace` (1); the throttle opens by 0.5 for each m/s below it
+  (exactly 0 at or above), the front lever by 0.4 for each m/s above it past 0.5, at most 0.45 (the linked brakes add the
+  rear). A probe found that a front lever past about 0.6 at 60 m/s sets the bike weaving until it falls, which is why the
+  autopilot brakes gently and early; a lap at its speeds is 86.5 s against the line's 71.1 s, which **the feel pass**
+  (the definition and the assists tuned, a later step of this track) brings within a stated band. **The best lap's samples**
+  (the ghost, a later step): recorded at 10 samples a second (FR-R54.7), so that a lap of up to 409.5 s fits one list of
+  4,096 elements; a slower lap is timed and shown but not kept as a ghost. The ghost's graph publishes them as public
+  arrays, each a value per sample: `BestLapDistances` (`float[]`, meters along the lap), `BestLapPositions`
+  (`Strada.Vector3[]`), `BestLapRotations` (`Strada.Quaternion[]`), `BestLapEngineSpeeds` and `BestLapLoads` (`float[]`),
+  with `BestLapTime` (seconds; 0 while there is none, when no delta is shown) and `Delta` (the lap in progress against
+  the best at the same distance), and the custom event `BestLapLoaded` it is sent once a game has set the arrays. A slot
+  holds numbers, vectors and quaternions, and lists of them of up to 4,096 elements (`SavedValueCodec.cs`, section 13.1),
+  a graph reads another's public array and sets it whole (the interpreter's remote Get and Set pass the array), so the
+  race's graph saves the samples with `SaveSlot.Set` of each array and loads them back the same way. **The directors**
+  (later steps): the camera director grows from slice 3's (`Cut`, `Face`, `NextCamera` and `ResetCamera` stay), cutting
+  between the trackside cameras by its own rule in the attract mode and following the bike with a chase view in the race,
+  each behind a public switch that is off as Moto starts; the audio director gives the ridden bike its own engine voices
+  (`EngineSound.sgraph`, fed from the vehicle's engine speed and throttle), the squeal, the shift blip, the gravel crunch,
+  wind and the crowd, and gives up its own `Pause` handler to the race's. **The checks** join `Ride.sscene` as a module
+  (`Tools/RideChecks.py`, after the bike's seven; the test runner's one `Event.FixedUpdate` calls each module's ride in
+  turn, `Checks.Suite.steps`): from the bike's ride's end, the assists on, (8) the throttle alone puts it in first gear
+  20 steps later; (9) from 20 m/s in neutral the front lever with the linked brakes stops it within 0.85 to 1.25 times
+  the 20.1 m (read 21.3 m) and shorter than the front brake alone in the same run (25.5 m), the rear applied at the
+  share eased by the lean (0.287 to 0.3; read 0.299); (10) a lean request of −0.4 (20.1°) held 1.5 s from 20 m/s turns
+  the bike, over its last 0.5 s, at 0.6 to 1.25 times the rate at which that lean balances the turn at the speed then,
+  g tan(lean) / v (read 8.3°/s against 8.3; the lean itself is read and logged, not checked: Jolt's motorcycle leans far
+  less than a rider balances, −0.9° here, which the feel pass takes up); (11) at over 47 m/s the rider stands where the
+  pose puts him tucked, within 1 cm; (12) leaned over 5° he hangs to its side where the pose puts him, within 1 cm, the
+  fork's axle within 0.5° of the front wheel's; (13, 14) the autopilot from the grid at rest for 20 s and then 15 s more
+  covers 0.85 to 1.15 times the lap distance a point mass riding `LineSpeed` covers (`Ride.predict`: 687.9 and 421.2 m;
+  read 632.8 and 398.9), never more than 3 m off the line (read 2.1 and 1.7), with no step of a wheel on gravel or grass,
+  never leaned past the line's 52°. The ride logs every reading in one line ("Moto's assists and autopilot: ..."), which
+  `MotoRideTests.cpp` requires the same at 1/60 and 1/30 s a frame (and at 1/144 behind `STRADA_LONG_RIDES=1`); the scene
+  takes 4,657 frames and its timeout is 120 s. `PlayModeTests` reads the recorded `Ride.Distance` and `Ride.Speed`
+  against the bike's own distance and speed. Every authoring run plays the raw vehicle's launch and stops with the
+  assists off.
 - The Showcase's **Graph Garden**: chimes played by six visual scripts (`Scripts/GraphGarden`; `Tools/GraphGarden.py`
   authors them and `Tools/Author.py --exhibit GraphGarden` rebuilds the exhibit in place, with a hash guard that names
   any file outside the exhibit that changed), whose score is a Timeline; seven of the Showcase's 68 checks look at it.
