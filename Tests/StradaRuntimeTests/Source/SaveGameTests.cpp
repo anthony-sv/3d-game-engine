@@ -434,12 +434,21 @@ TEST_CASE("SaveGame: a script's window request sizes the player's window as one 
 	CHECK(vsync.Shot.GetHeight() == height);
 	CHECK(ReadPlayerSettingsFile(settingsFile, {}).Settings.Window.VSync);
 
-	// Fullscreen, then back into a window: the size it opened at.
-	Run const returned = play("Returned.png", {});
-	CHECK(Contains(returned.Output, "The window takes the player's settings: fullscreen, vsync on (the swapchain's: on)"));
-	CHECK(Contains(returned.Output, "The window takes the player's settings: windowed at 400x100, vsync on (the swapchain's: on)"));
-	CHECK(returned.Shot.GetWidth() == width);
-	CHECK(returned.Shot.GetHeight() == height);
+	// Fullscreen, then back into a window: the size it opened at. This run takes the machine's display fullscreen, so it
+	// happens only when asked: a test never takes a person's display unasked. It saves nothing, so the run after it does
+	// what it does without it.
+	if (Testing::IsFullscreenAllowed())
+	{
+		Run const returned = play("Returned.png", {});
+		CHECK(Contains(returned.Output, "The window takes the player's settings: fullscreen, vsync on (the swapchain's: on)"));
+		CHECK(Contains(returned.Output, "The window takes the player's settings: windowed at 400x100, vsync on (the swapchain's: on)"));
+		CHECK(returned.Shot.GetWidth() == width);
+		CHECK(returned.Shot.GetHeight() == height);
+	}
+	else
+	{
+		MESSAGE("Skipping the run that goes fullscreen and back (set STRADA_TESTS_FULLSCREEN=1 to run it)");
+	}
 
 	// Without the saved settings the script asks again, and --resolution keeps the drawing size it names.
 	REQUIRE(FileSystem::Remove(settingsFile).IsOk());

@@ -351,7 +351,8 @@ Rules for the other suites:
 - Every acquired swapchain image is written (the application clears it) before it is presented.
 - GPU tests run with validation enabled and fail on any validation message; `STRADA_TESTS_ALLOW_NO_GPU=1` skips them on
   machines without a Vulkan device (CI macOS runners). CI runs them on Mesa lavapipe on Windows and Linux. Windowed
-  tests additionally need a display; `STRADA_TESTS_ALLOW_NO_DISPLAY=1` lets them skip on headless machines.
+  tests additionally need a display; `STRADA_TESTS_ALLOW_NO_DISPLAY=1` lets them skip on headless machines. The
+  windowed case that takes the display fullscreen runs that part only with `STRADA_TESTS_FULLSCREEN=1`.
 - Paths: use `std::filesystem::path`; store project-relative paths with forward slashes in files.
 
 ## Skills
