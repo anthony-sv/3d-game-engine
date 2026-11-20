@@ -6585,8 +6585,9 @@ that each platform's names are tested on every platform:
   macOS runners, where one start on Moto with its props costs about 25 s. `Tests.sscene` keeps its 24 checks and gains no
   ride. `PlayModeTests` rides the main scene's bike on an injected gamepad (`input.set`'s `gamepads`): the right bumper
   shifts it into first, the right trigger takes it more than 8 m off the grid at over 8 m/s in 2 s (it reads 13.5), the
-  left trigger alone slows it by more than 2 m/s in 1 s still in gear (it reads 4.0), and stopping brings it back to the
-  grid.
+  left stick leans it to the left and then to the right (the input applied and the lean's sign), the left trigger alone
+  slows it by more than 2 m/s in 1 s still in gear, then the X button alone slows it on, the left bumper shifts it into
+  neutral, and stopping brings it back to the grid.
 - The Showcase's **Graph Garden**: chimes played by six visual scripts (`Scripts/GraphGarden`; `Tools/GraphGarden.py`
   authors them and `Tools/Author.py --exhibit GraphGarden` rebuilds the exhibit in place, with a hash guard that names
   any file outside the exhibit that changed), whose score is a Timeline; seven of the Showcase's 68 checks look at it.
