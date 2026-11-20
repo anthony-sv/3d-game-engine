@@ -9,6 +9,7 @@
 		"FrictionCombine": "GeometricMean",
 		"RestitutionCombine": "Maximum",
 		"RollingResistance": 0.019999999552965164,
+		"TyreGrip": 0.8999999761581421,
 		"Surface": "Kerb",
 		"ImpactSound": "0",
 		"ImpactParticles": "0"

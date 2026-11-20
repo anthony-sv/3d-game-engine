@@ -14,10 +14,13 @@ visual scripts alone (no C#). In order:
    boards, grandstands, marshals' posts, floodlights, bushes and trees) on the meshes and textures GenerateAssets.py makes
    (Meshes/Props, Textures/Props) with two materials (Materials/Props), a group under the Props entity for each kind,
    each group made with all its props in one request;
-6. the bike part: the motorcycle and its rider on the grid (Bike.py makes them; GenerateAssets.py writes their meshes to
+6. the input part: the game's input actions (Input/Moto.sinput, Controls.py), which the project file names;
+7. the bike part: the motorcycle and its rider on the grid (Bike.py makes them; GenerateAssets.py writes their meshes to
    Meshes/Bike and their livery to Textures/Bike), with their four materials (Materials/Bike), the Bike entity with its
-   body, fork, wheels and rider;
-7. the input part: the game's input actions (Input/Moto.sinput, Controls.py), which the project file names;
+   body, fork, wheels and rider; the Bike is a vehicle (Vehicle.py: a dynamic body with a chassis collider, a Vehicle on
+   Vehicles/Moto.svehicle and the curve of its engine's torque, its wheels the vehicle's), ridden by its riding graph
+   (Scripts/Bike.sgraph), the bike's only writer of its inputs and shifts: the player's actions, or the values the
+   autopilot or a test writes;
 8. the sound part: the sounds GenerateAudio.py makes (Audio/*.wav: the engine's layers on and off load, the wind, a tyre
    squeal, a shift blip and a crowd), the mixer they play through (Audio/Moto.smixer, Sound.py), which the project file
    names, the echo under the footbridge (the Footbridge Echo entity, a reverb zone) and the audio director (the Audio
@@ -35,7 +38,7 @@ visual scripts alone (no C#). In order:
     path puts it, and so does the ghost, where its line puts it; and nothing logs a warning.
 
     python Projects/Moto/Tools/Author.py [strada executable]
-    python Projects/Moto/Tools/Author.py --part <circuit|lighting|camera|props|bike|input|sound|ghost|trackside|tests> [strada]
+    python Projects/Moto/Tools/Author.py --part <a part of PARTS: circuit, lighting, camera, ..., tests> [strada]
     python Projects/Moto/Tools/Author.py --captures <output folder> --player <StradaRuntime executable> [--views ...]
         [--sounds]
 
@@ -85,6 +88,7 @@ import RacingLine  # noqa: E402  (the line the ghost rides)
 import Sound  # noqa: E402  (the mixer)
 import Tour  # noqa: E402  (the camera tour)
 import Trackside  # noqa: E402  (the trackside cameras and their director)
+import Vehicle  # noqa: E402  (the ridden bike: its vehicle definition and its riding graph)
 
 PROJECT = os.path.dirname(TOOLS)
 ROOT = os.path.dirname(os.path.dirname(PROJECT))
@@ -130,37 +134,16 @@ class McpClient:
 
 # --- Parts ---------------------------------------------------------------------------------------------------------------
 
-# Each part: the root entities of the main scene it makes, and the files of the project it may write (paths relative to
-# the project folder, forward slashes; "<folder>/*<extension>" takes the folder's own files of that extension). The tests
-# part makes no entity of the main scene: its own scene is made from it; nor does the input part, whose files are the
-# actions and the project file that names them. The camera part writes every graph again.
-PARTS = {
-    "circuit": (("Circuit",), ("Assets/Meshes/*.gltf", "Assets/Textures/*.png", "Assets/Environments/*.hdr",
-                               "Assets/Materials/*.smat", "Assets/Surfaces/*.sphysmat", "Assets/Scenes/Main.sscene",
-                               "Assets/AssetRegistry.sreg")),
-    "lighting": (("Sun", "Sky"), ("Assets/Scenes/Main.sscene",)),
-    "camera": (("Main Camera",), ("Assets/Scenes/Main.sscene", "Assets/Scripts/Tour.sgraph", "Assets/Scripts/Ghost.sgraph",
-                                  "Assets/Scripts/EngineSound.sgraph", "Assets/Scripts/AudioDirector.sgraph",
-                                  "Assets/Scripts/CameraDirector.sgraph", "Assets/AssetRegistry.sreg")),
-    "props": (("Props",), ("Assets/Meshes/Props/*.gltf", "Assets/Textures/Props/*.png", "Assets/Materials/Props/*.smat",
-                           "Assets/Scenes/Main.sscene", "Assets/AssetRegistry.sreg")),
-    "bike": (("Bike",), ("Assets/Meshes/Bike/*.gltf", "Assets/Textures/Bike/*.png", "Assets/Materials/Bike/*.smat",
-                         "Assets/Scenes/Main.sscene", "Assets/AssetRegistry.sreg")),
-    "input": ((), ("Assets/Input/*.sinput", "Moto.sproj", "Assets/AssetRegistry.sreg")),
-    "sound": ((Sound.DIRECTOR, Sound.ECHO), ("Assets/Audio/*.wav", "Assets/Audio/Engine/*.wav", "Assets/Audio/*.smixer",
-                                             "Moto.sproj", "Assets/Scenes/Main.sscene", "Assets/Scripts/AudioDirector.sgraph",
-                                             "Assets/AssetRegistry.sreg")),
-    "ghost": ((Ghost.ENTITY,), ("Assets/Scenes/Main.sscene", "Assets/Scripts/Ghost.sgraph", "Assets/Scripts/EngineSound.sgraph",
-                                "Assets/Curves/*.scurve", "Assets/AssetRegistry.sreg")),
-    "trackside": ((Trackside.ROOT,), ("Assets/Scenes/Main.sscene", "Assets/Scripts/CameraDirector.sgraph",
-                                      "Assets/AssetRegistry.sreg")),
-    "tests": ((), ("Assets/Scenes/Tests.sscene", "Assets/Scripts/Checks.sgraph", "Assets/Scripts/Tests.sgraph",
-                   "Assets/AssetRegistry.sreg")),
-}
-ORDER = ("circuit", "lighting", "camera", "props", "bike", "input", "sound", "ghost", "trackside", "tests")
-# The parts that make entities of the main scene, or the files it needs (the input part's actions, which the sound and
-# trackside parts' graphs name).
-SCENE_PARTS = ORDER[:-1]
+# The files of the project parts write (paths relative to the project folder, forward slashes; "<folder>/*<extension>"
+# takes the folder's own files of that extension): the main scene, which every part that makes its entities saves, and the
+# asset registry, which every part may write.
+MAIN = "Assets/Scenes/Main.sscene"
+REGISTRY = "Assets/AssetRegistry.sreg"
+
+
+def graph_file(graph):
+    """A graph's file in the project (graphs are named by their asset references)."""
+    return f"Assets/{graph[len('asset://'):]}"
 
 
 def _ghost_graphs(write):
@@ -172,16 +155,19 @@ def _ghost_graphs(write):
     return run
 
 
-# The graphs of the parts, each group written together (every graph's declarations before any body names them): the part
-# that makes them, the graphs, and how to declare and write them.
+# The graphs of the parts, each group written together (every graph's declarations before any body names them), one line
+# per group: the part that makes them, the graphs, and how to declare and write them.
 GRAPH_GROUPS = (
     ("camera", (Tour.TOUR,), Tour.declare, Tour.write),
     ("sound", (Sound.AUDIO_DIRECTOR,), Sound.declare, Sound.write),
     ("ghost", (EngineSound.ENGINE_SOUND, Ghost.GHOST), _ghost_graphs("declare"), _ghost_graphs("write")),
     ("trackside", (Trackside.CAMERA_DIRECTOR,), Trackside.declare, Trackside.write),
+    ("bike", (Vehicle.BIKE,), Vehicle.declare, Vehicle.write),
 )
 # Every graph of the project, in the order they are written.
 GRAPHS = tuple(graph for _, graphs, _, _ in GRAPH_GROUPS for graph in graphs) + Checks.GRAPHS
+# The camera part writes every graph of the parts again (the tour's is its own), so it owns their files.
+CAMERA_FILES = (MAIN,) + tuple(graph_file(graph) for _, graphs, _, _ in GRAPH_GROUPS for graph in graphs) + (REGISTRY,)
 
 
 def hash_project():
@@ -258,17 +244,23 @@ def surface_reference(name):
     return f"asset://Surfaces/{name}.sphysmat"
 
 
-# The physics materials of the circuit's surfaces (GenerateAssets.SURFACES): how a body slides on each, and how much it
-# holds back a wheel that rolls on it. A box sliding on the gravel ploughs into it: the gravel's friction is the larger
-# and wins over the other side's (Maximum), so whatever slides into a trap stops sooner than on the asphalt. A tyre grips
-# the loose gravel less than the asphalt: how much is the vehicle's to model, from RollingResistance and its own tyres,
-# not from this sliding friction.
+# The physics materials of the circuit's surfaces (GenerateAssets.SURFACES): how a body slides on each, how much it holds
+# back a wheel that rolls on it, and how well a tyre grips it. A box sliding on the gravel ploughs into it: the gravel's
+# friction is the larger and wins over the other side's (Maximum), so whatever slides into a trap stops sooner than on the
+# asphalt. A tyre never reads that sliding friction: its grip is its own curves times the surface's TyreGrip, full on the
+# asphalt, a little less on the painted kerb, and low on the loose gravel and the grass, which also hold a rolling wheel
+# back far more (RollingResistance, which the vehicle applies by the wheel's load: 0.25 g of drag in the gravel against
+# the asphalt's 0.015 g).
 SURFACE_MATERIALS = {
-    "Asphalt": {"Friction": 1.0, "RollingResistance": 0.015, "Surface": "Asphalt"},
-    "Kerb": {"Friction": 0.8, "RollingResistance": 0.02, "Surface": "Kerb"},
-    "Gravel": {"Friction": 1.5, "FrictionCombine": "Maximum", "RollingResistance": 0.25, "Surface": "Gravel"},
-    "Grass": {"Friction": 0.5, "RollingResistance": 0.08, "Surface": "Grass"},
+    "Asphalt": {"Friction": 1.0, "RollingResistance": 0.015, "TyreGrip": 1.0, "Surface": "Asphalt"},
+    "Kerb": {"Friction": 0.8, "RollingResistance": 0.02, "TyreGrip": 0.9, "Surface": "Kerb"},
+    "Gravel": {"Friction": 1.5, "FrictionCombine": "Maximum", "RollingResistance": 0.25, "TyreGrip": 0.4, "Surface": "Gravel"},
+    "Grass": {"Friction": 0.5, "RollingResistance": 0.08, "TyreGrip": 0.45, "Surface": "Grass"},
 }
+
+# How far the ridden bike's launch and stops may come from the figures Vehicle.py states, as a share of each (its closed
+# forms leave out the springs' pitch, which delays the front's load, and the rear wheel's lock as it slows).
+RIDE_ROOM = 0.2
 
 # The air's haze over the far ground and the hills: its color (the horizon's), how much of the meadow's own color each
 # ring of the ground loses to it, and how bright it is when it has all of it.
@@ -367,10 +359,9 @@ class Moto:
     # --- The parts -------------------------------------------------------------------------------------------------------
 
     def build_part(self, part):
-        self.remove_roots(PARTS[part][0])
-        {"circuit": self.make_circuit, "lighting": self.make_lighting, "camera": self.make_camera, "props": self.make_props,
-         "bike": self.make_bike, "input": self.make_input, "sound": self.make_sound, "ghost": self.make_ghost,
-         "trackside": self.make_trackside}[part]()
+        roots, _, make = PARTS[part]
+        self.remove_roots(roots)
+        make(self)
 
     def write_graphs(self, graphs, declare, write):
         """Writes graphs from scratch, keeping the handles of those that exist: declare(author) adds their interfaces and
@@ -527,13 +518,19 @@ class Moto:
             self.entity_with_children(group, {}, root, children)
 
     def make_bike(self):
-        """The motorcycle and its rider on the grid (Bike.py makes them): their materials, then the Bike entity with its
-        parts, each where Bike.ENTITIES puts it."""
+        """The motorcycle and its rider on the grid (Bike.py makes them): their materials, the vehicle's definition and its
+        curves and the riding graph (Vehicle.py), then the Bike entity, a vehicle with its body and chassis collider that
+        the riding graph rides, with its parts, each where Bike.ENTITIES puts it, the wheels the vehicle's."""
         GenerateAssets.generate(os.path.join(PROJECT, "Assets"), GenerateAssets.SEED, groups=("bike",))
         refreshed = self.call("asset_refresh")
         if refreshed.get("warnings"):
             raise SystemExit(f"the assets refreshed with warnings: {refreshed['warnings']}")
         print("bike:", Bike.check_grid())
+        print("vehicle:", Vehicle.check())
+        for path, fields in Vehicle.curves().items():
+            self.data_asset("curve", "curve", path, fields)
+        definition = self.data_asset("vehicle", "vehicle", Vehicle.DEFINITION, Vehicle.definition())
+        self.write_part_graphs("bike")
         livery = "asset://Textures/Bike/Livery.png"
         materials = {
             # The bodywork's livery, the rims, the leathers and the helmet: lacquered.
@@ -545,12 +542,19 @@ class Moto:
             "Glass": self.material("Bike/Glass", {"BaseColorTexture": livery, "Roughness": 0.05}),
         }
         translation, yaw = Bike.grid_place()
-        made = {"Bike": self.entity("Bike", {"Transform": {"Translation": list(translation), "RotationEuler": [0.0, yaw, 0.0]}})}
+        made = {"Bike": self.entity("Bike", {"Transform": {"Translation": list(translation), "RotationEuler": [0.0, yaw, 0.0]},
+                                             **Vehicle.body(), "Vehicle": {"Definition": definition},
+                                             "VisualScript": {"Graph": self.handles[Vehicle.BIKE]}})}
+        # The wheels are the definition's, by their names: the vehicle turns and steers them.
+        wheels = {"Front Wheel": "Front", "Rear Wheel": "Rear"}
         for name, mesh_name, parent, offset, angle in Bike.ENTITIES:
-            made[name] = self.entity(name, {
+            components = {
                 "Transform": {"Translation": list(offset), "RotationEuler": [angle, 0.0, 0.0]},
                 "Mesh": {"Mesh": mesh(f"Bike/{mesh_name}"),
-                         "Materials": [materials[material] for material in Bike.mesh_materials(mesh_name)]}}, made[parent])
+                         "Materials": [materials[material] for material in Bike.mesh_materials(mesh_name)]}}
+            if name in wheels:
+                components["VehicleWheel"] = {"Wheel": wheels[name]}
+            made[name] = self.entity(name, components, made[parent])
 
     def make_sound(self):
         """The sounds (GenerateAudio.py) and the mixer they play through (Sound.py), which the project file names."""
@@ -569,6 +573,7 @@ class Moto:
 
     def make_input(self):
         """The game's input actions (Controls.py), which the project file names."""
+        print("controls:", Controls.check())
         actions = self.data_asset("input_actions", "inputActions", Controls.INPUT_ACTIONS, Controls.input_actions())
         self.call("project_settings", {"settings": {"InputActions": actions}})
 
@@ -644,20 +649,23 @@ class Moto:
                 self.write_part_graphs(part)
 
     def make_tests(self):
-        """The test scene and its graphs, from the main scene as saved; then every graph is checked and the checks run."""
+        """The test scenes and their graphs, from the main scene as saved; then every graph is checked and each scene's
+        checks run."""
         if Tour.TOUR not in self.handles:
             self.handles[Tour.TOUR] = self.call("graph_get", {"graph": Tour.TOUR, "analyze": False})["asset"]
         self.write_graphs(Checks.GRAPHS, Checks.declare, Checks.write)
         Graphs.verify(self, GRAPHS)
-        Checks.build_scene(self, self.handles, PROJECT)
-        expected = len(Checks.checks())
-        run = self.call("test_run", {"scene": "Scenes/Tests.sscene", "timeout": math.ceil(Tour.LENGTH) + 30})
-        print("test run:", {key: run[key] for key in ("finished", "timedOut", "frames", "passed", "failed", "exceptions")})
-        if not run["finished"] or run["failed"] or run["exceptions"] or run["passed"] != expected:
-            for result in run["results"]:
-                if not result["passed"]:
-                    print(f"  failed: {result['name']}: {result['message']}")
-            raise SystemExit(f"the test run passed {run['passed']} of {expected} checks")
+        Checks.build_scenes(self, self.handles, PROJECT)
+        for scene in Checks.SCENES:
+            expected = len(Checks.scene_checks(scene))
+            run = self.call("test_run", {"scene": scene.path, "timeout": scene.timeout})
+            print(f"test run of {scene.name}:", {key: run[key] for key in ("finished", "timedOut", "frames", "passed", "failed",
+                                                                         "exceptions")})
+            if not run["finished"] or run["failed"] or run["exceptions"] or run["passed"] != expected:
+                for result in run["results"]:
+                    if not result["passed"]:
+                        print(f"  failed: {result['name']}: {result['message']}")
+                raise SystemExit(f"the test run of {scene.name} passed {run['passed']} of {expected} checks")
 
     def check_tour(self):
         """Plays the main scene for ten seconds and checks that the tour put the camera where its path is then, and the
@@ -673,8 +681,12 @@ class Moto:
 
             at = translation("Main Camera")
             ghost = translation(Ghost.ENTITY) if Ghost.ENTITY in roots else None
+            bike = self.call("vehicle_state")["vehicles"] if "Bike" in roots else []
+            bike_at = translation("Bike") if bike else None
         finally:
             self.call("play_stop")
+        if bike:
+            self.check_bike(bike[0], bike_at)
         # The tour's time after the frames is a frame either side of theirs, and so is the ghost's.
         seconds = frames / 60.0
         closest = min(math.dist(at, Tour.camera(seconds + k / 60.0)[0]) for k in (-1, 0, 1))
@@ -686,6 +698,79 @@ class Moto:
             print(f"  the ghost after {seconds:.0f} s: {closest:.2f} m from its line")
             if closest > 0.1:
                 raise SystemExit(f"the ghost does not ride in play mode: it is at {ghost}, {closest:.2f} m from its line")
+
+    def check_bike(self, state, at):
+        """The grid bike after ten seconds of play with nobody riding it: where the scene placed it, upright, at rest in
+        neutral, each wheel on its axle (its suspension at the rest length Vehicle.py gives it)."""
+        place, _ = Bike.grid_place()
+        rests = (Vehicle.FRONT_REST, Vehicle.REAR_REST)
+        lengths = [wheel["suspensionLength"] for wheel in state["wheels"]]
+        moved = math.dist(at, place)
+        print(f"  the grid bike after 10 s: {moved * 1000.0:.1f} mm from its place, leaning {state['leanAngle']:.2f} degrees, "
+              f"at {state['forwardSpeed']:.3f} m/s in gear {state['gear']}, its suspensions at "
+              f"{', '.join(f'{length:.4f}' for length in lengths)} m (rest {', '.join(f'{rest:.4f}' for rest in rests)})")
+        problems = []
+        if moved > 0.01:
+            problems.append(f"it moved {moved:.3f} m")
+        if abs(state["leanAngle"]) > 0.5 or abs(state["forwardSpeed"]) > 0.01 or state["gear"] != 0:
+            problems.append("it is not upright at rest in neutral")
+        if any(abs(length - rest) > 0.005 for length, rest in zip(lengths, rests)) or not all(w["contact"] for w in state["wheels"]):
+            problems.append("its wheels do not rest on their axles")
+        if problems:
+            raise SystemExit("the grid bike does not stand where the scene placed it: " + "; ".join(problems))
+
+    def check_ride(self):
+        """Rides the grid bike in play mode on its actions (input_set's overrides, the frames run at 1/60 s) and compares
+        the ride with the figures Vehicle.py states, within RIDE_ROOM: from the grid in first gear at full throttle, the
+        speed after 3 s; then, shifted into neutral, the distance the front brake alone stops it in, and in a second ride
+        the rear brake's."""
+        figures = Vehicle.ride_figures()
+        readings = {}
+        for brake, deceleration in (("FrontBrake", figures["front_deceleration"]), ("RearBrake", figures["rear_deceleration"])):
+            self.call("play_start", {"paused": True})
+            try:
+                bike = self.root_ids()["Bike"]
+
+                def actions(**values):
+                    self.call("input_set", {"actions": values})
+
+                def press(name):
+                    actions(**{name: 1.0})
+                    self.call("play_advance", {"frames": 1})
+                    actions(**{name: None})
+                    self.call("play_advance", {"frames": 1})
+
+                press("ShiftUp")
+                actions(Throttle=1.0)
+                self.call("play_advance", {"frames": 180})
+                launched = self.call("vehicle_state", {"entity": bike})["vehicles"][0]["forwardSpeed"]
+                actions(Throttle=None)
+                press("ShiftDown")
+                start = self.call("vehicle_state", {"entity": bike})["vehicles"][0]["forwardSpeed"]
+                origin = self.call("component_get", {"entity": bike, "component": "Transform"})["fields"]["Translation"]
+                actions(**{brake: 1.0})
+                for _ in range(40):
+                    self.call("play_advance", {"frames": 15})
+                    if self.call("vehicle_state", {"entity": bike})["vehicles"][0]["forwardSpeed"] < 0.05:
+                        break
+                at = self.call("component_get", {"entity": bike, "component": "Transform"})["fields"]["Translation"]
+            finally:
+                self.call("input_set", {"actions": {"Throttle": None, brake: None}})
+                self.call("play_stop")
+            readings["launch"] = launched
+            readings[brake] = (math.dist(origin, at), Vehicle.stop(start, deceleration), start)
+        expected = figures["launch_3s"]
+        front, rear = readings["FrontBrake"], readings["RearBrake"]
+        print(f"  the ride: {readings['launch']:.2f} m/s after 3 s (Vehicle.py: {expected:.2f}); from {front[2]:.2f} m/s the front "
+              f"brake stops it in {front[0]:.1f} m ({front[1]:.1f}), from {rear[2]:.2f} m/s the rear in {rear[0]:.1f} m ({rear[1]:.1f})")
+        problems = []
+        if abs(readings["launch"] - expected) > RIDE_ROOM * expected:
+            problems.append("the launch")
+        for name, (distance, stated, _) in (("the front brake's stop", front), ("the rear brake's stop", rear)):
+            if abs(distance - stated) > RIDE_ROOM * stated:
+                problems.append(name)
+        if problems:
+            raise SystemExit("the ridden bike is not the bike Vehicle.py states: " + ", ".join(problems))
 
     # --- Checks ----------------------------------------------------------------------------------------------------------
 
@@ -779,14 +864,38 @@ class Moto:
         self.finish(since, save_main=owns(PARTS[part][1], "Assets/Scenes/Main.sscene"))
 
     def finish(self, since, save_main=True):
-        """Saves the main scene (unless told not to), checks its surfaces, makes the tests part, plays the tour and checks
-        the log."""
+        """Saves the main scene (unless told not to), checks its surfaces, makes the tests part, plays the tour, rides the
+        bike and checks the log."""
         if save_main:
             self.call("scene_save")
         self.check_surfaces()
         self.make_tests()
         self.check_tour()
+        if "Bike" in self.root_ids():
+            self.check_ride()
         self.check_log(since)
+
+
+# Each part, one line, in the order a rebuild makes them: the root entities of the main scene it makes, the files of the
+# project it may write, and what makes it (given the session). The tests part makes no entity of the main scene: its own
+# scenes are made from it after every other part (Checks.py); nor does the input part, whose files are the actions and the
+# project file that names them, and which comes before the parts whose graphs name the actions. The camera part writes
+# every graph again.
+PARTS = {
+    "circuit": (("Circuit",), ("Assets/Meshes/*.gltf", "Assets/Textures/*.png", "Assets/Environments/*.hdr", "Assets/Materials/*.smat", "Assets/Surfaces/*.sphysmat", MAIN, REGISTRY), Moto.make_circuit),
+    "lighting": (("Sun", "Sky"), (MAIN,), Moto.make_lighting),
+    "camera": (("Main Camera",), CAMERA_FILES, Moto.make_camera),
+    "props": (("Props",), ("Assets/Meshes/Props/*.gltf", "Assets/Textures/Props/*.png", "Assets/Materials/Props/*.smat", MAIN, REGISTRY), Moto.make_props),
+    "input": ((), ("Assets/Input/*.sinput", "Moto.sproj", REGISTRY), Moto.make_input),
+    "bike": (("Bike",), ("Assets/Meshes/Bike/*.gltf", "Assets/Textures/Bike/*.png", "Assets/Materials/Bike/*.smat", "Assets/Vehicles/*.svehicle", "Assets/Vehicles/*.scurve", MAIN, graph_file(Vehicle.BIKE), REGISTRY), Moto.make_bike),
+    "sound": ((Sound.DIRECTOR, Sound.ECHO), ("Assets/Audio/*.wav", "Assets/Audio/Engine/*.wav", "Assets/Audio/*.smixer", "Moto.sproj", MAIN, graph_file(Sound.AUDIO_DIRECTOR), REGISTRY), Moto.make_sound),
+    "ghost": ((Ghost.ENTITY,), (MAIN, graph_file(Ghost.GHOST), graph_file(EngineSound.ENGINE_SOUND), "Assets/Curves/*.scurve", REGISTRY), Moto.make_ghost),
+    "trackside": ((Trackside.ROOT,), (MAIN, graph_file(Trackside.CAMERA_DIRECTOR), REGISTRY), Moto.make_trackside),
+    "tests": ((), Checks.FILES, None),
+}
+ORDER = tuple(PARTS)
+# The parts that make entities of the main scene, or the files it needs (the input part's actions, which the graphs name).
+SCENE_PARTS = tuple(part for part in ORDER if part != "tests")
 
 
 def main():

@@ -1,0 +1,75 @@
+{
+	"Strada": {
+		"Version": 1,
+		"Type": "Curve"
+	},
+	"Curve": {
+		"PreExtrapolation": "Hold",
+		"PostExtrapolation": "Hold",
+		"Keys": [
+			{
+				"Time": 1700.0,
+				"Value": 0.44999998807907104,
+				"Interpolation": "Linear",
+				"HasIn": false,
+				"In": 0.0,
+				"HasOut": false,
+				"Out": 0.0
+			},
+			{
+				"Time": 4000.0,
+				"Value": 0.6200000047683716,
+				"Interpolation": "Linear",
+				"HasIn": false,
+				"In": 0.0,
+				"HasOut": false,
+				"Out": 0.0
+			},
+			{
+				"Time": 7000.0,
+				"Value": 0.8199999928474426,
+				"Interpolation": "Linear",
+				"HasIn": false,
+				"In": 0.0,
+				"HasOut": false,
+				"Out": 0.0
+			},
+			{
+				"Time": 10500.0,
+				"Value": 1.0,
+				"Interpolation": "Linear",
+				"HasIn": false,
+				"In": 0.0,
+				"HasOut": false,
+				"Out": 0.0
+			},
+			{
+				"Time": 12500.0,
+				"Value": 0.9800000190734863,
+				"Interpolation": "Linear",
+				"HasIn": false,
+				"In": 0.0,
+				"HasOut": false,
+				"Out": 0.0
+			},
+			{
+				"Time": 14000.0,
+				"Value": 0.9169999957084656,
+				"Interpolation": "Linear",
+				"HasIn": false,
+				"In": 0.0,
+				"HasOut": false,
+				"Out": 0.0
+			},
+			{
+				"Time": 16000.0,
+				"Value": 0.7799999713897705,
+				"Interpolation": "Linear",
+				"HasIn": false,
+				"In": 0.0,
+				"HasOut": false,
+				"Out": 0.0
+			}
+		]
+	}
+}

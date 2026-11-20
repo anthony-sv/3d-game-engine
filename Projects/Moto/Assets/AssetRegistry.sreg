@@ -460,6 +460,11 @@
 			"Path": "Scripts/AudioDirector.sgraph"
 		},
 		{
+			"Handle": "9964485574798592623",
+			"Type": "VisualScript",
+			"Path": "Scripts/Bike.sgraph"
+		},
+		{
 			"Handle": "6519852673991122007",
 			"Type": "VisualScript",
 			"Path": "Scripts/CameraDirector.sgraph"
@@ -568,6 +573,16 @@
 			"Handle": "11890263462930504271",
 			"Type": "Texture",
 			"Path": "Textures/TimingLines.png"
+		},
+		{
+			"Handle": "1015757436819593749",
+			"Type": "Curve",
+			"Path": "Vehicles/EngineTorque.scurve"
+		},
+		{
+			"Handle": "6686585092897306527",
+			"Type": "Vehicle",
+			"Path": "Vehicles/Moto.svehicle"
 		}
 	]
 }

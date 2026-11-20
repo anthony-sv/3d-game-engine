@@ -6468,10 +6468,13 @@ that each platform's names are tested on every platform:
   snapshot over `Seconds` (0.5), or back to the mixer's own values, and keeps the read-out `Paused`; with `StartPaused`
   on it sends itself `TogglePause` when the scene starts (a game that opens paused; the sound test below starts muffled
   that way); nothing else pauses yet. **The input actions** (`Tools/Controls.py`, the `input` part; `Input/Moto.sinput`,
-  named by `Moto.sproj`): `Throttle` and `Brake` (axes: W and S, the right and the left trigger), `Lean` (A and D, the
-  left stick's X), `ShiftUp` and `ShiftDown` (E and Q, the bumpers), `Pause` (Escape, Start), `NextCamera` (C, Y) and
-  `ResetCamera` (R, Back), each on the keyboard and any gamepad; the directors use the last three, and the riding
-  actions wait for the ridden bike. **The test scene** (`Scenes/Tests.sscene`, the main scene without its props, which
+  named by `Moto.sproj`): `Throttle` (an axis: W, the right trigger), `FrontBrake` and `RearBrake` (axes: S and the left
+  trigger, Space and the gamepad's X), `Lean` (A and D, the left stick's X), `ShiftUp` and `ShiftDown` (E and Q, the
+  bumpers), `Pause` (Escape, Start), `NextCamera` (C, Y) and `ResetCamera` (R, Back), each on the keyboard and any gamepad
+  and no control bound twice, in a group per graph that reads them (`Controls.py`'s `GROUPS`, one line each); the directors
+  use the last three, the bike's riding graph the others. A player's profile that still names `Brake` (from before the two
+  brakes) loses that entry, with one log line, as the actions load (§7.4, "Rebinding"). **The test scene**
+  (`Scenes/Tests.sscene`, the main scene without its props, which
   stand clear of all it checks, with a crate over the road, two blocks sent sliding with the scene, the `Waiting Tour`,
   the ghost set out 30 s into its lap and the `Tests` entity) holds 24 checks, all graphs (`Tests.sgraph`, a latent
   function per check called in order from a Sequence, reporting through the `Checks` library): rays down at points of

@@ -1,0 +1,697 @@
+{
+	"Strada": {
+		"Version": 3,
+		"Type": "VisualScript"
+	},
+	"VisualScript": {
+		"Description": "The bike's riding graph: at each fixed step it gives the vehicle its driver's throttle, brakes and lean, and it shifts when its driver asks. The only writer of the bike's inputs and shifts.",
+		"Variables": [
+			{
+				"ID": 1,
+				"Name": "Driver",
+				"Type": "int",
+				"Value": 0,
+				"Public": true,
+				"Tooltip": "Who rides the bike: 0 the player (the actions), 1 the autopilot, 2 a test (both write Throttle, FrontBrake, RearBrake and Lean, and send ShiftUp and ShiftDown)",
+				"Range": [
+					0.0,
+					2.0
+				]
+			},
+			{
+				"ID": 2,
+				"Name": "Throttle",
+				"Type": "float",
+				"Value": 0.0,
+				"Public": true,
+				"Tooltip": "The throttle the autopilot or a test asks for, 0 to 1 (read while Driver is not 0)",
+				"Range": [
+					0.0,
+					1.0
+				]
+			},
+			{
+				"ID": 3,
+				"Name": "FrontBrake",
+				"Type": "float",
+				"Value": 0.0,
+				"Public": true,
+				"Tooltip": "The front brake the autopilot or a test asks for, 0 to 1 (read while Driver is not 0)",
+				"Range": [
+					0.0,
+					1.0
+				]
+			},
+			{
+				"ID": 4,
+				"Name": "RearBrake",
+				"Type": "float",
+				"Value": 0.0,
+				"Public": true,
+				"Tooltip": "The rear brake the autopilot or a test asks for, 0 to 1 (read while Driver is not 0)",
+				"Range": [
+					0.0,
+					1.0
+				]
+			},
+			{
+				"ID": 5,
+				"Name": "Lean",
+				"Type": "float",
+				"Value": 0.0,
+				"Public": true,
+				"Tooltip": "The lean the autopilot or a test asks for, -1 left to 1 right (read while Driver is not 0)",
+				"Range": [
+					-1.0,
+					1.0
+				]
+			}
+		],
+		"Functions": [],
+		"Graph": {
+			"Nodes": [
+				{
+					"ID": 8,
+					"Type": "Event.FixedUpdate",
+					"Position": [
+						0.0,
+						432.0
+					]
+				},
+				{
+					"ID": 9,
+					"Type": "Variable.Get",
+					"Position": [
+						0.0,
+						560.0
+					],
+					"Settings": {
+						"Variable": 1
+					}
+				},
+				{
+					"ID": 10,
+					"Type": "Expression",
+					"Position": [
+						192.0,
+						432.0
+					],
+					"Settings": {
+						"Formula": "driver == 0"
+					}
+				},
+				{
+					"ID": 11,
+					"Type": "Flow.Branch",
+					"Position": [
+						400.0,
+						432.0
+					],
+					"Comment": "0: the player rides on the actions"
+				},
+				{
+					"ID": 12,
+					"Type": "Flow.Sequence",
+					"Position": [
+						624.0,
+						944.0
+					],
+					"Settings": {
+						"Count": 3
+					}
+				},
+				{
+					"ID": 13,
+					"Type": "Call:Strada.Input.GetAction(string)",
+					"Position": [
+						624.0,
+						432.0
+					],
+					"Inputs": {
+						"Action": "Throttle"
+					}
+				},
+				{
+					"ID": 14,
+					"Type": "Call:Strada.Input.GetAction(string)",
+					"Position": [
+						624.0,
+						560.0
+					],
+					"Inputs": {
+						"Action": "FrontBrake"
+					}
+				},
+				{
+					"ID": 15,
+					"Type": "Call:Strada.Input.GetAction(string)",
+					"Position": [
+						624.0,
+						688.0
+					],
+					"Inputs": {
+						"Action": "RearBrake"
+					}
+				},
+				{
+					"ID": 16,
+					"Type": "Call:Strada.Input.GetAction(string)",
+					"Position": [
+						624.0,
+						816.0
+					],
+					"Inputs": {
+						"Action": "Lean"
+					}
+				},
+				{
+					"ID": 17,
+					"Type": "Call:Strada.VehicleComponent.SetDriverInput(float,float,float,float)",
+					"Position": [
+						928.0,
+						432.0
+					]
+				},
+				{
+					"ID": 18,
+					"Type": "Call:Strada.Input.IsActionPressed(string)",
+					"Position": [
+						624.0,
+						1104.0
+					],
+					"Inputs": {
+						"Action": "ShiftUp"
+					}
+				},
+				{
+					"ID": 19,
+					"Type": "Flow.Branch",
+					"Position": [
+						928.0,
+						672.0
+					],
+					"Comment": "Each press is seen by one step"
+				},
+				{
+					"ID": 20,
+					"Type": "Call:Strada.Input.IsActionPressed(string)",
+					"Position": [
+						624.0,
+						1232.0
+					],
+					"Inputs": {
+						"Action": "ShiftDown"
+					}
+				},
+				{
+					"ID": 21,
+					"Type": "Flow.Branch",
+					"Position": [
+						928.0,
+						800.0
+					]
+				},
+				{
+					"ID": 22,
+					"Type": "Variable.Get",
+					"Position": [
+						400.0,
+						560.0
+					],
+					"Settings": {
+						"Variable": 2
+					}
+				},
+				{
+					"ID": 23,
+					"Type": "Variable.Get",
+					"Position": [
+						400.0,
+						624.0
+					],
+					"Settings": {
+						"Variable": 3
+					}
+				},
+				{
+					"ID": 24,
+					"Type": "Variable.Get",
+					"Position": [
+						400.0,
+						688.0
+					],
+					"Settings": {
+						"Variable": 4
+					}
+				},
+				{
+					"ID": 25,
+					"Type": "Variable.Get",
+					"Position": [
+						400.0,
+						752.0
+					],
+					"Settings": {
+						"Variable": 5
+					}
+				},
+				{
+					"ID": 26,
+					"Type": "Call:Strada.VehicleComponent.SetDriverInput(float,float,float,float)",
+					"Position": [
+						624.0,
+						1360.0
+					],
+					"Comment": "The autopilot's or a test's values"
+				},
+				{
+					"ID": 27,
+					"Type": "Call:Strada.VehicleComponent.ShiftUp()",
+					"Position": [
+						1152.0,
+						432.0
+					]
+				},
+				{
+					"ID": 28,
+					"Type": "Call:Strada.VehicleComponent.ShiftDown()",
+					"Position": [
+						1152.0,
+						576.0
+					]
+				},
+				{
+					"ID": 30,
+					"Type": "Event.Custom",
+					"Position": [
+						0.0,
+						1712.0
+					],
+					"Settings": {
+						"Name": "ShiftUp",
+						"Parameters": []
+					}
+				},
+				{
+					"ID": 31,
+					"Type": "Variable.Get",
+					"Position": [
+						0.0,
+						1824.0
+					],
+					"Settings": {
+						"Variable": 1
+					}
+				},
+				{
+					"ID": 32,
+					"Type": "Expression",
+					"Position": [
+						192.0,
+						1712.0
+					],
+					"Settings": {
+						"Formula": "driver != 0"
+					}
+				},
+				{
+					"ID": 33,
+					"Type": "Flow.Branch",
+					"Position": [
+						400.0,
+						1712.0
+					],
+					"Comment": "The player shifts on the actions"
+				},
+				{
+					"ID": 34,
+					"Type": "Call:Strada.VehicleComponent.ShiftUp()",
+					"Position": [
+						624.0,
+						1712.0
+					]
+				},
+				{
+					"ID": 35,
+					"Type": "Event.Custom",
+					"Position": [
+						0.0,
+						1888.0
+					],
+					"Settings": {
+						"Name": "ShiftDown",
+						"Parameters": []
+					}
+				},
+				{
+					"ID": 36,
+					"Type": "Expression",
+					"Position": [
+						192.0,
+						1840.0
+					],
+					"Settings": {
+						"Formula": "driver != 0"
+					}
+				},
+				{
+					"ID": 37,
+					"Type": "Flow.Branch",
+					"Position": [
+						400.0,
+						1840.0
+					],
+					"Comment": "The player shifts on the actions"
+				},
+				{
+					"ID": 38,
+					"Type": "Call:Strada.VehicleComponent.ShiftDown()",
+					"Position": [
+						624.0,
+						1856.0
+					]
+				}
+			],
+			"Links": [
+				{
+					"From": [
+						9,
+						"Value"
+					],
+					"To": [
+						10,
+						"driver"
+					]
+				},
+				{
+					"From": [
+						10,
+						"Result"
+					],
+					"To": [
+						11,
+						"Condition"
+					]
+				},
+				{
+					"From": [
+						13,
+						"Result"
+					],
+					"To": [
+						17,
+						"Throttle"
+					]
+				},
+				{
+					"From": [
+						14,
+						"Result"
+					],
+					"To": [
+						17,
+						"FrontBrake"
+					]
+				},
+				{
+					"From": [
+						15,
+						"Result"
+					],
+					"To": [
+						17,
+						"RearBrake"
+					]
+				},
+				{
+					"From": [
+						16,
+						"Result"
+					],
+					"To": [
+						17,
+						"Lean"
+					]
+				},
+				{
+					"From": [
+						18,
+						"Result"
+					],
+					"To": [
+						19,
+						"Condition"
+					]
+				},
+				{
+					"From": [
+						20,
+						"Result"
+					],
+					"To": [
+						21,
+						"Condition"
+					]
+				},
+				{
+					"From": [
+						22,
+						"Value"
+					],
+					"To": [
+						26,
+						"Throttle"
+					]
+				},
+				{
+					"From": [
+						23,
+						"Value"
+					],
+					"To": [
+						26,
+						"FrontBrake"
+					]
+				},
+				{
+					"From": [
+						24,
+						"Value"
+					],
+					"To": [
+						26,
+						"RearBrake"
+					]
+				},
+				{
+					"From": [
+						25,
+						"Value"
+					],
+					"To": [
+						26,
+						"Lean"
+					]
+				},
+				{
+					"From": [
+						8,
+						"Then"
+					],
+					"To": [
+						11,
+						"Execute"
+					]
+				},
+				{
+					"From": [
+						11,
+						"True"
+					],
+					"To": [
+						12,
+						"Execute"
+					]
+				},
+				{
+					"From": [
+						12,
+						"Then0"
+					],
+					"To": [
+						17,
+						"Execute"
+					]
+				},
+				{
+					"From": [
+						12,
+						"Then1"
+					],
+					"To": [
+						19,
+						"Execute"
+					]
+				},
+				{
+					"From": [
+						19,
+						"True"
+					],
+					"To": [
+						27,
+						"Execute"
+					]
+				},
+				{
+					"From": [
+						12,
+						"Then2"
+					],
+					"To": [
+						21,
+						"Execute"
+					]
+				},
+				{
+					"From": [
+						21,
+						"True"
+					],
+					"To": [
+						28,
+						"Execute"
+					]
+				},
+				{
+					"From": [
+						11,
+						"False"
+					],
+					"To": [
+						26,
+						"Execute"
+					]
+				},
+				{
+					"From": [
+						31,
+						"Value"
+					],
+					"To": [
+						32,
+						"driver"
+					]
+				},
+				{
+					"From": [
+						32,
+						"Result"
+					],
+					"To": [
+						33,
+						"Condition"
+					]
+				},
+				{
+					"From": [
+						30,
+						"Then"
+					],
+					"To": [
+						33,
+						"Execute"
+					]
+				},
+				{
+					"From": [
+						33,
+						"True"
+					],
+					"To": [
+						34,
+						"Execute"
+					]
+				},
+				{
+					"From": [
+						31,
+						"Value"
+					],
+					"To": [
+						36,
+						"driver"
+					]
+				},
+				{
+					"From": [
+						36,
+						"Result"
+					],
+					"To": [
+						37,
+						"Condition"
+					]
+				},
+				{
+					"From": [
+						35,
+						"Then"
+					],
+					"To": [
+						37,
+						"Execute"
+					]
+				},
+				{
+					"From": [
+						37,
+						"True"
+					],
+					"To": [
+						38,
+						"Execute"
+					]
+				}
+			],
+			"Comments": [
+				{
+					"ID": 29,
+					"Text": "Ride: each fixed step, the driver's throttle, brakes and lean",
+					"Position": [
+						-32.0,
+						360.0
+					],
+					"Size": [
+						1347.13623046875,
+						1234.0
+					],
+					"Color": [
+						0.20000000298023224,
+						0.41999998688697815,
+						0.949999988079071,
+						0.2199999988079071
+					]
+				},
+				{
+					"ID": 39,
+					"Text": "Shifts: the autopilot or a test sends ShiftUp and ShiftDown",
+					"Position": [
+						-32.0,
+						1640.0
+					],
+					"Size": [
+						819.13623046875,
+						354.0
+					],
+					"Color": [
+						0.6200000047683716,
+						0.30000001192092896,
+						0.949999988079071,
+						0.2199999988079071
+					]
+				}
+			]
+		}
+	}
+}
