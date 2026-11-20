@@ -165,8 +165,9 @@ TEST_CASE("Runtime: the Prism Break sample, made of visual scripts alone, plays 
 
 TEST_CASE("Runtime: the Moto sample, made of graphs alone, flies its camera tour and passes its tests")
 {
-	// Seven graphs and no C#: the main camera's tour is a timeline (Scripts/Tour.sgraph), so is the ghost bike's ride round
-	// the racing line (Scripts/Ghost.sgraph); its engine's sound, the camera director and the audio director are graphs, and
+	// Eight graphs and no C#: the main camera's tour is a timeline (Scripts/Tour.sgraph), so is the ghost bike's ride round
+	// the racing line (Scripts/Ghost.sgraph); its engine's sound, the camera director, the audio director and the grid bike's
+	// riding graph (Scripts/Bike.sgraph, the bike a vehicle that stands on the grid while nobody rides it) are graphs, and
 	// the test scene's 24 checks of the circuit (its surfaces and their physics materials, a crate at rest, two blocks
 	// sliding on asphalt and on gravel), of the tour, of the ghost and its engine's sound, of the cuts and of the pause are
 	// graphs too.

@@ -33,8 +33,10 @@ step it reads the driver Driver names and calls SetDriverInput, and it shifts on
 ShiftUp and ShiftDown events. Driver 0 is the player: the actions Throttle, FrontBrake, RearBrake and Lean, read at each
 fixed step (each press of ShiftUp and ShiftDown is seen by exactly one step). Driver 1 is the autopilot and 2 a test: they
 write the graph's public Throttle, FrontBrake, RearBrake and Lean, which the step reads, and send it ShiftUp and ShiftDown,
-each one gear. What a writer sets in its own Event.FixedUpdate before this graph's reaches the same step; after it, the
-next one (the order of the scene's graphs is the same in every run, so a ride is the same in every run).
+each one gear; the actions' presses do nothing then, as the events do while Driver is 0. A value a writer sets in its own
+Event.FixedUpdate before this graph's runs reaches the same step, one set after it the next; which runs first is the
+scene's order of its graphs, the same in every run (a sender made after the bike in the test scene ran first: its
+throttle and its ShiftUp reached the step it sent them in). A sent ShiftUp moves one gear at that step.
 
     python Projects/Moto/Tools/Vehicle.py      (prints the figures check() asserts)
 """
@@ -100,9 +102,10 @@ FRONT_INERTIA = 0.6
 REAR_INERTIA = 1.0
 WHEEL_DAMPING = 0.02
 # The steering lock (degrees) and the brakes' torques at full input (N m): the front lever brakes the front wheel, the
-# rear pedal the rear one. Applied all at once, each asks more of its tyre than the tyre's load at rest holds, so the
-# wheel locks and the tyre slides at SLIDING_FRICTION, its load growing (the front) or shrinking (the rear) as the bike
-# pitches: the front stops the bike in about half the rear's distance.
+# rear pedal the rear one. Applied all at once, the front's asks more of its tyre than the tyre's load at rest holds, so
+# the front wheel locks and its tyre slides at SLIDING_FRICTION, its load growing as the bike pitches forward (locks());
+# the rear's stays under that and slows the bike by its torque's force (in play the lightened rear wheel locks only as the
+# bike slows). The front stops the bike in about half the rear's distance.
 STEER_LOCK = 28.0
 FRONT_BRAKE = 750.0
 REAR_BRAKE = 300.0
