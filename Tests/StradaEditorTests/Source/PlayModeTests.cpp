@@ -58,6 +58,7 @@
 #include <cstdint>
 #include <filesystem>
 #include <limits>
+#include <memory>
 #include <optional>
 #include <span>
 #include <string>
