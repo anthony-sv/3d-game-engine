@@ -577,11 +577,13 @@ internal static unsafe class InternalCalls
 
 	// Save slots and the player's settings (main thread). Text the engine answers is its own, valid until the next of these
 	// calls. SaveSlot_Read answers the slot's document (its status a SaveSlotStatus) or, of status -1, why the name is
-	// refused; SaveSlot_Write takes the values as a script field map; SaveSlot_GetNames the names joined by '\n'.
+	// refused; SaveSlot_Write takes the values as a script field map; SaveSlot_GetNames the names joined by '\n';
+	// SaveSlot_ReleaseText frees the text answered last, once a caller of a large one (a slot, a settings value) copied it.
 	internal static delegate* unmanaged<byte*, int, int*, int*, byte*> SaveSlot_Read;
 	internal static delegate* unmanaged<byte*, int, byte*, int, byte> SaveSlot_Write;
 	internal static delegate* unmanaged<byte*, int, byte> SaveSlot_Delete;
 	internal static delegate* unmanaged<int*, byte*> SaveSlot_GetNames;
+	internal static delegate* unmanaged<void> SaveSlot_ReleaseText;
 	internal static delegate* unmanaged<int> Settings_GetQuality;
 	internal static delegate* unmanaged<int, void> Settings_SetQuality;
 	internal static delegate* unmanaged<NativePlayerWindow*, void> Settings_GetWindow;

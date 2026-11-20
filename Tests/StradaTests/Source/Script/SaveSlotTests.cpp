@@ -148,6 +148,8 @@ TEST_CASE("SaveSlot: a slot of every value type and their lists round trips, wri
 	CHECK(read.Warnings.empty());
 	CHECK(read.Data == slot);
 	CHECK(WriteText(read.Data) == text);
+	// What scripts are given of a slot read is the same text.
+	CHECK(WriteReadSaveSlotText(read.Data) == text);
 	CHECK(ReadSaveSlotVersion(text) == 1);
 
 	// An empty slot is a document too.

@@ -263,8 +263,16 @@ public static unsafe class Settings
 		{
 			return null;
 		}
-		Utf8JsonReader reader = new(new ReadOnlySpan<byte>(text, length));
-		using JsonDocument document = JsonDocument.ParseValue(ref reader);
-		return SavedValueCodec.Read(document.RootElement, out _);
+		// The engine holds the text until it is read here: a value may be up to the settings' size.
+		try
+		{
+			Utf8JsonReader reader = new(new ReadOnlySpan<byte>(text, length));
+			using JsonDocument document = JsonDocument.ParseValue(ref reader);
+			return SavedValueCodec.Read(document.RootElement, out _);
+		}
+		finally
+		{
+			InternalCalls.SaveSlot_ReleaseText();
+		}
 	}
 }

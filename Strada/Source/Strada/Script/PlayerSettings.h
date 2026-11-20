@@ -72,7 +72,8 @@
 // Settings_SetWindow(NativePlayerWindow const*) (mode, width, height and vsync in one blittable struct, so a size and a
 // mode change together), Settings_GetMasterVolume/SetMasterVolume (float), Settings_GetBusVolume/SetBusVolume and
 // Settings_IsBusMuted/SetBusMuted (a bus name as char const* and int32_t length), Settings_GetValue(char const* name,
-// int32_t length, int32_t* textLength) -> char const* (one value's { "Type", "Value" } JSON, null when none),
+// int32_t length, int32_t* textLength) -> char const* (one value's { "Type", "Value" } JSON, null when none; the caller
+// frees it once copied, SaveSlot_ReleaseText),
 // Settings_SetValue(char const* values, int32_t length, int32_t* errorLength) -> char const* (a one-member script field
 // map; null when the value is kept, else why it is refused, which the managed side throws with), Settings_RemoveValue(name,
 // length) -> uint8_t and Settings_Save() -> uint8_t. Settings_SetWindow calls PlayerSettingsStore::SetWindow, which asks the

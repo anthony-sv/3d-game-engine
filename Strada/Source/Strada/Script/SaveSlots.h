@@ -63,9 +63,10 @@
 // runtime (stored forms, ScriptFieldCodec), so Get and Set cross no boundary; Open and Save cross it once with the values' JSON (the script
 // field map form, §7.3). Two objects opened with one name are independent copies, and the last Save wins. The bindings, all main thread:
 //   char const* SaveSlot_Read(char const* name, int32_t length, int32_t* status, int32_t* textLength)
-//     the slot's document (WriteSaveSlotText) in engine-owned storage valid until the next binding of
-//     ScriptBindingsSaves.cpp (the caller copies it at once); *status a SaveSlotStatus, or -1 for a name MakeFileStem
-//     refuses, the text then saying why (the managed side throws with it)
+//     the slot's document (WriteReadSaveSlotText) in engine-owned storage valid until the next binding of
+//     ScriptBindingsSaves.cpp (the caller copies it at once, then releases it); *status a SaveSlotStatus, or -1 for a name
+//     MakeFileStem refuses, the text then saying why (the managed side throws with it)
+//   void SaveSlot_ReleaseText()                           frees that storage (a slot's text may be MiBs)
 //   uint8_t SaveSlot_Write(char const* name, int32_t length, char const* values, int32_t valuesLength)
 //   uint8_t SaveSlot_Delete(char const* name, int32_t length)
 //   char const* SaveSlot_GetNames(int32_t* textLength)     the names joined by '\n'
@@ -192,6 +193,11 @@ namespace Strada
 	// written without building it (JsonTextWriter). Refuses a slot ValidateSaveSlot refuses and text longer than
 	// MaxSaveSlotBytes, stopping at the value that passes it. Any thread.
 	[[nodiscard]] Result<std::string> WriteSaveSlotText(SaveSlotData const& slot);
+	// The text WriteSaveSlotText writes of a slot a reader gave (ReadSaveSlotText, SaveSlotStore::Read), for the scripting
+	// boundary (SaveSlot_Read): neither validated (the reader did) nor bounded, since MaxSaveSlotBytes bounds the file, and
+	// a file that reads may give a longer text (written compact, or its numbers short), which scripts read whole. Any
+	// thread.
+	[[nodiscard]] std::string WriteReadSaveSlotText(SaveSlotData const& slot);
 
 	// The slots of the running game in <game data>/Saves. Stateless, so any thread may call it: two writes of one slot at
 	// once leave one of them whole. Each call reads or writes the disk; the game's scripts reach it through the SaveSlot

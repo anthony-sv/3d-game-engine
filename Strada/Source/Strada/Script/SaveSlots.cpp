@@ -439,6 +439,65 @@ namespace Strada
 			return {};
 		}
 
+		// A slot's text as DumpJson(WriteSaveSlot(slot)) writes it, without building the document (a slot's values are most of
+		// the cost of a save); refused when it passes maxBytes, stopping at the value that passes it.
+		Result<std::string> WriteSlotText(SaveSlotData const& slot, uint64_t maxBytes)
+		{
+			auto const tooLarge = [maxBytes](size_t bytes)
+			{
+				return MakeError("the slot's text has {} bytes, more than {}", bytes, maxBytes);
+			};
+			JsonTextWriter writer({});
+			writer.BeginObject();
+			writer.Key("Strada");
+			writer.BeginObject();
+			writer.Key("Version");
+			writer.Integer(static_cast<int64_t>(SaveSlotFormat.Version));
+			writer.Key("Type");
+			writer.String(SaveSlotFormat.Type);
+			writer.EndObject();
+			writer.Key(SaveSlotFormat.Type);
+			writer.BeginObject();
+			writer.Key("Values");
+			writer.BeginObject();
+			for (auto const& [name, value] : slot.Values)
+			{
+				writer.Key(name);
+				writer.BeginObject();
+				writer.Key("Type");
+				writer.String(ScriptFieldTypeToString(value.GetType()));
+				writer.Key("Value");
+				if (value.IsList())
+				{
+					writer.BeginArray();
+					for (ScriptFieldValue const& element : value.GetElements())
+					{
+						WriteElement(writer, element);
+					}
+					writer.EndArray();
+				}
+				else
+				{
+					WriteElement(writer, value);
+				}
+				writer.EndObject();
+				if (writer.GetSize() > maxBytes)
+				{
+					return tooLarge(writer.GetSize());
+				}
+			}
+			writer.EndObject();
+			writer.EndObject();
+			writer.EndObject();
+			std::string text = writer.TakeText();
+			text += '\n';
+			if (text.size() > maxBytes)
+			{
+				return tooLarge(text.size());
+			}
+			return text;
+		}
+
 		Error MakeUnavailableError()
 		{
 			return Error{"no game runs (no game data folder): nothing is written"};
@@ -594,61 +653,14 @@ namespace Strada
 		{
 			return Error{valid.GetError()};
 		}
-		// Written as DumpJson(WriteSaveSlot(slot)) writes it, without building the document: a slot's values are most of
-		// the cost of a save.
-		auto const tooLarge = [](size_t bytes)
-		{
-			return MakeError("the slot's text has {} bytes, more than {}", bytes, MaxSaveSlotBytes);
-		};
-		JsonTextWriter writer({});
-		writer.BeginObject();
-		writer.Key("Strada");
-		writer.BeginObject();
-		writer.Key("Version");
-		writer.Integer(static_cast<int64_t>(SaveSlotFormat.Version));
-		writer.Key("Type");
-		writer.String(SaveSlotFormat.Type);
-		writer.EndObject();
-		writer.Key(SaveSlotFormat.Type);
-		writer.BeginObject();
-		writer.Key("Values");
-		writer.BeginObject();
-		for (auto const& [name, value] : slot.Values)
-		{
-			writer.Key(name);
-			writer.BeginObject();
-			writer.Key("Type");
-			writer.String(ScriptFieldTypeToString(value.GetType()));
-			writer.Key("Value");
-			if (value.IsList())
-			{
-				writer.BeginArray();
-				for (ScriptFieldValue const& element : value.GetElements())
-				{
-					WriteElement(writer, element);
-				}
-				writer.EndArray();
-			}
-			else
-			{
-				WriteElement(writer, value);
-			}
-			writer.EndObject();
-			if (writer.GetSize() > MaxSaveSlotBytes)
-			{
-				return tooLarge(writer.GetSize());
-			}
-		}
-		writer.EndObject();
-		writer.EndObject();
-		writer.EndObject();
-		std::string text = writer.TakeText();
-		text += '\n';
-		if (text.size() > MaxSaveSlotBytes)
-		{
-			return tooLarge(text.size());
-		}
-		return text;
+		return WriteSlotText(slot, MaxSaveSlotBytes);
+	}
+
+	std::string WriteReadSaveSlotText(SaveSlotData const& slot)
+	{
+		// Without a bound the writer refuses nothing.
+		Result<std::string> text = WriteSlotText(slot, std::numeric_limits<uint64_t>::max());
+		return text ? text.TakeValue() : std::string();
 	}
 
 	Result<std::string> SaveSlotStore::MakeFileStem(std::string_view name)

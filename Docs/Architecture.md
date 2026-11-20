@@ -3982,7 +3982,10 @@ editor's Simulate mode runs neither kind.
   16 MiB is refused then, whole), and `Delete` removes the file; both answer false, logged, for a newer slot or
   without a game data folder, and `Save` for a write the store refuses. The object keeps its values in the managed
   runtime, so `Get` and `Set` cross no boundary; `Open` and `Save` cross it once, with the values in the script field
-  JSON (§7.3; bindings `SaveSlot_*` in `ScriptBindingsSaves.cpp`). Two objects opened with one name are copies, and the
+  JSON (§7.3; bindings `SaveSlot_*` in `ScriptBindingsSaves.cpp`). `Open` is given the slot's text as the engine writes
+  it (`WriteReadSaveSlotText`: unbounded, since a file that reads may write longer than the file), which it frees once
+  copied (`SaveSlot_ReleaseText`), and the reader the engine's alone: the managed side never reads the file's own text.
+  Two objects opened with one name are copies, and the
   last `Save` wins. `Get` and `Set` are unconstrained generic methods: one node each, typed by their links or their
   `TypeArguments`.
 - `Settings` (static, §13.1 "The player's settings"): `Quality` (`QualityPreset`: `Low`, `Medium`, `High`),

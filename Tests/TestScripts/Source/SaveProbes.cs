@@ -15,6 +15,9 @@ namespace Strada.Tests;
 // SaveSlotBenchmarkTests.cpp (a lap's ghost at 10 samples a second and BenchmarkLaps laps' positions) set on an object,
 // saved, opened again and read back, each round; it names its entity "Benchmark: set <median> <95th percentile> ms; save
 // ...; open ...; get ...; round trip ...".
+//
+// With ExpectedLists above 0 it opens slot Slot, which the test wrote, and checks that it holds the values List0, List1, ...
+// of 4,096 Vector4 each.
 public sealed class SaveSlotProbe : Script
 {
 	public string Slot = "Probe";
@@ -22,6 +25,7 @@ public sealed class SaveSlotProbe : Script
 	public bool Keep;
 	public int BenchmarkRounds;
 	public int BenchmarkLaps;
+	public int ExpectedLists;
 
 	private readonly List<string> m_Failures = [];
 
@@ -30,6 +34,11 @@ public sealed class SaveSlotProbe : Script
 		if (BenchmarkRounds > 0)
 		{
 			Benchmark();
+			return;
+		}
+		if (ExpectedLists > 0)
+		{
+			ReadLists();
 			return;
 		}
 		SaveSlot slot = SaveSlot.Open(Slot);
@@ -164,6 +173,18 @@ public sealed class SaveSlotProbe : Script
 	}
 
 	private void Report() => Name = m_Failures.Count == 0 ? "SaveSlots:ok" : "SaveSlots:" + m_Failures[0];
+
+	private void ReadLists()
+	{
+		SaveSlot slot = SaveSlot.Open(Slot);
+		Expect(slot.Status, SaveSlotStatus.Present, "Status of the written slot");
+		for (int index = 0; index < ExpectedLists; index++)
+		{
+			Expect(slot.Get(string.Create(CultureInfo.InvariantCulture, $"List{index}"), Array.Empty<Vector4>()).Length, 4096,
+				string.Create(CultureInfo.InvariantCulture, $"List{index}'s length"));
+		}
+		Report();
+	}
 
 	private void Benchmark()
 	{

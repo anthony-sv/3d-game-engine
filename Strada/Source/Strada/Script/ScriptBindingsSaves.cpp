@@ -46,7 +46,8 @@ namespace Strada::ScriptGlue
 		constexpr int32_t RefusedSlotName = -1;
 
 		// The text the latest binding of this file gave a script: engine-owned, valid until the next call of one of them,
-		// copied by the caller at once.
+		// copied by the caller at once. A slot's text may be MiBs, so the caller of one that may be large frees it once copied
+		// (SaveSlot_ReleaseText) rather than leave it held until the next call, which may come in another session.
 		std::string& GetAnswer()
 		{
 			static std::string s_Answer;
@@ -127,15 +128,13 @@ namespace Strada::ScriptGlue
 			{
 				Log::GetScriptLogger().warn("SaveSlot.Open: slot '{}': {}", slot, warning);
 			}
-			Result<std::string> text = WriteSaveSlotText(found.Data);
-			if (!text)
-			{
-				// What the reader read, it validated: a slot that reads always writes.
-				Log::GetScriptLogger().error("SaveSlot.Open: slot '{}' is read as empty: {}", slot, text.GetError());
-				*status = static_cast<int32_t>(SaveSlotStatus::Damaged);
-				return Answer(std::string(), textLength);
-			}
-			return Answer(text.TakeValue(), textLength);
+			// Whole, whatever its length: the file's size bounds the file, and its values may write longer than it.
+			return Answer(WriteReadSaveSlotText(found.Data), textLength);
+		}
+
+		void SaveSlot_ReleaseText()
+		{
+			std::string().swap(GetAnswer());
 		}
 
 		uint8_t SaveSlot_Write(char const* name, int32_t length, char const* values, int32_t valuesLength)
@@ -327,6 +326,7 @@ namespace Strada::ScriptGlue
 		table.Add("SaveSlot_Write", &SaveSlot_Write);
 		table.Add("SaveSlot_Delete", &SaveSlot_Delete);
 		table.Add("SaveSlot_GetNames", &SaveSlot_GetNames);
+		table.Add("SaveSlot_ReleaseText", &SaveSlot_ReleaseText);
 		table.Add("Settings_GetQuality", &Settings_GetQuality);
 		table.Add("Settings_SetQuality", &Settings_SetQuality);
 		table.Add("Settings_GetWindow", &Settings_GetWindow);

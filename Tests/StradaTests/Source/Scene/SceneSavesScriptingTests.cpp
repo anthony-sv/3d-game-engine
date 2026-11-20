@@ -23,6 +23,7 @@
 
 #include <glm/gtc/quaternion.hpp>
 
+#include <cstddef>
 #include <cstdint>
 #include <filesystem>
 #include <memory>
@@ -105,6 +106,53 @@ TEST_CASE("SceneSaves: a script saves a slot of every value type, reads it back 
 	CHECK(values.at("Laps").GetType() == MakeScriptFieldListType(ScriptFieldType::Int32));
 	CHECK_FALSE(values.contains("Gone"));
 	CHECK(SaveSlotStore::GetNames() == std::vector<std::string>{"probe"});
+}
+
+TEST_CASE("SceneSaves: a slot whose file reads reaches a script whole, though the engine writes its values longer than a slot "
+          "file may be")
+{
+	Testing::ScriptEngineScope scripting;
+	Testing::TemporaryDirectory directory;
+	GameDataScope const gameData(directory.GetPath(), GameDataLifetime::Kept);
+
+	// Lists of 4,096 Vector4 written compact with short numbers, as a hand or another tool may write them: under 3 MB on
+	// disk, and past MaxSaveSlotBytes as the engine writes them (indented, each 0.1 as the double the float is). One list's
+	// share of the engine's text is measured, so that the case holds what it says.
+	std::string list = "[";
+	for (size_t index = 0; index < MaxScriptFieldListElements; index++)
+	{
+		list += index == 0 ? "[0.1,0.1,0.1,0.1]" : ",[0.1,0.1,0.1,0.1]";
+	}
+	list += "]";
+	auto const makeText = [&list](size_t lists)
+	{
+		std::string made = R"({"Strada":{"Version":1,"Type":"SaveSlot"},"SaveSlot":{"Values":{)";
+		for (size_t index = 0; index < lists; index++)
+		{
+			made += (index == 0 ? "\"List" : ",\"List") + std::to_string(index) + R"(":{"Type":"Vector4[]","Value":)" + list + "}";
+		}
+		return made + "}}}";
+	};
+	constexpr size_t Lists = 36;
+	SaveSlotRead const one = ReadSaveSlotText(makeText(1));
+	REQUIRE(one.Status == SaveSlotStatus::Present);
+	Result<std::string> const written = WriteSaveSlotText(one.Data);
+	Result<std::string> const empty = WriteSaveSlotText({});
+	REQUIRE((written.IsOk() && empty.IsOk()));
+	REQUIRE(Lists * (written.GetValue().size() - empty.GetValue().size()) > MaxSaveSlotBytes);
+	std::string const text = makeText(Lists);
+	REQUIRE(text.size() < MaxSaveSlotBytes);
+	REQUIRE(FileSystem::WriteTextFile(directory.GetPath() / "Saves" / "large.ssave", text).IsOk());
+
+	Scene scene("Saves");
+	Entity probe = AddProbe(
+		scene, "Strada.Tests.SaveSlotProbe",
+		{{"Slot", ScriptFieldValue::FromString("Large")}, {"ExpectedLists", ScriptFieldValue::FromInt32(static_cast<int32_t>(Lists))}});
+	uint64_t const logStart = Log::GetNextEntryIndex();
+	scene.OnRuntimeStart();
+	CHECK(probe.GetName() == "SaveSlots:ok");
+	scene.OnRuntimeStop();
+	CHECK_FALSE(Testing::WasLogged(logStart, "SaveSlot.Open"));
 }
 
 TEST_CASE("SceneSaves: without a game data folder a script's slot is Unavailable and logged, keeps its values in memory, and its "

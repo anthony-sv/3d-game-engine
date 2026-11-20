@@ -76,12 +76,20 @@ public sealed unsafe class SaveSlot
 		{
 			text = InternalCalls.SaveSlot_Read(bytes, utf8.Length, &status, &length);
 		}
-		if (status < 0)
+		// The engine holds the text until it is read here: it may be MiBs.
+		try
 		{
-			throw new ArgumentException($"SaveSlot.Open: {NativeString.FromUtf8(text, length)}", nameof(name));
+			if (status < 0)
+			{
+				throw new ArgumentException($"SaveSlot.Open: {NativeString.FromUtf8(text, length)}", nameof(name));
+			}
+			ReadOnlySpan<byte> document = length > 0 ? new ReadOnlySpan<byte>(text, length) : ReadOnlySpan<byte>.Empty;
+			return FromDocument(name.ToLowerInvariant(), (SaveSlotStatus)status, document);
 		}
-		ReadOnlySpan<byte> document = length > 0 ? new ReadOnlySpan<byte>(text, length) : ReadOnlySpan<byte>.Empty;
-		return FromDocument(name.ToLowerInvariant(), (SaveSlotStatus)status, document);
+		finally
+		{
+			InternalCalls.SaveSlot_ReleaseText();
+		}
 	}
 
 	/// <summary>The names of the slots the game has saved, in lower case and sorted; empty while no game runs. It reads the disk
