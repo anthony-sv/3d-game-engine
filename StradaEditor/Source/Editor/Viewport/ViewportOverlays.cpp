@@ -4,17 +4,25 @@
 #include "Strada/Asset/MeshSource.h"
 #include "Strada/Math/Math.h"
 #include "Strada/Physics/MeshColliderOutline.h"
+#include "Strada/Physics/PhysicsScene.h"
 #include "Strada/Physics/PhysicsTypes.h"
+#include "Strada/Scene/Components.h"
+#include "Strada/Scene/Entity.h"
 #include "Strada/Scene/PostProcessVolumes.h"
 #include "Strada/Scene/Scene.h"
 #include "Strada/Scene/SceneCamera.h"
 
 #include <glm/gtc/constants.hpp>
+#include <glm/gtc/matrix_transform.hpp>
+#include <glm/gtc/quaternion.hpp>
 
 #include <algorithm>
 #include <array>
 #include <cmath>
+#include <cstddef>
+#include <optional>
 #include <unordered_set>
+#include <vector>
 
 namespace Strada::ViewportOverlays
 {
@@ -23,6 +31,19 @@ namespace Strada::ViewportOverlays
 		void AddLine(std::vector<OverlayLine>& lines, glm::vec3 const& from, glm::vec3 const& to, glm::vec4 const& color, bool depthTest)
 		{
 			lines.push_back({from, to, color, depthTest});
+		}
+
+		// A contact: a cross ContactPointSize across each axis at the point and a line ContactNormalLength long from it along
+		// the normal, over everything (points lie on surfaces).
+		void AddContactMark(std::vector<OverlayLine>& lines, glm::vec3 const& point, glm::vec3 const& normal, glm::vec4 const& color)
+		{
+			for (int axis = 0; axis < 3; axis++)
+			{
+				glm::vec3 offset(0.0f);
+				offset[axis] = ContactPointSize;
+				AddLine(lines, point - offset, point + offset, color, false);
+			}
+			AddLine(lines, point, point + normal * ContactNormalLength, color, false);
 		}
 
 		// Circle (or arc from startAngle to endAngle) spanned by the unit axes a and b around center.
@@ -538,14 +559,93 @@ namespace Strada::ViewportOverlays
 			for (uint32_t index = 0; index < std::min(event.PointCount, MaxContactPoints); index++)
 			{
 				ContactPoint const point = fromSecond ? ReverseContactPoint(event.Points[index]) : event.Points[index];
-				for (int axis = 0; axis < 3; axis++)
-				{
-					glm::vec3 offset(0.0f);
-					offset[axis] = ContactPointSize;
-					AddLine(lines, point.Point - offset, point.Point + offset, color, false);
-				}
-				AddLine(lines, point.Point, point.Point + point.Normal * ContactNormalLength, color, false);
+				AddContactMark(lines, point.Point, point.Normal, color);
 			}
+		}
+	}
+
+	void AppendVehicleLines(Scene& scene, std::vector<OverlayLine>& lines)
+	{
+		PhysicsScene const* const world = scene.GetPhysicsScene();
+		if (world == nullptr || world->GetVehicleCount() == 0)
+		{
+			return;
+		}
+		std::vector<UUID> vehicles;
+		for (entt::entity const handle : scene.GetRegistry().view<VehicleComponent>())
+		{
+			vehicles.push_back(Entity(handle, &scene).GetUUID());
+		}
+		std::sort(vehicles.begin(), vehicles.end(),
+		          [](UUID first, UUID second)
+		          {
+					  return first.GetValue() < second.GetValue();
+				  });
+		// The lean is measured from the world's up (against gravity) around the chassis's front, as VehicleState's is.
+		glm::vec3 const gravity = world->GetGravity();
+		float const pull = glm::length(gravity);
+		glm::vec3 const worldUp = pull > 0.0f && std::isfinite(pull) ? -gravity / pull : glm::vec3(0.0f, 1.0f, 0.0f);
+		for (UUID const id : vehicles)
+		{
+			VehicleDesc const* const desc = world->FindVehicleSettings(id);
+			std::optional<VehicleState> const state = world->GetVehicleState(id);
+			std::optional<BodyTransform> const body = world->GetBodyTransform(id);
+			if (desc == nullptr || !state || !body)
+			{
+				continue;
+			}
+			glm::mat4 const chassis = glm::translate(glm::mat4(1.0f), body->Position) * glm::mat4_cast(body->Rotation);
+			std::array<glm::vec3, VehicleWheelCount> centers{};
+			for (size_t index = 0; index < VehicleWheelCount; index++)
+			{
+				VehicleWheelDesc const& wheel = desc->Wheels[index];
+				VehicleWheelState const& reading = state->Wheels[index];
+				glm::mat4 const local = ComposeVehicleWheelTransform(wheel, desc->Up, desc->Forward, reading.SuspensionLength,
+				                                                     reading.SteerAngle, reading.RotationAngle);
+				centers[index] = TransformPoint(chassis, glm::vec3(local[3]));
+				AddLine(lines, TransformPoint(chassis, wheel.Position), centers[index], VehicleSuspensionColor, false);
+				if (!reading.ContactEntity.IsValid())
+				{
+					continue;
+				}
+				glm::vec3 const point = reading.ContactPoint;
+				glm::vec3 const normal = reading.ContactNormal;
+				AddContactMark(lines, point, normal, ContactColor);
+				// The tyre's front: the chassis's front turned by the steering around the steering axis (as Jolt's
+				// VehicleConstraint::GetWheelLocalBasis turns it, VehicleConstraint.cpp:116-125 of the pinned Jolt), in the
+				// contact's plane; its right, the front across the normal.
+				glm::vec3 const steered = glm::angleAxis(reading.SteerAngle, wheel.SteeringAxis) * desc->Forward;
+				glm::vec3 const wheelFront = body->Rotation * steered;
+				glm::vec3 const along = wheelFront - normal * glm::dot(wheelFront, normal);
+				float const alongLength = glm::length(along);
+				if (!(alongLength > 1e-4f))
+				{
+					continue;
+				}
+				glm::vec3 const tyreFront = along / alongLength;
+				glm::vec3 const tyreRight = glm::normalize(glm::cross(tyreFront, normal));
+				float const longitudinal = std::min(reading.LongitudinalSlip * VehicleLongitudinalSlipLength, VehicleSlipMaxLength);
+				float const lateral = std::min(glm::degrees(reading.LateralSlip) * VehicleLateralSlipLength, VehicleSlipMaxLength);
+				AddLine(lines, point, point + tyreFront * longitudinal, VehicleLongitudinalSlipColor, false);
+				AddLine(lines, point, point + tyreRight * lateral, VehicleLateralSlipColor, false);
+			}
+			// Positive angles lean to the chassis's right (the front across the up), as the lean input and VehicleState do.
+			glm::vec3 const front = body->Rotation * desc->Forward;
+			glm::vec3 const upright = worldUp - front * glm::dot(worldUp, front);
+			float const uprightLength = glm::length(upright);
+			if (!(uprightLength > 1e-4f))
+			{
+				continue;
+			}
+			glm::vec3 const up = upright / uprightLength;
+			glm::vec3 const right = glm::cross(front, up);
+			auto const leaning = [&up, &right](float angle)
+			{
+				return up * std::cos(angle) + right * std::sin(angle);
+			};
+			glm::vec3 const base = 0.5f * (centers[0] + centers[1]);
+			AddLine(lines, base, base + leaning(state->LeanAngle) * VehicleLeanLength, VehicleLeanColor, false);
+			AddLine(lines, base, base + leaning(state->TargetLeanAngle) * VehicleLeanLength, VehicleTargetLeanColor, false);
 		}
 	}
 
@@ -592,6 +692,10 @@ namespace Strada::ViewportOverlays
 			                   {
 								   return !isDynamic(event.First) && isDynamic(event.Second);
 							   });
+		}
+		if (overlays.Vehicles)
+		{
+			AppendVehicleLines(scene, lines);
 		}
 	}
 }

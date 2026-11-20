@@ -2385,6 +2385,16 @@ namespace Strada
 		return m_Data->Vehicles->GetVehicleWheelTransform(entity, wheel);
 	}
 
+	VehicleDesc const* PhysicsScene::FindVehicleSettings(UUID entity) const
+	{
+		return m_Data->Vehicles->FindVehicleSettings(entity);
+	}
+
+	std::optional<float> PhysicsScene::GetVehicleRollInertia(UUID entity) const
+	{
+		return m_Data->Vehicles->GetVehicleRollInertia(entity);
+	}
+
 	void PhysicsScene::ReaddVehicleConstraints()
 	{
 		Data& data = *m_Data;

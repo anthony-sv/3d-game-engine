@@ -137,6 +137,8 @@ namespace Strada
 		void RequestVehicleShift(UUID entity, int32_t gears);
 		std::optional<VehicleState> GetVehicleState(UUID entity) const;
 		std::optional<glm::mat4> GetVehicleWheelTransform(UUID entity, size_t wheel) const;
+		VehicleDesc const* FindVehicleSettings(UUID entity) const;
+		std::optional<float> GetVehicleRollInertia(UUID entity) const;
 		// Appends the entity and the body of each vehicle one of whose wheels touched a surface of the material at its last step
 		// (its wheel's slot), in the order of the entities' UUIDs: what an edit of the values only vehicles read wakes
 		// (PhysicsScene::SetMaterialValues).

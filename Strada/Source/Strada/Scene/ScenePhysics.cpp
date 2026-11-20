@@ -624,6 +624,8 @@ namespace Strada
 		m_CharacterOrderChanged = false;
 		m_ChangedCharacters.clear();
 		m_Vehicles.clear();
+		m_VehicleOrder.clear();
+		m_VehicleOrderChanged = false;
 		m_VehicleWheelsSaid.clear();
 		m_ChangedVehicles.clear();
 		m_VehicleEpoch = 0;
@@ -991,12 +993,17 @@ namespace Strada
 			{
 				m_Physics->RemoveVehicle(existing->second.Entity);
 				m_Vehicles.erase(existing);
+				m_VehicleOrderChanged = true;
 			}
 			return;
 		}
 
 		Entity const entity(handle, this);
 		UUID const id = entity.GetUUID();
+		if (existing == m_Vehicles.end())
+		{
+			m_VehicleOrderChanged = true;
+		}
 		VehicleSyncState& state = m_Vehicles[handle];
 		bool const sameDefinition = state.Definition == component->Definition;
 		state.Entity = id;
@@ -1049,6 +1056,15 @@ namespace Strada
 				state.Desc = desc;
 				// Made again, its wheels are drawn from its first step on.
 				state.Wheels = {};
+				if (present && sameDefinition)
+				{
+					// An edit of its definition that values cannot take in place (the chassis's axes): said once for the edit,
+					// since the ride starts again where the values do not carry over and earlier snapshots no longer restore.
+					ST_CORE_INFO("Physics: the Vehicle of '{}' is made again: its definition's Up or Forward changed, which a vehicle "
+					             "takes only when it is made; its contacts, suspension, gearbox timers and lean start again, and "
+					             "snapshots taken before are refused",
+					             entity.GetName());
+				}
 			}
 			else
 			{
@@ -1083,6 +1099,20 @@ namespace Strada
 				geometry.SteeringAxis = glm::normalize(wheel.SteeringAxis);
 				state.WheelNames[index] = index < definition.Wheels.size() ? definition.Wheels[index].Name : std::string();
 			}
+			// Named once, so that a recording's steps format nothing (Docs/Architecture.md §4.5).
+			if (state.ChannelNames[0].empty())
+			{
+				for (size_t index = 0; index < VehicleChannelCount; index++)
+				{
+					state.ChannelNames[index] = fmt::format("Vehicle.{}.{}", id.GetValue(), VehicleChannelQuantities[index]);
+				}
+			}
+			CheckVehicleLeanSpring(entity, state);
+		}
+		else
+		{
+			// Made again later, a vehicle whose lean spring cannot settle it is warned of again.
+			state.LeanSpringWarned = false;
 		}
 		std::string said = problem;
 		for (std::string const& note : notes)
@@ -1110,6 +1140,34 @@ namespace Strada
 						  return !m_Vehicles.at(handle).Made;
 					  });
 		return order;
+	}
+
+	std::vector<entt::entity> const& Scene::GetVehicleOrder()
+	{
+		if (std::exchange(m_VehicleOrderChanged, false))
+		{
+			SortKeysByUUID(m_Vehicles, m_VehicleOrder);
+		}
+		return m_VehicleOrder;
+	}
+
+	void Scene::CheckVehicleLeanSpring(Entity entity, VehicleSyncState& state)
+	{
+		// Jolt applies the spring's impulse at every velocity iteration against what it applied before
+		// (MotorcycleController.cpp:218-226 of the pinned Jolt), so its damping term changes the roll rate by the damping times
+		// the collision step over the roll inertia at each iteration, which settles only while that ratio is below 1.
+		std::optional<float> const inertia = m_Physics->GetVehicleRollInertia(state.Entity);
+		float const collisionStep = GetFixedTimestep() / static_cast<float>(std::max(m_Physics->GetCollisionSteps(), 1u));
+		float const damping = state.Desc.LeanSpringDamping;
+		bool const unsettled = inertia.has_value() && damping * collisionStep >= *inertia;
+		if (unsettled && !state.LeanSpringWarned)
+		{
+			ST_CORE_WARN("Physics: the Vehicle of '{}' may be thrown over by its lean spring: its chassis's roll inertia about its "
+			             "front, {:.4g} kg m², is at or below its lean spring's damping, {:.4g}, times the collision step, {:.4g} s; "
+			             "a damping below {:.4g} settles it, or a chassis whose colliders give it more roll inertia",
+			             entity.GetName(), *inertia, damping, collisionStep, *inertia / collisionStep);
+		}
+		state.LeanSpringWarned = unsettled;
 	}
 
 	void Scene::RecordVehicleWheelSteps(float step)

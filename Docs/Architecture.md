@@ -465,9 +465,9 @@ every configuration, Dist included (it has no macros); only the editor starts it
   nothing it touches is in the state hash or a snapshot (§8), so recording leaves every hash as it is.
 - **The engine's channels.** The scene records its own channels inside the named call, before `EndStep`, and only while
   recording: each subsystem that has channels adds one call there, in a fixed order, and records its entities in UUID
-  order with names it builds when the entity starts running, never per step. The first are to be the vehicles': each
-  vehicle's inputs as applied, engine speed, gear, forward speed and lean, and each wheel's slips, suspension and grip
-  factor, about 16 channels for a bike. Channels are numbers: a surface's name is read through the vehicle's scripting
+  order with names it builds when the entity starts running, never per step. The first are the vehicles' (§8, "Telemetry
+  channels"): each vehicle's inputs as applied, engine speed, gear, forward speed and lean, and each wheel's slips,
+  suspension and grip factor, 16 channels a vehicle. Channels are numbers: a surface's name is read through the vehicle's scripting
   API, not recorded.
 - **The recorder and its threads.** Any thread may record: the main thread (the scene, scripts and graphs), a C#
   script's own tasks, and any other thread the engine or a game runs. The main thread (the one that called
@@ -3099,8 +3099,8 @@ wheel all of its torque).
   at 60 steps a second, a roll inertia above 16.7 kg m²; more collision steps a step lower the bound). A case of the
   engine's tests stands on each side of it: a 250 kg chassis box 0.5 m wide and 1 m high (26 kg m²) stands and rides,
   and a 200 kg one 0.3 m wide and 0.5 m high (5.7 kg m²) is thrown over at its first contact, spinning at Jolt's largest
-  angular velocity, yet stands with a damping of 200. A chassis whose roll inertia is too low takes less damping; nothing
-  checks or warns of it when a vehicle is made.
+  angular velocity, yet stands with a damping of 200. A chassis whose roll inertia is too low takes less damping; the scene
+  warns of it, and changes no value (below, "The lean spring's warning").
   **Order.** Jolt removes a constraint by moving the last one into its slot
   (`ConstraintManager.cpp:49-59`) and solves the constraints of an island in the order of their priority and then their
   index (`:103-115`), so after any change to the vehicles the world takes every vehicle's constraint and every joint out
@@ -3290,8 +3290,11 @@ wheel all of its torque).
   drive's settings through the controller's writable engine, transmission and differentials, keeping their running
   state; the lean through the controller's setters, and its largest angle, which Jolt has no setter for, through the
   controller subclass; the largest pitch and roll through the constraint's setter), except the chassis's `Up` and
-  `Forward`, which Jolt's constraint takes when it is made, so an
-  edit of those makes the vehicle again and moves the structure version. **Curves** are references to `.scurve` assets,
+  `Forward`, which Jolt's constraint takes when it is made, so an edit of those makes the vehicle again, moves the
+  structure version (a snapshot taken before is refused) and says so in one line of the log for the edit ("the Vehicle of
+  'Bike' is made again: its definition's Up or Forward changed, ..."). Every way an edit arrives goes this one way: a
+  command (`vehicle.set`, `curve.set`, their undo and redo), the asset editor, and a file changed on disk that a refresh
+  reloads (the editor refreshes when its window gains focus, and `asset.refresh`). **Curves** are references to `.scurve` assets,
   sampled into Jolt's piecewise linear curves (`LinearCurve`) when the vehicle is made or a curve changes: at each key, and
   at 15 points between each two keys of different times (`Curve::Evaluate` there; a jump keeps both values at its time),
   at most 16,384 points (`SampleVehicleCurve`), each value kept within 0 and 100 (a friction or a torque below 0 is none,
@@ -3374,20 +3377,35 @@ wheel all of its torque).
   `Vehicle` makes no vehicle, EntityNotFound for no entity, ComponentNotFound for an entity without a `Vehicle`, and
   Unavailable when the playing scene has no physics world. `vehicle.create`, `vehicle.get` and `vehicle.set` edit the
   definitions (§7.3).
-- **The overlay** (VH2's next step). With the viewport's overlay on, each vehicle of the scene the viewport shows is drawn
-  through `SceneRenderer::SubmitLine` from the values its last step left (`GetVehicleState`, no query of its own): each
-  wheel's suspension from its attachment to the wheel's center, the contact normal at the contact point, the slips as
-  lines along the tyre's forward and sideways directions scaled by the slip, and the target lean against the chassis's
-  lean; nothing while the overlay is off, and nothing for a scene that does not simulate.
-- **Telemetry channels** (VH2's next step; §4.5). While a recording runs, `Scene::SampleTelemetry` records for every
-  vehicle, in UUID order, the channels `Vehicle.<entity's UUID in decimal>.<Quantity>`: `Throttle`, `FrontBrake`,
-  `RearBrake` and `Lean` as applied, `EngineSpeed`, `Gear`, `ForwardSpeed`, `LeanAngle` (degrees), and for the wheels
-  `Front.` and `Rear.` with `LongitudinalSlip`, `LateralSlip` (degrees), `Suspension` and `Grip` (the surface's tyre grip):
-  sixteen a vehicle, one row a fixed step. Channels are numbers: a surface's name is read through `GetWheelState`.
-- **The lean spring's warning** (VH2's next step, with live edits). When a vehicle is made, or its values or its body
-  change, and its chassis's roll inertia about its front is at or below `LeanSpringDamping` times the collision step, the
-  scene warns once per vehicle and cause, naming the entity, the inertia, the damping and the largest damping that
-  settles; it changes no value of the author's.
+- **The overlay** (`ViewportOverlays::AppendVehicleLines`, the scene view's Overlays menu and `viewport.overlays`'
+  `vehicles`, off by default as the contacts are). With it on, each vehicle of the scene the viewport shows, in the order
+  of its entity's UUID, is drawn through `SceneRenderer::SubmitLine` from what its last step left and nothing else
+  (`GetVehicleState`, its values `PhysicsScene::FindVehicleSettings`, the chassis where the step put its body), over
+  everything, since a suspension lies inside the bike's model: each wheel's suspension from its attachment to the wheel's
+  center (`ComposeVehicleWheelTransform`'s, which is Jolt's wheel transform), and while the wheel touches the ground its
+  contact (a cross and the normal, as the contacts overlay draws one), its longitudinal slip from the contact along the
+  tyre's front (the chassis's front turned by the steering about the steering axis, in the contact's plane) and its slip
+  angle across it to the tyre's right, half a metre per slip ratio of 1 and 5 cm a degree, each at most a metre (Jolt's
+  slips are sizes, not directions); then, from between the wheels' centers, the chassis's lean and the lean controller's
+  target lean, a metre each, tilted from the world's up around the chassis's front by their angles (positive to its
+  right). Nothing while the overlay is off and nothing for a scene that does not simulate; the lines follow the steps,
+  so between steps they are where the last step left the bike, up to a step behind its drawn pose.
+- **Telemetry channels** (§4.5). While a recording runs, `Scene::SampleTelemetry` records for every vehicle, in UUID
+  order (`Scene::SampleVehicleTelemetry`), the channels `Vehicle.<entity's UUID in decimal>.<Quantity>`
+  (`VehicleChannelQuantities` in `Scene.h`): `Throttle`, `FrontBrake`, `RearBrake` and `Lean` as applied, `EngineSpeed`,
+  `Gear`, `ForwardSpeed`, `LeanAngle` (degrees), and for the wheels `Front.` and `Rear.` with `LongitudinalSlip`,
+  `LateralSlip` (degrees), `Suspension` (m) and `Grip` (the surface's tyre grip): sixteen a vehicle, one row a fixed step,
+  each the value `GetVehicleState` reads after that step. The names are made when the vehicle is first made and the
+  vehicles' order only when one comes or goes, so a step formats, sorts and allocates nothing for them; a vehicle removed
+  records no more. Channels are numbers: a surface's name is read through `GetWheelState`. Recording reads the state and
+  changes nothing, so the hashes are the same recorded or not.
+- **The lean spring's warning** (`Scene::CheckVehicleLeanSpring`). When a vehicle is made, or its values or its body
+  change, and its chassis's roll inertia about its front (`PhysicsScene::GetVehicleRollInertia`: 1 over the front's
+  component of the body's inverse inertia along the front, what the spring's angular impulse turns) is at or below
+  `LeanSpringDamping` times the collision step (the fixed step over the collision steps), the scene warns, naming the
+  entity, the inertia, the damping, the collision step and the damping below which the spring settles it. It warns once
+  each time the vehicle comes to that: not again while it stays there, and again after an edit or a body that settled it
+  is undone. It changes no value of the author's. FeatureTest's chassis clears it (26 kg m² against 800 times 1/60 s).
 - **Profiler zones** (§4.4): `Physics.Vehicles` around the world's step listener, once per collision step on the thread
   that runs it; the inputs and shifts reach the controllers inside `Physics.Step`; `Scene.SyncVehicles` only in the frames
   after a data asset changed or a vehicle's component or body changed; the wheels are recorded inside `Scene.SyncFromPhysics`, drawn inside `Scene.Interpolate` and

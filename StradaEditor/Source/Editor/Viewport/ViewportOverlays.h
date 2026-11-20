@@ -68,6 +68,9 @@ namespace Strada
 		// The points and normals of the contacts that began in the scene's last frame (Scene::GetContactEvents), which only a
 		// playing scene has: a contact shows for the frame it began in, and stays while the game is paused.
 		bool Contacts = false;
+		// Each vehicle's suspensions, contacts, slips and lean against its target lean, as its last step left them
+		// (ViewportOverlays::AppendVehicleLines), which only a playing scene has.
+		bool Vehicles = false;
 
 		bool operator==(SceneViewOverlays const&) const = default;
 	};
@@ -146,6 +149,21 @@ namespace Strada
 		inline constexpr glm::vec4 ContactColor = glm::vec4(1.0f, 0.6f, 0.2f, 1.0f);
 		inline constexpr float ContactPointSize = 0.05f;
 		inline constexpr float ContactNormalLength = 0.3f;
+		// Vehicles: each wheel's suspension from its attachment to its center, the contact (a cross and its normal, in the
+		// contacts' colour), its slips as lines from the contact along the tyre's front and its right (Jolt's slips are sizes,
+		// not directions: the longitudinal slip ratio, VehicleLongitudinalSlipLength meters per 1, and the slip angle,
+		// VehicleLateralSlipLength meters per degree, each at most VehicleSlipMaxLength), and from between the wheels' centers
+		// the chassis's lean and the lean controller's target lean, VehicleLeanLength long, each tilted from the world's up
+		// around the chassis's front by its angle.
+		inline constexpr glm::vec4 VehicleSuspensionColor = glm::vec4(1.0f, 0.85f, 0.3f, 1.0f);
+		inline constexpr glm::vec4 VehicleLongitudinalSlipColor = glm::vec4(1.0f, 0.35f, 0.35f, 1.0f);
+		inline constexpr glm::vec4 VehicleLateralSlipColor = glm::vec4(0.95f, 0.35f, 0.65f, 1.0f);
+		inline constexpr glm::vec4 VehicleLeanColor = glm::vec4(0.45f, 1.0f, 0.9f, 1.0f);
+		inline constexpr glm::vec4 VehicleTargetLeanColor = glm::vec4(0.45f, 1.0f, 0.9f, 0.55f);
+		inline constexpr float VehicleLongitudinalSlipLength = 0.5f;
+		inline constexpr float VehicleLateralSlipLength = 0.05f;
+		inline constexpr float VehicleSlipMaxLength = 1.0f;
+		inline constexpr float VehicleLeanLength = 1.0f;
 
 		// How the scene view draws its lines (SceneRendererOverlays), in pixels at a UI scale of 1: wide enough to see at a
 		// glance, with a dark outline for bright backgrounds, and dimmed where surfaces hide them.
@@ -176,10 +194,18 @@ namespace Strada
 		// events' order. The normal is the side's seen from Second where seenFromSecond says so, from First otherwise.
 		void AppendContactLines(std::span<ContactEvent const> events, std::vector<OverlayLine>& lines,
 		                        ContactSideSelector const& seenFromSecond = {});
+		// Each vehicle of a scene that simulates it, in the order of its entity's UUID, as its last step left it
+		// (PhysicsScene::GetVehicleState, its values FindVehicleSettings, its chassis where the step put its body), drawn over
+		// everything (a suspension lies inside the bike's model): for each wheel, front then rear, its suspension (the
+		// attachment to the wheel's center, ComposeVehicleWheelTransform's), and while it touches the ground the contact's
+		// cross and normal (as AppendContactLines draws them), its longitudinal slip along the tyre's front and its lateral
+		// slip along the tyre's right; then the chassis's lean and the target lean. Nothing for a scene without physics.
+		void AppendVehicleLines(Scene& scene, std::vector<OverlayLine>& lines);
 		// The shapes the overlays draw: those of the selected entities (drawn as selected: Shapes::Selected), and of every
 		// entity for the kinds shown for all, in hierarchy order when any is, then the scene's contacts when they are shown,
 		// each normal pointing towards the body it pushes: the dynamic one when only one of the two bodies is dynamic (out of
-		// the surface a body lands on), the event's First otherwise.
+		// the surface a body lands on), the event's First otherwise, then the vehicles when they are shown
+		// (AppendVehicleLines).
 		// meshOutlines also forgets the outlines of meshes that are gone.
 		void AppendSceneShapes(Scene& scene, std::span<UUID const> selection, SceneViewOverlays const& overlays, float aspectRatio,
 		                       glm::vec3 const& viewPosition, std::vector<OverlayLine>& lines,

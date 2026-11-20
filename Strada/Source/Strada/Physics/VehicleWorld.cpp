@@ -1054,6 +1054,39 @@ namespace Strada
 			it->second.Constraint->GetWheelLocalTransform(static_cast<JPH::uint>(wheel), JPH::Vec3::sAxisX(), JPH::Vec3::sAxisY()));
 	}
 
+	VehicleDesc const* VehicleWorld::FindVehicleSettings(UUID entity) const
+	{
+		auto const it = m_Vehicles.find(entity);
+		return it != m_Vehicles.end() ? &it->second.Desc : nullptr;
+	}
+
+	std::optional<float> VehicleWorld::GetVehicleRollInertia(UUID entity) const
+	{
+		auto const it = m_Vehicles.find(entity);
+		if (it == m_Vehicles.end())
+		{
+			return std::nullopt;
+		}
+		VehicleRecord const& record = it->second;
+		JPH::BodyLockRead const lock(m_System.GetBodyLockInterface(), record.Body);
+		if (!lock.Succeeded() || !lock.GetBody().IsDynamic())
+		{
+			return std::nullopt;
+		}
+		// What the lean spring's angular impulse along the front does to the roll rate (Body::AddAngularImpulse,
+		// Body.inl:150-154 of the pinned Jolt): the impulse times the front's component of the world-space inverse inertia.
+		// The same at any rotation, since the front turns with the body.
+		JPH::Body const& body = lock.GetBody();
+		JPH::Vec3 const forward = body.GetRotation() * Jolt::ToJolt(record.Desc.Forward);
+		float const inverse =
+			body.GetMotionProperties()->MultiplyWorldSpaceInverseInertiaByVector(body.GetRotation(), forward).Dot(forward);
+		if (!(inverse > 0.0f) || !std::isfinite(inverse))
+		{
+			return std::nullopt;
+		}
+		return 1.0f / inverse;
+	}
+
 	std::optional<VehicleCarriedState> VehicleWorld::TakeVehicle(UUID entity, VehicleDesc& desc)
 	{
 		auto const it = m_Vehicles.find(entity);

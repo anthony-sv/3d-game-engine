@@ -5,6 +5,7 @@
 #include "TestUtilities.h"
 
 #include "Editor/Automation/EditorCommands.h"
+#include "Editor/Automation/PlayCommands.h"
 #include "Editor/EditorOperations.h"
 #include "Editor/EditorScripts.h"
 #include "Editor/PlayMode.h"
@@ -18,15 +19,19 @@
 #include "Strada/Asset/VehicleAsset.h"
 #include "Strada/Audio/AudioEngine.h"
 #include "Strada/Core/FileSystem.h"
+#include "Strada/Core/Timestep.h"
 #include "Strada/Physics/PhysicsScene.h"
 #include "Strada/Physics/PhysicsTypes.h"
 #include "Strada/Scene/Scene.h"
 
 #include <doctest/doctest.h>
+#include <glm/glm.hpp>
 
 #include <algorithm>
+#include <chrono>
 #include <cmath>
 #include <cstdint>
+#include <filesystem>
 #include <optional>
 #include <string>
 #include <string_view>
@@ -755,6 +760,170 @@ TEST_CASE("DataAssetCommands: the engine's Vehicle has vehicle.create, get and s
 	CommandError const otherType = fixture.Fails("vehicle.get", Json::object({{"vehicle", materialId}}));
 	CHECK(otherType.Code == AutomationErrorCode::InvalidParams);
 	CHECK(otherType.Message.find("is a PhysicsMaterial, not a Vehicle") != std::string::npos);
+}
+
+TEST_CASE("DataAssetCommands: curve.set, a vehicle's file changed and vehicle.set while a bike rides reach its next step: the "
+          "torque its curve gives, and the shift point it shifts at")
+{
+	Testing::PhysicsSystemScope physics;
+	DataAssetCommandFixture fixture;
+	EditorScripts scripts{fixture.Context, FileSystem::GetExecutableDirectory() / "Strada.ScriptCore.dll"};
+	PlayMode play{fixture.Context, scripts};
+	REQUIRE(RegisterPlayCommands(fixture.Registry, play, fixture.Context,
+	                             []
+	                             {
+									 return glm::uvec2(640, 480);
+								 })
+	            .IsOk());
+	// A flat torque curve (half of the engine's largest torque at any speed), an engine whose speed does not decay by itself
+	// (its damping would take most of so small a torque), tyres that grip with little slip (Jolt's gearbox shifts up only
+	// while the driven wheel slips by at most 0.1 and the engine speeds up, WheeledVehicleController.cpp:609-617 of the
+	// pinned Jolt) and an automatic gearbox that shifts up past 9,000 rpm: at a throttle of 0.4 in first gear the engine
+	// gives 150 x 0.5 x 0.4 = 30 N m whatever its speed.
+	std::string const torque =
+		fixture
+			.Ok("curve.create", Json::object({{"path", "Vehicles/Torque.scurve"},
+	                                          {"fields", {{"Keys", Json::parse(R"([{ "Time": 0, "Value": 0.5 }])")}}}}))["curve"]["id"]
+			.get<std::string>();
+	std::string const grip =
+		fixture
+			.Ok("curve.create", Json::object({{"path", "Vehicles/Grip.scurve"},
+	                                          {"fields", {{"Keys", Json::parse(R"([{ "Time": 0, "Value": 0, "Interpolation": "Linear" },
+	                                                                    { "Time": 0.02, "Value": 2, "Interpolation": "Linear" },
+	                                                                    { "Time": 0.3, "Value": 1.8, "Interpolation": "Linear" }])")}}}}))
+				["curve"]["id"]
+			.get<std::string>();
+	Json const created = fixture.Ok(
+		"vehicle.create",
+		Json::object({{"path", "Vehicles/Bike.svehicle"},
+	                  {"fields", {{"Engine", {{"Torque", torque}, {"AngularDamping", 0}}}, {"Transmission", {{"ShiftUpRPM", 9000}}}}}}));
+	std::string const definition = created["vehicle"]["id"].get<std::string>();
+	Json wheels = created["fields"]["Wheels"];
+	for (Json& wheel : wheels)
+	{
+		wheel["LongitudinalFriction"] = grip;
+	}
+	fixture.Ok("vehicle.set", Json::object({{"vehicle", definition}, {"fields", {{"Wheels", wheels}}}}));
+	auto const create = [&fixture](std::string name, Json components)
+	{
+		EntityCreateInfo info;
+		info.Name = std::move(name);
+		info.Components = std::move(components);
+		Result<UUID> entity = fixture.Operations.CreateEntity(info);
+		REQUIRE(entity.IsOk());
+		return entity.GetValue();
+	};
+	create("Ground",
+	       Json::object({{"Transform", {{"Translation", {0.0, -0.5, 0.0}}}}, {"BoxCollider", {{"HalfExtents", {400.0, 0.5, 400.0}}}}}));
+	// A chassis box whose roll inertia carries the lean spring's damping (26 kg m²).
+	UUID const bike = create("Bike", Json::object({{"Transform", {{"Translation", {0.0, 0.05, 0.0}}}},
+	                                               {"RigidBody", {{"Type", "Dynamic"}, {"Mass", 250.0}, {"AllowSleep", false}}},
+	                                               {"BoxCollider", {{"HalfExtents", {0.25, 0.5, 0.6}}, {"Offset", {0.0, 0.75, 0.0}}}},
+	                                               {"Vehicle", {{"Definition", definition}}}}));
+
+	REQUIRE(play.Start(EditorPlayState::Simulate, 640, 480).IsOk());
+	Scene& scene = fixture.Context.GetScene();
+	scene.ApplyPhysicsChanges();
+	PhysicsScene* const world = scene.GetPhysicsScene();
+	REQUIRE(world != nullptr);
+	REQUIRE(world->HasVehicle(bike));
+	VehicleInputs throttle;
+	throttle.Throttle = 0.4f;
+	world->SetVehicleInputs(bike, throttle);
+	auto const state = [&fixture]
+	{
+		Json const answer = fixture.Ok("vehicle.state");
+		REQUIRE(answer["vehicles"].size() == 1);
+		Json vehicle = answer["vehicles"][0];
+		vehicle["step"] = answer["step"];
+		return vehicle;
+	};
+	auto const frame = [&play]
+	{
+		REQUIRE(play.Advance(1, Timestep(1.0f / 60.0f)) == 1);
+	};
+	// Ridden in first gear to 4,000 rpm, its clutch closed and the gearbox's latency long over.
+	int frames = 0;
+	while (frames < 1200 && state()["engineSpeed"].get<float>() < 4000.0f)
+	{
+		frame();
+		frames++;
+	}
+	Json const riding = state();
+	CAPTURE(riding.dump());
+	REQUIRE(riding["engineSpeed"].get<float>() >= 4000.0f);
+	REQUIRE(riding["engineSpeed"].get<float>() < 8000.0f);
+	REQUIRE(frames > 90);
+	REQUIRE(riding["gear"] == 1);
+	REQUIRE(riding["clutch"] == 1.0);
+	REQUIRE(riding["shifting"] == false);
+	CHECK(riding["engineTorque"].get<float>() == doctest::Approx(30.0f).epsilon(1e-4));
+	// The speed it gains over a number of steps (the chassis pitches on its suspension, so a few steps' gain is noise).
+	auto const gainOver = [&frame, &state](int steps)
+	{
+		float const start = state()["forwardSpeed"].get<float>();
+		for (int step = 0; step < steps; step++)
+		{
+			frame();
+		}
+		return state()["forwardSpeed"].get<float>() - start;
+	};
+	float const gained = gainOver(45);
+	CHECK(gained > 0.1f);
+	Json const before = state();
+
+	// The torque curve edited to 0.8: the next step's engine gives 48 N m, and the bike gains speed faster from then on. The
+	// torques' ratio is 1.6; the chassis's and the wheels' damping and the drivetrain take a part of the gain (the ride reads
+	// about 1.4), so the band is 1.2.
+	uint64_t const structure = world->GetStructureVersion();
+	fixture.Ok("curve.set", Json::object({{"curve", torque}, {"fields", {{"Keys", Json::parse(R"([{ "Time": 0, "Value": 0.8 }])")}}}}));
+	CHECK(state()["step"] == before["step"]);
+	frame();
+	Json const stronger = state();
+	CHECK(stronger["step"] == before["step"].get<uint64_t>() + 1);
+	CHECK(stronger["engineTorque"].get<float>() == doctest::Approx(48.0f).epsilon(1e-4));
+	float const faster = stronger["forwardSpeed"].get<float>() - before["forwardSpeed"].get<float>() + gainOver(44);
+	CHECK_MESSAGE(faster > 1.2f * gained, "45 steps gained " << gained << " m/s before the edit and " << faster << " after it");
+	CHECK(world->GetStructureVersion() == structure);
+
+	// The definition's file changed on disk and the assets refreshed (as the editor does when its window gains focus): the
+	// next step's engine gives 100 x 0.8 x 0.4 = 32 N m.
+	std::filesystem::path const file = fixture.GetFile("Vehicles/Bike.svehicle");
+	Json document = Json::parse(fixture.ReadFile("Vehicles/Bike.svehicle"));
+	document["Vehicle"]["Engine"]["MaxTorque"] = 100.0;
+	REQUIRE(FileSystem::WriteTextFile(file, document.dump(1, '\t')).IsOk());
+	std::error_code error;
+	std::filesystem::file_time_type const written = std::filesystem::last_write_time(file, error);
+	REQUIRE_FALSE(error);
+	std::filesystem::last_write_time(file, written + std::chrono::seconds(10), error);
+	REQUIRE_FALSE(error);
+	fixture.Ok("asset.refresh");
+	frame();
+	CHECK(state()["engineTorque"].get<float>() == doctest::Approx(32.0f).epsilon(1e-4));
+	CHECK(state()["gear"] == 1);
+
+	// The shift point lowered below the engine's speed while the gearbox may shift up (the rear wheel slipping little, the
+	// engine speeding up): the next step shifts up, which the step before did not.
+	float const previousSpeed = state()["engineSpeed"].get<float>();
+	frame();
+	Json const unshifted = state();
+	CAPTURE(unshifted.dump());
+	REQUIRE(unshifted["engineSpeed"].get<float>() > 3500.0f);
+	REQUIRE(unshifted["engineSpeed"].get<float>() > previousSpeed);
+	REQUIRE(unshifted["wheels"][1]["longitudinalSlip"].get<float>() < 0.1f);
+	fixture.Ok("vehicle.set", Json::object({{"vehicle", definition}, {"fields", {{"Transmission", {{"ShiftUpRPM", 3500}}}}}}));
+	CHECK(state()["gear"] == 1);
+	frame();
+	Json const shifted = state();
+	CHECK(shifted["step"] == unshifted["step"].get<uint64_t>() + 1);
+	CHECK(shifted["gear"] == 2);
+	CHECK(shifted["shifting"] == true);
+	// In place, as every edit above: the ride and the structure kept.
+	CHECK(world->GetStructureVersion() == structure);
+	CHECK(world->HasVehicle(bike));
+	CHECK(fixture.Ok("editor.undo")["undone"] == "Edit Vehicle");
+	CHECK(Json::parse(fixture.ReadFile("Vehicles/Bike.svehicle"))["Vehicle"]["Transmission"]["ShiftUpRPM"] == 9000.0);
+	play.Stop();
 }
 
 TEST_CASE("DataAssetCommands: mixer.set while the game plays is mixed from the next frame, and undo gives the old buses back")

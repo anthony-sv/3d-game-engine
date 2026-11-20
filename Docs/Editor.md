@@ -313,7 +313,8 @@ lights show round icons that you can click too. A press that turns into a drag, 
 
 ### Overlays
 
-The Overlays button opens a menu of what the view draws over the scene. Everything but contacts is on by default, and
+The Overlays button opens a menu of what the view draws over the scene. Everything but contacts and vehicles is on by
+default, and
 the shapes are drawn for the selected entities until you pick All.
 
 | Overlay | What it draws |
@@ -329,10 +330,11 @@ the shapes are drawn for the selected entities until you pick All.
 | Debug drawing (scripts) | Lines scripts draw with `Debug.DrawLine` and its relatives |
 | UI canvases | Each canvas's UI in its entity's plane, faint until the canvas or one of its elements is selected |
 | Contacts (while playing) | A cross at each point where a contact began in the last frame and a line 0.3 m long from it along its normal, pointing towards the body the contact pushes: out of the surface a dynamic body lands on (triggers in blue): a contact shows for the frame it began in, and stays while the game is paused |
+| Vehicles (while playing) | Each vehicle as its last step left it: each wheel's suspension from its attachment to the wheel's center; while the wheel touches the ground, its contact (a cross and the normal, in the contacts' orange), its longitudinal slip as a red line along the tyre's front (half a metre per slip ratio of 1) and its slip angle as a pink line to the tyre's right (5 cm a degree), each at most a metre long; and from between the wheels, the bike's lean (teal) and the lean it is steered to (faint teal), a metre long each. The lines follow the physics steps, so on a fast bike they run up to a step behind it between steps |
 
 Each of the five shape overlays has a Selected and an All choice. Overlay lines are dimmed where surfaces hide them,
-except joints, directional lights, post-process volumes, the capsules of selected characters, canvas outlines and
-contacts, which are drawn over everything. Screen-space UI would cover the scene, so the UI canvases overlay draws each canvas
+except joints, directional lights, post-process volumes, the capsules of selected characters, canvas outlines,
+contacts and vehicles, which are drawn over everything. Screen-space UI would cover the scene, so the UI canvases overlay draws each canvas
 standing in its entity's XY plane instead.
 
 ### Dropping into the view
@@ -932,8 +934,15 @@ with no `Vehicle` above it, and one whose name the definition lacks stay where t
 The rider's throttle, brakes and lean are not fields of either component: the game gives them while it plays, once per
 physics step.
 
-While the game plays, an edit of the definition (or of one of its curves) reaches the bike at its next physics step and
-it rides on, except an edit of `Up` or `Forward`, which makes the vehicle again. Each wheel's tyre grips by the
+While the game plays, an edit of the definition (or of one of its curves), in the Inspector, by a command or in its file
+on disk once the editor reloads it, reaches the bike at its next physics step and it rides on, except an edit of `Up` or
+`Forward`, which makes the vehicle again, and the console says so (its suspension and lean start again, and a snapshot
+taken before no longer restores). When a chassis rolls too easily for its lean spring's damping, the bike would be thrown
+over at its first contact: the console warns of it when the vehicle is made or edited into that state, naming the
+damping that settles it, and changes nothing. The scene view's Vehicles overlay ([Overlays](#overlays)) shows each
+playing bike's suspensions, contacts, slips and lean, and while the Telemetry panel records, each vehicle records its
+inputs, engine speed, gear, speed, lean and each wheel's slips, suspension and grip at every physics step, as channels
+named `Vehicle.<entity ID>.<quantity>` that the panel lists under the entity's name. Each wheel's tyre grips by the
 `TyreGrip` of the physics material under it and slows by its `RollingResistance` ([Physics materials](#physics-materials)).
 
 What the tyres do not do yet, plainly: each wheel brakes by its own brake, and weight moves to the front under braking

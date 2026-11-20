@@ -135,6 +135,15 @@ namespace Strada
 		// (what ComposeVehicleWheelTransform composes from VehicleWheelState); empty for an entity without a vehicle or an
 		// index past the wheels.
 		std::optional<glm::mat4> GetVehicleWheelTransform(UUID entity, size_t wheel) const;
+		// The values the vehicle runs with (AddVehicle's or the latest SetVehicleSettings'), its directions normalized and its
+		// Forward made square to its Up (NormalizeVehicleAxes): what the editor's overlay draws its wheels with. Null for an
+		// entity without a vehicle; valid until the vehicle is made again, given new values or removed.
+		VehicleDesc const* FindVehicleSettings(UUID entity) const;
+		// The chassis's roll inertia about its front (kg m²: 1 over the front's component of the body's inverse inertia along
+		// the front), which the lean spring's impulse turns (Architecture.md section 8, "Vehicles": its iterations settle only
+		// while LeanSpringDamping times the collision step stays below it). Empty for an entity without a vehicle, or a body
+		// that cannot roll about its front.
+		std::optional<float> GetVehicleRollInertia(UUID entity) const;
 
 		// --- Simulation ---
 

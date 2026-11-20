@@ -11,7 +11,11 @@
 #include "Editor/Viewport/ViewportOverlays.h"
 
 #include "Strada/Asset/AssetManager.h"
+#include "Strada/Asset/DataAsset.h"
 #include "Strada/Asset/MeshFactory.h"
+#include "Strada/Asset/Vehicle.h"
+#include "Strada/Asset/VehicleAsset.h"
+#include "Strada/Physics/PhysicsScene.h"
 #include "Strada/Physics/PhysicsTypes.h"
 #include "Strada/RHI/GraphicsDevice.h"
 #include "Strada/Renderer/Renderer.h"
@@ -23,11 +27,16 @@
 
 #include <doctest/doctest.h>
 #include <glm/gtc/matrix_transform.hpp>
+#include <glm/gtc/quaternion.hpp>
 
 #include <algorithm>
+#include <array>
 #include <cmath>
+#include <cstddef>
 #include <iterator>
+#include <optional>
 #include <string>
+#include <utility>
 #include <vector>
 
 using namespace Strada;
@@ -861,6 +870,161 @@ TEST_CASE("ViewportOverlays: contacts show the points and normals of the contact
 	CHECK(scene.GetContactEvents().empty());
 	CHECK(draw(shown).empty());
 	scene.OnRuntimeStop();
+}
+
+TEST_CASE("ViewportOverlays: vehicles show each wheel's suspension, contact and slips, and the lean against the target lean, as the "
+          "last step left them")
+{
+	Testing::AssetManagerScope assets;
+	Testing::PhysicsSystemScope physics;
+	TypedDataAssetType<Vehicle> const* const type = DataAssetRegistry::Find<Vehicle>();
+	REQUIRE(type != nullptr);
+	AssetHandle const definition = AssetManager::AddMemoryAsset(type->CreateAsset(), "Bike.svehicle");
+	Scene scene("Vehicles");
+	Entity ground = scene.CreateEntityWithUUID(UUID(100), "Ground");
+	ground.GetComponent<TransformComponent>().Translation = {0.0f, -0.5f, 0.0f};
+	ground.AddComponent<BoxColliderComponent>().HalfExtents = {100.0f, 0.5f, 100.0f};
+	// A dynamic 250 kg chassis box whose roll inertia carries the lean spring's damping, on a new definition.
+	Entity bike = scene.CreateEntityWithUUID(UUID(200), "Bike");
+	bike.GetComponent<TransformComponent>().Translation = {0.0f, 0.05f, 0.0f};
+	RigidBodyComponent& body = bike.AddComponent<RigidBodyComponent>();
+	body.Type = RigidBodyType::Dynamic;
+	body.Mass = 250.0f;
+	body.AllowSleep = false;
+	BoxColliderComponent& collider = bike.AddComponent<BoxColliderComponent>();
+	collider.HalfExtents = {0.25f, 0.5f, 0.6f};
+	collider.Offset = {0.0f, 0.75f, 0.0f};
+	bike.AddComponent<VehicleComponent>().Definition = definition;
+	SceneViewOverlays shown;
+	shown.Vehicles = true;
+	auto const draw = [&scene](SceneViewOverlays const& overlays)
+	{
+		std::vector<OverlayLine> drawn;
+		ViewportOverlays::AppendSceneShapes(scene, {}, overlays, 1.0f, glm::vec3(0.0f, 0.0f, 10.0f), drawn);
+		return drawn;
+	};
+	// A scene that does not run has no vehicle to draw.
+	CHECK(draw(shown).empty());
+
+	SceneRuntimeSettings settings;
+	settings.RunScripts = false;
+	settings.PlayAudio = false;
+	scene.OnRuntimeStart(settings);
+	PhysicsScene& world = *scene.GetPhysicsScene();
+	// Full lean to the right at speed: the target leans right, the bike follows, and its tyres slip.
+	VehicleInputs inputs;
+	inputs.Throttle = 0.6f;
+	world.SetVehicleInputs(UUID(200), inputs);
+	for (int frame = 0; frame < 60; frame++)
+	{
+		scene.OnUpdateRuntime(Timestep(1.0f / 60.0f));
+	}
+	inputs.Lean = 1.0f;
+	world.SetVehicleInputs(UUID(200), inputs);
+	for (int frame = 0; frame < 20; frame++)
+	{
+		scene.OnUpdateRuntime(Timestep(1.0f / 60.0f));
+	}
+	std::optional<VehicleState> const state = world.GetVehicleState(UUID(200));
+	VehicleDesc const* const desc = world.FindVehicleSettings(UUID(200));
+	std::optional<BodyTransform> const chassis = world.GetBodyTransform(UUID(200));
+	REQUIRE(state);
+	REQUIRE(desc != nullptr);
+	REQUIRE(chassis);
+	REQUIRE(state->Wheels[0].ContactEntity == UUID(100));
+	REQUIRE(state->Wheels[1].ContactEntity == UUID(100));
+	REQUIRE(state->TargetLeanAngle > 0.05f);
+	REQUIRE(state->LeanAngle > 0.02f);
+	// Off by default, as contacts are: the overlays draw nothing of the vehicle (no entity is selected).
+	CHECK(draw(SceneViewOverlays()).empty());
+
+	// Two wheels in contact: each its suspension, the contact's cross and normal and its two slips; then the two leans.
+	std::vector<OverlayLine> const lines = draw(shown);
+	REQUIRE(lines.size() == 2 * 7 + 2);
+	for (OverlayLine const& line : lines)
+	{
+		CHECK_FALSE(line.DepthTest);
+	}
+	glm::mat4 const pose = glm::translate(glm::mat4(1.0f), chassis->Position) * glm::mat4_cast(chassis->Rotation);
+	glm::vec3 const front = chassis->Rotation * desc->Forward;
+	glm::vec3 const right = glm::normalize(glm::cross(front, glm::vec3(0.0f, 1.0f, 0.0f)));
+	std::array<glm::vec3, VehicleWheelCount> centers{};
+	for (size_t index = 0; index < VehicleWheelCount; index++)
+	{
+		CAPTURE(index);
+		VehicleWheelState const& wheel = state->Wheels[index];
+		size_t const first = 7 * index;
+		// The suspension from its attachment to the wheel's center, where Jolt's own wheel transform has it.
+		std::optional<glm::mat4> const local = world.GetVehicleWheelTransform(UUID(200), index);
+		REQUIRE(local);
+		centers[index] = glm::vec3(pose * (*local)[3]);
+		OverlayLine const& suspension = lines[first];
+		CHECK(suspension.Color == ViewportOverlays::VehicleSuspensionColor);
+		CHECK(NearlyEqual(suspension.From, glm::vec3(pose * glm::vec4(desc->Wheels[index].Position, 1.0f)), 1e-3f));
+		CHECK(NearlyEqual(suspension.To, centers[index], 1e-3f));
+		CHECK(glm::distance(suspension.From, suspension.To) == doctest::Approx(wheel.SuspensionLength).epsilon(1e-3));
+		// The contact, as the contacts overlay draws one.
+		for (size_t line = 1; line <= 4; line++)
+		{
+			CHECK(lines[first + line].Color == ViewportOverlays::ContactColor);
+		}
+		CHECK(NearlyEqual(lines[first + 4].From, wheel.ContactPoint));
+		CHECK(NearlyEqual(lines[first + 4].To, wheel.ContactPoint + wheel.ContactNormal * ViewportOverlays::ContactNormalLength));
+		// The slips from the contact: the ratio along the tyre's front, the angle across it to its right, in the contact's
+		// plane, by their scales.
+		OverlayLine const& longitudinal = lines[first + 5];
+		OverlayLine const& lateral = lines[first + 6];
+		CHECK(longitudinal.Color == ViewportOverlays::VehicleLongitudinalSlipColor);
+		CHECK(lateral.Color == ViewportOverlays::VehicleLateralSlipColor);
+		CHECK(NearlyEqual(longitudinal.From, wheel.ContactPoint));
+		CHECK(NearlyEqual(lateral.From, wheel.ContactPoint));
+		CHECK(glm::distance(longitudinal.From, longitudinal.To) ==
+		      doctest::Approx(std::min(wheel.LongitudinalSlip * ViewportOverlays::VehicleLongitudinalSlipLength,
+		                               ViewportOverlays::VehicleSlipMaxLength))
+		          .epsilon(1e-3));
+		float const lateralLength =
+			std::min(glm::degrees(wheel.LateralSlip) * ViewportOverlays::VehicleLateralSlipLength, ViewportOverlays::VehicleSlipMaxLength);
+		CHECK(glm::distance(lateral.From, lateral.To) == doctest::Approx(lateralLength).epsilon(1e-3));
+		if (lateralLength > 1e-3f)
+		{
+			glm::vec3 const across = glm::normalize(lateral.To - lateral.From);
+			CHECK(std::abs(glm::dot(across, wheel.ContactNormal)) < 1e-3f);
+			CHECK(glm::dot(across, right) > 0.5f);
+		}
+	}
+	// The rear tyre, which does not steer, slips along the chassis's front under the throttle.
+	REQUIRE(state->Wheels[1].LongitudinalSlip > 1e-3f);
+	CHECK(glm::dot(glm::normalize(lines[12].To - lines[12].From), front) > 0.9f);
+
+	// The lean and the target lean, from between the wheels' centers: tilted to the bike's right by their angles.
+	OverlayLine const& lean = lines[14];
+	OverlayLine const& target = lines[15];
+	CHECK(lean.Color == ViewportOverlays::VehicleLeanColor);
+	CHECK(target.Color == ViewportOverlays::VehicleTargetLeanColor);
+	glm::vec3 const base = 0.5f * (centers[0] + centers[1]);
+	CHECK(NearlyEqual(lean.From, base, 1e-3f));
+	CHECK(NearlyEqual(target.From, base, 1e-3f));
+	// Each angle is measured from the world's up as the chassis's front sees it (square to the front), as VehicleState's.
+	glm::vec3 const worldUp(0.0f, 1.0f, 0.0f);
+	glm::vec3 const upright = glm::normalize(worldUp - front * glm::dot(worldUp, front));
+	for (auto const& [line, angle] : {std::pair{lean, state->LeanAngle}, std::pair{target, state->TargetLeanAngle}})
+	{
+		glm::vec3 const direction = line.To - line.From;
+		CHECK(glm::length(direction) == doctest::Approx(ViewportOverlays::VehicleLeanLength).epsilon(1e-4));
+		CHECK(std::acos(std::clamp(glm::dot(glm::normalize(direction), upright), -1.0f, 1.0f)) == doctest::Approx(angle).epsilon(1e-3));
+		CHECK(glm::dot(direction, right) > 0.0f);
+		CHECK(std::abs(glm::dot(direction, front)) < 1e-4f);
+	}
+
+	// A wheel off the ground draws its suspension alone; the stopped scene draws nothing.
+	world.SetBodyTransform(UUID(200), chassis->Position + glm::vec3(0.0f, 3.0f, 0.0f), chassis->Rotation);
+	world.SetGravityFactor(UUID(200), 0.0f);
+	scene.OnUpdateRuntime(Timestep(1.0f / 60.0f));
+	REQUIRE_FALSE(world.GetVehicleState(UUID(200))->Wheels[0].ContactEntity.IsValid());
+	REQUIRE_FALSE(world.GetVehicleState(UUID(200))->Wheels[1].ContactEntity.IsValid());
+	CHECK(draw(shown).size() == 2 + 2);
+	scene.OnRuntimeStop();
+	CHECK(draw(shown).empty());
 }
 
 TEST_CASE("ViewportOverlays: mesh colliders show the convex hull or the triangles physics collides with")

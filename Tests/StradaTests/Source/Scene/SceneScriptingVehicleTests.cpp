@@ -1,3 +1,4 @@
+#include "Core/TelemetryTestUtilities.h"
 #include "Physics/PhysicsTestUtilities.h"
 #include "Script/ScriptTestUtilities.h"
 #include "TestUtilities.h"
@@ -9,6 +10,7 @@
 #include "Strada/Asset/Vehicle.h"
 #include "Strada/Asset/VehicleAsset.h"
 #include "Strada/Core/Log.h"
+#include "Strada/Core/Telemetry.h"
 #include "Strada/Physics/PhysicsScene.h"
 #include "Strada/Physics/PhysicsTypes.h"
 #include "Strada/Scene/Entity.h"
@@ -18,6 +20,7 @@
 #include <doctest/doctest.h>
 #include <glm/glm.hpp>
 
+#include <algorithm>
 #include <array>
 #include <cmath>
 #include <cstdint>
@@ -282,18 +285,22 @@ TEST_CASE("Scene: vehicle calls without a simulated vehicle are logged and harml
 	}
 }
 
-TEST_CASE("Scene: a bike a script rides from OnFixedUpdate gives the same state hashes at 30, 60 and 144 frames a second")
+TEST_CASE("Scene: a bike a script rides from OnFixedUpdate gives the same state hashes at 30, 60 and 144 frames a second, and the "
+          "same readings at every step through its telemetry channels")
 {
 	Testing::AssetManagerScope const assets;
 	Testing::PhysicsSystemScope physics;
 	Testing::ScriptEngineScope scripting;
+	Testing::TelemetryScope const telemetry;
 	constexpr uint64_t Steps = 200;
 	AssetHandle const definition = AddDataAsset(MakeManualBike(), "Rider Bike.svehicle");
-	// Each rate's hash after every step the frames end on.
+	// Each rate's hash after every step the frames end on, and its bike's channels, a column of one row a step each.
 	std::map<float, std::map<uint64_t, uint64_t>> hashes;
+	std::map<float, std::vector<std::vector<std::optional<float>>>> readings;
 	for (float const frameTime : {1.0f / 30.0f, 1.0f / 60.0f, 1.0f / 144.0f})
 	{
 		CAPTURE(frameTime);
+		REQUIRE(Telemetry::Start().IsOk());
 		Scene scene("Rider");
 		Entity bike = MakeRide(scene, definition, "Strada.Tests.VehicleRider");
 		scene.OnRuntimeStart();
@@ -310,6 +317,20 @@ TEST_CASE("Scene: a bike a script rides from OnFixedUpdate gives the same state 
 		REQUIRE(state);
 		CHECK(state->Gear == 2);
 		scene.OnRuntimeStop();
+		Telemetry::Stop();
+		// One row a step, whatever the frame rate, each holding every channel of the bike.
+		TelemetrySession const& session = Testing::GetNewestTelemetrySession();
+		CHECK(session.FirstStep == 1);
+		CHECK(session.Rows == Steps);
+		for (std::string_view const quantity : VehicleChannelQuantities)
+		{
+			CAPTURE(quantity);
+			std::string const name = "Vehicle." + std::to_string(BikeId) + "." + std::string(quantity);
+			TelemetryChannel const* const channel = FindTelemetryChannel(session, name);
+			REQUIRE(channel != nullptr);
+			CHECK(channel->Count == Steps);
+			readings[frameTime].push_back(Testing::GetTelemetryColumn(session, name));
+		}
 	}
 	// At 30 frames a second every other step ends a frame; every step it exposes has the same hash at the other two rates.
 	size_t compared = 0;
@@ -328,4 +349,20 @@ TEST_CASE("Scene: a bike a script rides from OnFixedUpdate gives the same state 
 		CHECK(hashes.at(1.0f / 144.0f).at(step) == hash);
 	}
 	CHECK(hashes.at(1.0f / 60.0f).size() == Steps);
+	// Every step's readings, the odd steps at 30 frames a second included (two steps a frame, whose inputs differ), are the
+	// same at the three rates, bit for bit.
+	for (size_t index = 0; index < VehicleChannelCount; index++)
+	{
+		CAPTURE(VehicleChannelQuantities[index]);
+		CHECK(readings.at(1.0f / 30.0f).at(index) == readings.at(1.0f / 60.0f).at(index));
+		CHECK(readings.at(1.0f / 144.0f).at(index) == readings.at(1.0f / 60.0f).at(index));
+	}
+	// What they show of the ride: the script's lean of each step, odd and even (VehicleRider: 0.3 at odd steps from 61 to 119,
+	// 0.2 at even ones), reaching that step; and the gears it shifted to.
+	std::vector<std::optional<float>> const& lean = readings.at(1.0f / 30.0f).at(3);
+	CHECK(lean.at(60) == std::optional<float>(0.3f));
+	CHECK(lean.at(61) == std::optional<float>(0.2f));
+	CHECK(lean.at(119) == std::optional<float>(0.0f));
+	std::vector<std::optional<float>> const& gear = readings.at(1.0f / 60.0f).at(5);
+	CHECK(std::find(gear.begin(), gear.end(), std::optional<float>(2.0f)) != gear.end());
 }

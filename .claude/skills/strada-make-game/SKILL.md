@@ -489,7 +489,9 @@ graph_get {"graph":"asset://Scripts/Spinner.sgraph"}
   trigger colliders. A cast that starts inside a body hits that body.
 - `vehicle_state` reads the playing bikes as their last physics step left them: the inputs given and applied, the
   engine's speed, the gear, the speed, the lean and each wheel's contact, surface, suspension and slips (`entity` for
-  one bike).
+  one bike). Over time, record with `telemetry_start` and read the bike's channels with `telemetry_read`:
+  `Vehicle.<entity ID>.EngineSpeed`, `.Gear`, `.ForwardSpeed`, `.LeanAngle`, `.Throttle`, `.FrontBrake`, `.RearBrake`,
+  `.Lean`, and `.Front.` or `.Rear.` with `LongitudinalSlip`, `LateralSlip`, `Suspension` and `Grip`, one value a step.
 - `audio_meters` reads the mix while the game plays: each bus of the project's mixer with its `peak` and `rms` (linear)
   and `peakDb` and `rmsDb` over the last block mixed, the `snapshot` the mix is at, and the voice counts. A bus that
   reads -80 dB is silent: check the source's `Bus`, the mixer's mutes and what ducks it.
