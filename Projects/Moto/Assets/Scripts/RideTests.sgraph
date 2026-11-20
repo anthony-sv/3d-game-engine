@@ -4935,7 +4935,7 @@
 								128.0
 							],
 							"Settings": {
-								"Formula": "done || now - start > 45"
+								"Formula": "done || now - start > 47"
 							}
 						},
 						{
@@ -5261,7 +5261,7 @@
 								128.0
 							],
 							"Settings": {
-								"Formula": "done || now - start > 45"
+								"Formula": "done || now - start > 47"
 							}
 						},
 						{
@@ -5598,7 +5598,7 @@
 								144.0
 							],
 							"Settings": {
-								"Formula": "done || now - start > 45"
+								"Formula": "done || now - start > 47"
 							}
 						},
 						{
@@ -5955,7 +5955,7 @@
 								128.0
 							],
 							"Settings": {
-								"Formula": "done || now - start > 45"
+								"Formula": "done || now - start > 47"
 							}
 						},
 						{
@@ -6292,7 +6292,7 @@
 								144.0
 							],
 							"Settings": {
-								"Formula": "done || now - start > 45"
+								"Formula": "done || now - start > 47"
 							}
 						},
 						{
@@ -6641,7 +6641,7 @@
 								64.0
 							],
 							"Settings": {
-								"Formula": "done || now - start > 45"
+								"Formula": "done || now - start > 47"
 							}
 						},
 						{
@@ -6978,7 +6978,7 @@
 								272.0
 							],
 							"Settings": {
-								"Formula": "done || now - start > 45"
+								"Formula": "done || now - start > 47"
 							}
 						},
 						{

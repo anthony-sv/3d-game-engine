@@ -6566,7 +6566,16 @@ that each platform's names are tested on every platform:
   into the gravel trap outside Turn 6 at the speed it had, facing along the lap with its wheels turning on, for 1 s more;
   then back onto the main straight, 3 m right of its center line, first gear up to 15 m/s, the coast, and a lean of -0.5 for
   1 s. At the end it is teleported back onto the grid at rest, braked until it stops, and left in neutral with no input:
-  the ride writes nothing more, for the checks that join the scene later. It takes about 1,875 steps (31 s). Seven checks, each a band drawn from the figures
+  the ride writes nothing more, for the checks that join the scene later. It takes about 1,875 steps (31 s), and about
+  15 s more when a brake never stops the bike (a stop gives up after 900 steps). A module whose checks join
+  `Ride.sscene` (a line of `MODULES` naming `Ride`) runs them after the seven, from about step 1,875, with the bike on
+  the grid in neutral and `Driver` still 2, and raises the scene's test timeout (60 s, in `Checks.SCENES` and in
+  `MotoRideTests.cpp`'s `--timeout`) by what they add; a check's wait (`BikeChecks.WAIT`) stays below it. A module that
+  needs the bike from the grid at the first step (a ride compared across frame rates from the start) registers a test
+  scene of its own instead, one line of `SCENES`: it too is the main scene without its props, its runner runs only the
+  modules that name it, the ride is not in it, and the riding graph's `Driver` is what that module's `prepare` sets (0,
+  the player's, unless it sets one). The registration is the ride's switch: the runner graph has no public one. Seven
+  checks, each a band drawn from the figures
   `Vehicle.py`'s `ride_figures()` gives (closed forms from the definition), with the room each form leaves:
   (1) the speed 3 s after the launch, 18.92 m/s by the form, in 0.9 to 1.3 times it (the form takes the spinning rear tyre at its
   sliding friction throughout, where it grips up to its peak whenever it spins less), read 20.58; (2) the front brake

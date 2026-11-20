@@ -32,6 +32,7 @@ Each ShiftUp is counted SHIFT_SETTLE steps after it was sent: one gear up from w
 (BANDS) come from Vehicle.ride_figures(), the closed forms the definition's figures give (Docs/Architecture.md section 15,
 the ridden bike), each with the room its form leaves stated beside it.
 """
+import math
 import os
 import sys
 
@@ -444,11 +445,24 @@ EVENTS_REGIONS = (("Ride: each fixed step, the phase's driving, the shifts count
 
 # --- The checks ------------------------------------------------------------------------------------------------------------
 
-# How long a check waits for its reading (seconds of the game, from when it starts): the whole ride takes about 26 s.
-WAIT = 45
+# How long a check waits for its reading (seconds of the game, from when it starts). The checks run in turn and none waits
+# for a reading the ride takes after it ends, so no wait need be longer than the ride: about RIDE_SECONDS (it ends at step
+# 1,871 in Debug and 1,877 in Release, at the project's 1/60 s), and BRAKE_LIMIT's steps more when a brake never stops the
+# bike (that stop gives up and the ride goes on, and its check fails on its reading). The phases that ride up or coast down
+# to a speed have no step limit of their own, so a ride that never reaches one is ended by the scene's test timeout
+# (Checks.SCENES), which must stay above WAIT for a check that waits in vain to report first.
+RIDE_SECONDS = 32
+WAIT = math.ceil(RIDE_SECONDS + BRAKE_LIMIT * STEP)
+
+
+def ride_timeout():
+    """The ride test scene's test timeout (seconds), which a check's wait must stay below."""
+    return next(scene.timeout for scene in Checks.SCENES if scene.name == "Ride")
 
 
 def checks():
+    if WAIT >= ride_timeout():
+        raise ValueError(f"a ride check waits {WAIT} s, not less than the ride test scene's timeout of {ride_timeout()} s")
     return (
         ("CheckLaunch", "Launch: the speed 3 s from the grid in first gear at full throttle",
          "the bike launched from the grid in first gear on full throttle reaches its speed after 3 s"),
