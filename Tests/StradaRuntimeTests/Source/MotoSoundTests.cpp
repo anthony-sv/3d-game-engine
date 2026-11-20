@@ -327,6 +327,11 @@ TEST_CASE("Runtime: Moto's ghost passing the footbridge camera falls in pitch by
 	REQUIRE(cameraIndex != cameras.end());
 	SetVariable(*director, "StartCamera", "Int32", static_cast<int32_t>(cameraIndex - cameras.begin()) + 1);
 	SetVariable(*ghost, "StartAt", "Float", StartAt);
+	// The race director without its title, as Moto started before it had a race: no attract mode for a director of the
+	// cameras to cut through, so the game stays on the footbridge camera.
+	Json* const race = FindEntity(scene, "Race");
+	REQUIRE(race != nullptr);
+	SetVariable(*race, "TitleOnStart", "Bool", false);
 	// The director stands at the origin unturned, so the camera's translation is its place in the world (as its graph
 	// assumes when it turns the camera).
 	glm::dvec3 const listener =

@@ -23,26 +23,67 @@ using namespace Strada::RuntimeTesting;
 // ride at every frame rate, step for step: its readings, which the graph logs in one line, and the physics state at a step
 // of it are compared exactly between the rates. A ctest entry of its own (StradaRuntimeTests.Ride, Shards.cmake), which
 // later rides of the sample join. The scene has no props, so a start of the player on it costs less than the 25 s one on
-// Moto's main scene takes on CI's macOS runners: the shard's two starts stay well within its 200 s there.
+// Moto's main scene takes on CI's macOS runners: the shard's starts stay well within its 200 s there.
+//
+// Beside the ride, from the scene's first step, a graph of the race's checks (Tools/RaceChecks.py) sends a box through the
+// race's trigger gates, the bike's top speed among the speeds, and the race director two scripted three-lap races and a
+// third that the box's crossing of the line begins, then abandons; the director keeps its best lap in the game's save
+// slot once the results show (never in a fixed step), and the checks report after the ride's. Its readings are logged in
+// one line too ("Moto's race: ...", by about step 480), compared between the frame rates, and two short runs that keep
+// their data (development runs, not test runs) show the slot the first saved loaded by the second, which gives the ghost
+// its time. Last come the HUD's and the pause's checks (Tools/HudChecks.py): a graph presses the Pause action in the
+// middle of the ride's lean and reads the stopped game and the HUD against the bike (a text written over while the game
+// stands is left as it is), and a fourth race shows the ghost's live delta and the split delta at a sector gate, and a
+// fifth's countdown neither. Then the menus' checks (Tools/MenuChecks.py) press the menus as a player does: the title's
+// RACE, a race to its results, the settings screen's buttons read back through Settings, a binding that listens, the
+// pad's selection, the pause screen, and a race whose best lap is kept when it is left by the pause screen's QUIT TO
+// TITLE.
+// The pause inserts frames without fixed steps, so the ride's and the race's readings and the state at the hash's step stay
+// what they are.
 
 namespace
 {
 	// The ride test scene's checks.
-	constexpr std::string_view RideChecks = "Tests passed: 7 checks";
+	constexpr std::string_view RideChecks = "Tests passed: 31 checks";
 	// A fixed step of the ride after it was teleported into the gravel trap and back (by about step 1,650) and before it ends
 	// (about step 1,870): the physics state there is the same at every frame rate.
 	constexpr std::string_view HashStep = "1750";
 
-	// The line in which the ride's graph logs every reading it took ("Moto's ride: ..."); empty without one.
-	std::string_view RideReadings(std::string_view output)
+	// The line that begins with a prefix, to its end; empty without one.
+	std::string_view LineFrom(std::string_view output, std::string_view prefix)
 	{
-		size_t const start = output.find("Moto's ride: ");
+		size_t const start = output.find(prefix);
 		if (start == std::string_view::npos)
 		{
 			return {};
 		}
 		size_t const end = output.find_first_of("\r\n", start);
 		return output.substr(start, end == std::string_view::npos ? std::string_view::npos : end - start);
+	}
+
+	// The line in which the ride's graph logs every reading it took ("Moto's ride: ..."); empty without one.
+	std::string_view RideReadings(std::string_view output)
+	{
+		return LineFrom(output, "Moto's ride: ");
+	}
+
+	// The line in which the race checks' graph logs every reading it took ("Moto's race: ..."); empty without one.
+	std::string_view RaceReadings(std::string_view output)
+	{
+		return LineFrom(output, "Moto's race: ");
+	}
+
+	// A reading of the race's line, from after its prefix to the next suffix ("the slot keeps " to " s, "); empty without one.
+	std::string_view RaceReading(std::string_view readings, std::string_view prefix, std::string_view suffix)
+	{
+		size_t const start = readings.find(prefix);
+		if (start == std::string_view::npos)
+		{
+			return {};
+		}
+		size_t const from = start + prefix.size();
+		size_t const end = readings.find(suffix, from);
+		return end == std::string_view::npos ? std::string_view() : readings.substr(from, end - from);
 	}
 
 	// The test summary's physics state ("physics state <hash> at step <step>"); empty without one.
@@ -89,6 +130,9 @@ TEST_CASE("Runtime: Moto's ride test scene rides the grid bike through its check
 	CHECK(RideReadings(thirty.Output) == RideReadings(sixty.Output));
 	CHECK(PhysicsState(thirty.Output) == PhysicsState(sixty.Output));
 	CHECK(Contains(PhysicsState(sixty.Output), std::string("at step ") + std::string(HashStep)));
+	// The race's readings: its gates' crossings and its laps, in steps and fractions of steps, the same at both rates.
+	REQUIRE_FALSE(RaceReadings(sixty.Output).empty());
+	CHECK(RaceReadings(thirty.Output) == RaceReadings(sixty.Output));
 }
 
 TEST_CASE("Runtime: Moto's ride test scene rides the grid bike through its checks at 1/144 s a frame too, with the readings "
@@ -113,4 +157,45 @@ TEST_CASE("Runtime: Moto's ride test scene rides the grid bike through its check
 	CHECK(RideReadings(fast.Output) == RideReadings(sixty.Output));
 	REQUIRE_FALSE(PhysicsState(sixty.Output).empty());
 	CHECK(PhysicsState(fast.Output) == PhysicsState(sixty.Output));
+	REQUIRE_FALSE(RaceReadings(sixty.Output).empty());
+	CHECK(RaceReadings(fast.Output) == RaceReadings(sixty.Output));
+}
+
+TEST_CASE("Runtime: Moto's race keeps its best lap in the game's save slot, which the next run loads and gives the ghost")
+{
+	// Development runs of the ride test scene, which keep their game data in the project's folder (a test run's is
+	// temporary), each 560 frames at 1/60 s, past the race's readings: the first finds no best lap and saves the scripted
+	// races' best once their results show, the second race's with the stand-in ghost's samples; the second run loads it as
+	// the scene starts, gives the ghost its time and tells it, and its races beat nothing, so the slot keeps the first run's
+	// and nothing is saved again. A run without a window that
+	// is not a test run is paced at 60 frames a second, so the runs stop well before the ride's end.
+	Testing::TemporaryDirectory directory;
+	std::filesystem::path const project = CopyRepositoryProject("Moto", directory.GetPath());
+	Testing::IsolatedUserRoot const userRoot;
+	std::vector<std::string> const arguments = {
+		"--project", Native(project), "--scene", "Scenes/Ride.sscene", "--headless", "--timestep", "0.0166666667", "--frames", "560"};
+
+	ProcessResult const first = RunPlayer(arguments, userRoot);
+	CAPTURE(first.Output);
+	CHECK(first.ExitCode == 0);
+	std::string_view const saving = RaceReadings(first.Output);
+	REQUIRE_FALSE(saving.empty());
+	CHECK(Contains(saving, "loaded at start: 0 s, the ghost told 0 times with a best lap of 0 s; the best lap saved 2 times, "
+	                       "in a finish's step False"));
+	std::string const saved(RaceReading(saving, "the slot keeps ", " s, "));
+	REQUIRE_FALSE(saved.empty());
+	CHECK(saved != "-1");
+	CHECK(Contains(saving, "], 850 samples; a real crossing"));
+	CHECK(std::filesystem::is_regular_file(project.parent_path() / ".strada" / "PlayData" / "Saves" / "bestlap.ssave"));
+
+	ProcessResult const second = RunPlayer(arguments, userRoot);
+	CAPTURE(second.Output);
+	CHECK(second.ExitCode == 0);
+	std::string_view const loading = RaceReadings(second.Output);
+	REQUIRE_FALSE(loading.empty());
+	CHECK(RaceReading(loading, "loaded at start: ", " s, ") == saved);
+	CHECK(Contains(loading, "the ghost told 1 times"));
+	CHECK(RaceReading(loading, "with a best lap of ", " s; ") == saved);
+	CHECK(Contains(loading, "the best lap saved 0 times"));
+	CHECK(RaceReading(loading, "the slot keeps ", " s, ") == saved);
 }

@@ -40,6 +40,7 @@ add_executable(StradaEditorTests
     Source/JsonSchemaTests.cpp
     Source/Main.cpp
     Source/MixerPanelTests.cpp
+    Source/MotoPlayTests.cpp
     Source/PanelTests.cpp
     Source/PlayModeTests.cpp
     Source/PrefabEditingTests.cpp
