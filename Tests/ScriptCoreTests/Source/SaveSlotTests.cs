@@ -96,11 +96,18 @@ public sealed class SaveSlotTests
 	}
 
 	[Fact]
-	public void QuaternionsAreKeptOfLengthOne()
+	public void QuaternionsAreKeptOfLengthOneAndNullTextAsTheEmptyText()
 	{
 		SaveSlot slot = Empty();
 		slot.Set("Rotation", new Quaternion(0.0f, 0.0f, 0.0f, 2.0f));
 		Assert.Equal(Quaternion.Identity, slot.Get("Rotation", new Quaternion(1.0f, 0.0f, 0.0f, 0.0f)));
+		slot.Set<string?>("Text", null);
+		slot.Set("Texts", new string?[] { "a", null });
+		Assert.Equal("", slot.Get<string?>("Text", "fallback"));
+		Assert.Equal(["a", ""], slot.Get("Texts", Array.Empty<string?>()));
+		SaveSlot read = Read(Encoding.UTF8.GetString(slot.WriteValues()));
+		Assert.Equal("", read.Get<string?>("Text", "fallback"));
+		Assert.Equal(["a", ""], read.Get("Texts", Array.Empty<string?>()));
 	}
 
 	[Fact]

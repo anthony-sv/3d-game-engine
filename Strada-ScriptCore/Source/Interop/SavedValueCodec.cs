@@ -62,7 +62,7 @@ internal static class SavedValueCodec
 
 	// The saved form of a value of T; throws ArgumentException for a T without a field type and for a value the engine
 	// refuses: a list longer than ScriptFieldCodec.MaxListElements, a number that is not finite, a quaternion shorter than
-	// MinQuaternionLength. Quaternions are kept of length one, as the engine reads them back.
+	// MinQuaternionLength. Quaternions are kept of length one and null text as the empty text, as the engine reads them back.
 	internal static SavedValue ToSaved<T>(string member, T value)
 	{
 		ScriptFieldType type = ScriptFieldCodec.GetMemberFieldType(typeof(T));
@@ -72,9 +72,21 @@ internal static class SavedValueCodec
 				+ "entities, assets, enums and lists of them are)", nameof(value));
 		}
 		object? stored = ScriptFieldCodec.ToStored(value, type);
+		// The engine writes no text as the empty text, so null is kept as it reads back.
+		if (type == ScriptFieldType.String)
+		{
+			stored ??= string.Empty;
+		}
 		if (ScriptFieldCodec.IsList(type))
 		{
 			List<object?> elements = (List<object?>)stored!;
+			if (ScriptFieldCodec.GetElementType(type) == ScriptFieldType.String)
+			{
+				for (int index = 0; index < elements.Count; index++)
+				{
+					elements[index] ??= string.Empty;
+				}
+			}
 			if (elements.Count > ScriptFieldCodec.MaxListElements)
 			{
 				throw new ArgumentException(FormattableString.Invariant(
