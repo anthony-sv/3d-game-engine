@@ -34,6 +34,10 @@ namespace Strada
 	// migrations from the document's version to the current one. Fails on a header of another type or version, a missing
 	// or non-object content, a missing migration, and a migration that fails, throws or leaves no object. Any thread.
 	[[nodiscard]] Result<Json> ReadDocumentContent(Json const& document, StructDocumentFormat const& format);
+	// ReadDocumentContent without copying the content: the document's own content object when it is of the format's
+	// current version, else the migrated content, which `migrated` then holds. The pointer is valid while both live. Any
+	// thread.
+	[[nodiscard]] Result<Json const*> FindDocumentContent(Json const& document, StructDocumentFormat const& format, Json& migrated);
 	// The document of a content object in the current version of the format. Any thread.
 	Json MakeStructDocument(StructDocumentFormat const& format, Json content);
 
@@ -44,13 +48,14 @@ namespace Strada
 	[[nodiscard]] Result<T> ReadStructDocument(Json const& document, StructDocumentFormat const& format, Result<void> (*validate)(T const&),
 	                                           DeserializationContext const& context)
 	{
-		Result<Json> content = ReadDocumentContent(document, format);
+		Json migrated;
+		Result<Json const*> const content = FindDocumentContent(document, format, migrated);
 		if (!content)
 		{
 			return Error{content.GetError()};
 		}
 		T data{};
-		if (Result<void> read = DeserializeFields<StructTraits<T>>(content.GetValue(), data, context, "document"); !read)
+		if (Result<void> read = DeserializeFields<StructTraits<T>>(*content.GetValue(), data, context, "document"); !read)
 		{
 			return Error{read.GetError()};
 		}

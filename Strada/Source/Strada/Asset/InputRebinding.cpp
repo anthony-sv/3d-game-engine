@@ -155,8 +155,8 @@ namespace Strada
 			return result;
 		}
 
-		// Writes the table as the profile of its asset; nothing to write without a game data folder or for an asset that is
-		// no file.
+		// Writes the table as the profile of its asset, durably (a file the player keeps, Docs/Architecture.md §13.1); nothing
+		// to write without a game data folder or for an asset that is no file.
 		Result<void> Save()
 		{
 			std::optional<std::filesystem::path> const path = InputRebinding::GetProfilePath(s_Data.Actions);
@@ -164,7 +164,7 @@ namespace Strada
 			{
 				return {};
 			}
-			return FileSystem::WriteTextFile(*path, DumpJson(WriteInputBindingProfile(s_Data.Profile)));
+			return FileSystem::WriteTextFileDurably(*path, DumpJson(WriteInputBindingProfile(s_Data.Profile)));
 		}
 
 		// Saves after a change, logging a failure; the message a result carries for it (empty when saved).

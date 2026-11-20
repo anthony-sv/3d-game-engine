@@ -8,6 +8,7 @@
 #include "Strada/Core/Base.h"
 #include "Strada/Core/UUID.h"
 #include "Strada/Renderer/SceneRenderer.h"
+#include "Strada/Scene/SceneRendering.h"
 
 #include <glm/glm.hpp>
 
@@ -67,6 +68,12 @@ namespace Strada
 		// scene's meshes, sprites and text; without a camera it frames those from above and to the side. The panel does this
 		// when the editor opens another scene (EditorContext::GetOpenedSceneVersion).
 		void FrameScene(Scene& scene);
+
+		// The options the view renders the context's scene with, its overlays drawn at the UI's scale. They keep
+		// SceneRenderOptions::Quality at High, so the view shows the scene's own renderer settings whatever quality a game in
+		// play mode plays at (only the Game View and the player take it: Docs/Architecture.md §6.2). Valid while the
+		// context's scene and selection are, and this panel is.
+		[[nodiscard]] SceneRenderOptions MakeRenderOptions(EditorContext& context, float uiScale);
 
 		// The view's size in pixels when it was last drawn.
 		glm::uvec2 GetViewportSize() const { return m_ViewportSize; }

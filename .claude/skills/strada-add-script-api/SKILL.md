@@ -151,8 +151,11 @@ public types of `Strada.ScriptCore` in the namespaces `Strada` and `Strada.Testi
   `WithAlone`, `WithExpectedError` or `WithExpectedLog`), a `MemberTypeRecipes` entry for what every member of its type needs, or a
   checked exclusion naming a graph the FeatureTest scenes run (or a shared fixture document) that holds an enabled node of
   that type linked into flow. A class the API gives only as a result (no public constructor, no literal: `RebindResult`)
-  gets a `ResultProducers` entry naming the pure node that answers one (`Get:Strada.Input.CurrentRebind`): its getters'
-  `Target` and inputs of the class are linked from it, which no recipe can do. The test fails naming the node and its
+  gets a `ResultProducers` entry naming the node that answers one (`Get:Strada.Input.CurrentRebind`; an impure one runs
+  first, with the inputs the entry gives: `Call:Strada.SaveSlot.Open(string)` with a `Name`): its getters' `Target` and
+  inputs of the class are linked from it, which no recipe can do. Members that change what every case sees (the player's
+  settings) run alone by their type (`GlobalEffectTypes`); members that read or write the game data folder (save slots)
+  run in scenes of their own with a temporary folder (`GameDataTypes`). The test fails naming the node and its
   first error until one of them covers it. A new
   built-in node kind (or a `[VisualNode]` member of the FeatureTest scripts) also fails "the feature-test graphs use
   every built-in node kind ..." until `build_features` in `Projects/FeatureTest/Tools/AuthorGraphs.py` uses it: run that

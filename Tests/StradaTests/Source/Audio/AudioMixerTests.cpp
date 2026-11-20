@@ -397,6 +397,86 @@ TEST_CASE("AudioMixer: the game's bus values add to the mixer's, are kept by nam
 	CHECK(CountLogged(logStart, "no bus named 'Voices'") == 1);
 }
 
+TEST_CASE("AudioMixer: the player's values add to the game's, stay through the game's reset, and wait by name for their bus")
+{
+	Testing::AudioEngineScope engine;
+	AudioEngine::SetMixer(MakeMixer({MakeBus("Master", ""), MakeBus("Music", "Master", -3.0f)}));
+	Scope<AudioScene> audio = CreateAudioScene();
+	REQUIRE(audio->AddSource(MakeSource(SourceId(0), MakeLevelClip(0.5f, 1.0f), "Music")).IsOk());
+	REQUIRE(audio->AddSource(MakeSource(SourceId(1), MakeLevelClip(0.25f, 1.0f), "Voices")).IsOk());
+	audio->Play(SourceId(0));
+	float const level = Quantize(0.5f);
+	auto const musicDb = [&level]
+	{
+		Skip(0.01f);
+		return ToDecibels(ReadLevels(0.02f).Left / level);
+	};
+	CHECK(std::abs(musicDb() - -3.0) < 0.1);
+
+	// The two stages add in decibels, each read back by its own getter.
+	AudioEngine::SetPlayerBusVolume("music", -6.0f);
+	AudioEngine::SetBusVolume("Music", -4.0f);
+	CHECK(AudioEngine::GetPlayerBusVolume("MUSIC") == -6.0f);
+	CHECK(AudioEngine::GetBusVolume("Music") == -4.0f);
+	CHECK(std::abs(musicDb() - -13.0) < 0.1);
+	// The master volumes multiply.
+	AudioEngine::SetPlayerMasterVolume(0.5f);
+	AudioEngine::SetMasterVolume(0.5f);
+	CHECK(AudioEngine::GetPlayerMasterVolume() == 0.5f);
+	CHECK(AudioEngine::GetMasterVolume() == 0.5f);
+	CHECK(std::abs(musicDb() - (-13.0 + 2.0 * ToDecibels(0.5))) < 0.1);
+
+	// A game starts with its own values reset: the player's stay.
+	AudioEngine::ResetGameValues();
+	CHECK(AudioEngine::GetMasterVolume() == 1.0f);
+	CHECK(AudioEngine::GetBusVolume("Music") == 0.0f);
+	CHECK(AudioEngine::GetPlayerBusVolume("Music") == -6.0f);
+	CHECK(AudioEngine::GetPlayerMasterVolume() == 0.5f);
+	CHECK(std::abs(musicDb() - (-9.0 + ToDecibels(0.5))) < 0.1);
+	AudioEngine::SetPlayerMasterVolume(1.0f);
+
+	// Either stage's mute silences the bus, and so does either stage at silence, whatever the other adds.
+	AudioEngine::SetPlayerBusMuted("Music", true);
+	CHECK(AudioEngine::IsPlayerBusMuted("Music"));
+	CHECK_FALSE(AudioEngine::IsBusMuted("Music"));
+	Skip(0.01f);
+	CHECK(ReadLevels(0.02f).Left == 0.0f);
+	AudioEngine::SetPlayerBusMuted("Music", false);
+	AudioEngine::SetBusMuted("Music", true);
+	Skip(0.01f);
+	CHECK(ReadLevels(0.02f).Left == 0.0f);
+	AudioEngine::SetBusMuted("Music", false);
+	AudioEngine::SetBusVolume("Music", MinMixerVolumeDb);
+	AudioEngine::SetPlayerBusVolume("Music", MaxMixerVolumeDb);
+	Skip(0.01f);
+	CHECK(ReadLevels(0.02f).Left == 0.0f);
+	AudioEngine::SetBusVolume("Music", 0.0f);
+	AudioEngine::SetPlayerBusVolume("Music", -6.0f);
+	CHECK(std::abs(musicDb() - -9.0) < 0.1);
+
+	// The player's value of a bus the mixer lacks is kept by name, logged once, and taken by the bus once it exists.
+	uint64_t const logStart = Log::GetNextEntryIndex();
+	AudioEngine::SetPlayerBusVolume("Voices", -10.0f);
+	AudioEngine::SetPlayerBusVolume("Voices", -12.0f);
+	CHECK(AudioEngine::GetPlayerBusVolume("voices") == -12.0f);
+	CHECK(CountLogged(logStart, "no bus named 'Voices': the player's volume") == 1);
+	audio->Stop(SourceId(0));
+	audio->Play(SourceId(1));
+	float const voices = Quantize(0.25f);
+	Skip(0.02f);
+	CHECK(ReadLevels(0.02f).Left == doctest::Approx(voices).epsilon(1e-5));
+	AudioEngine::SetMixer(MakeMixer({MakeBus("Master", ""), MakeBus("Music", "Master", -3.0f), MakeBus("Voices", "Master")}));
+	Skip(0.05f);
+	CHECK(std::abs(ToDecibels(ReadLevels(0.02f).Left / voices) - -12.0) < 0.1);
+
+	// Back to unchanged: the mix is the game's alone again.
+	AudioEngine::ResetPlayerValues();
+	CHECK(AudioEngine::GetPlayerBusVolume("Voices") == 0.0f);
+	CHECK(AudioEngine::GetPlayerMasterVolume() == 1.0f);
+	Skip(0.01f);
+	CHECK(ReadLevels(0.02f).Left == doctest::Approx(voices).epsilon(1e-5));
+}
+
 TEST_CASE("AudioMixer: a bus removed while it plays sends its sounds to Master, a retired scene's fading ones included")
 {
 	Testing::AudioEngineScope engine;

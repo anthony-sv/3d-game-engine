@@ -63,10 +63,15 @@ namespace Strada
 		return static_cast<ScriptFieldType>(static_cast<uint8_t>(type) & static_cast<uint8_t>(~ScriptFieldListFlag));
 	}
 
-	// Whether the type is one of the element types other than None (Bool to Asset).
+	// The last element type. A new element type changes every format that holds script fields (scenes, prefabs, save slots
+	// and the player's settings: Docs/Architecture.md §7.3, "Adding a version", step 3); the save slot's and the settings'
+	// formats pin it with MaxScriptFieldListElements, so that their versions cannot be forgotten.
+	inline constexpr ScriptFieldType LastScriptFieldElementType = ScriptFieldType::Asset;
+
+	// Whether the type is one of the element types other than None (Bool to LastScriptFieldElementType).
 	[[nodiscard]] constexpr bool IsScriptFieldElementType(ScriptFieldType type)
 	{
-		return type != ScriptFieldType::None && static_cast<uint8_t>(type) <= static_cast<uint8_t>(ScriptFieldType::Asset);
+		return type != ScriptFieldType::None && static_cast<uint8_t>(type) <= static_cast<uint8_t>(LastScriptFieldElementType);
 	}
 
 	// The list type of an element type; None for None and for a list type (there are no lists of lists).

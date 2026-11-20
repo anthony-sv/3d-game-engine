@@ -4,10 +4,14 @@
 
 #include <doctest/doctest.h>
 
+#include <algorithm>
 #include <array>
 #include <cstdint>
+#include <filesystem>
 #include <optional>
 #include <string>
+#include <system_error>
+#include <vector>
 
 using namespace Strada;
 
@@ -40,6 +44,97 @@ TEST_CASE("FileSystem: overwriting replaces the whole file atomically")
 		fileCount++;
 	}
 	CHECK(fileCount == 1);
+}
+
+namespace
+{
+	// The names in a directory, sorted.
+	std::vector<std::string> ListNames(std::filesystem::path const& directory)
+	{
+		std::vector<std::string> names;
+		for (std::filesystem::directory_entry const& entry : std::filesystem::directory_iterator(directory))
+		{
+			names.push_back(FileSystem::PathToUtf8(entry.path().filename()));
+		}
+		std::sort(names.begin(), names.end());
+		return names;
+	}
+}
+
+TEST_CASE("FileSystem: a durable write replaces a whole file, creates its folders and leaves no temporary file")
+{
+	Testing::TemporaryDirectory directory;
+	std::filesystem::path const path = directory.GetPath() / "Saves" / "slot.txt";
+	REQUIRE(FileSystem::WriteTextFileDurably(path, "a much longer first version").IsOk());
+	REQUIRE(FileSystem::WriteTextFileDurably(path, "short").IsOk());
+	CHECK(FileSystem::ReadTextFile(path).GetValue() == "short");
+	REQUIRE(FileSystem::WriteTextFileDurably(path, "").IsOk());
+	CHECK(FileSystem::GetFileSize(path) == uint64_t{0});
+
+	std::filesystem::path const binary = directory.GetPath() / "Saves" / "data.bin";
+	std::array<uint8_t, 4> const bytes = {0x00, 0xFF, 0x0A, 0x0D};
+	REQUIRE(FileSystem::WriteBinaryFileDurably(binary, bytes).IsOk());
+	Result<Buffer> const read = FileSystem::ReadBinaryFile(binary);
+	REQUIRE(read.IsOk());
+	REQUIRE(read.GetValue().GetSize() == bytes.size());
+	CHECK(std::equal(bytes.begin(), bytes.end(), read.GetValue().GetData()));
+	CHECK(ListNames(directory.GetPath() / "Saves") == std::vector<std::string>{"data.bin", "slot.txt"});
+}
+
+TEST_CASE("FileSystem: a durable write that fails before its rename leaves the old file as it was and no temporary file")
+{
+	Testing::TemporaryDirectory directory;
+
+	// A folder that holds a file stands at the path: the rename fails on every platform.
+	std::filesystem::path const folder = directory.GetPath() / "taken";
+	REQUIRE(FileSystem::WriteTextFile(folder / "inside.txt", "kept").IsOk());
+	CHECK_FALSE(FileSystem::WriteTextFileDurably(folder, "new").IsOk());
+	CHECK(FileSystem::IsDirectory(folder));
+	CHECK(FileSystem::ReadTextFile(folder / "inside.txt").GetValue() == "kept");
+
+	// A file stands where a folder of the path must be: nothing can be created.
+	std::filesystem::path const file = directory.GetPath() / "file.txt";
+	REQUIRE(FileSystem::WriteTextFile(file, "old").IsOk());
+	CHECK_FALSE(FileSystem::WriteTextFileDurably(file / "below.txt", "new").IsOk());
+	CHECK(FileSystem::ReadTextFile(file).GetValue() == "old");
+	CHECK(ListNames(directory.GetPath()) == std::vector<std::string>{"file.txt", "taken"});
+
+#if defined(ST_PLATFORM_WINDOWS)
+	// Windows refuses to replace a read-only file (a rename's target, unlike POSIX, which asks only the folder): the old
+	// content stays, and the synced temporary file is removed.
+	{
+		Testing::ReadOnlyFileScope const readOnly(file);
+		CHECK_FALSE(FileSystem::WriteTextFileDurably(file, "new").IsOk());
+		CHECK_FALSE(FileSystem::WriteBinaryFileDurably(file, std::array<uint8_t, 1>{0x01}).IsOk());
+	}
+	CHECK(FileSystem::ReadTextFile(file).GetValue() == "old");
+	CHECK(ListNames(directory.GetPath()) == std::vector<std::string>{"file.txt", "taken"});
+#else
+	// POSIX asks the folder, not the file, whether a file may be replaced: a folder nobody may write refuses the temporary
+	// file, before any rename, and the old file stays. A user the system lets write anyway (root) skips this part.
+	std::filesystem::path const locked = directory.GetPath() / "locked";
+	std::filesystem::path const kept = locked / "kept.txt";
+	REQUIRE(FileSystem::WriteTextFile(kept, "old").IsOk());
+	std::error_code error;
+	std::filesystem::perms const permissions = std::filesystem::status(locked, error).permissions();
+	REQUIRE_FALSE(error);
+	constexpr std::filesystem::perms Write =
+		std::filesystem::perms::owner_write | std::filesystem::perms::group_write | std::filesystem::perms::others_write;
+	std::filesystem::permissions(locked, Write, std::filesystem::perm_options::remove, error);
+	REQUIRE_FALSE(error);
+	bool const enforced = !FileSystem::WriteTextFile(locked / "probe.txt", "x").IsOk();
+	bool const failedText = !FileSystem::WriteTextFileDurably(kept, "new").IsOk();
+	bool const failedBinary = !FileSystem::WriteBinaryFileDurably(kept, std::array<uint8_t, 1>{0x01}).IsOk();
+	std::filesystem::permissions(locked, permissions, std::filesystem::perm_options::replace, error);
+	REQUIRE_FALSE(error);
+	if (enforced)
+	{
+		CHECK(failedText);
+		CHECK(failedBinary);
+		CHECK(FileSystem::ReadTextFile(kept).GetValue() == "old");
+		CHECK(ListNames(locked) == std::vector<std::string>{"kept.txt"});
+	}
+#endif
 }
 
 TEST_CASE("FileSystem: UTF-8 byte order marks are stripped from text files")

@@ -465,6 +465,30 @@ Names are 1 to 64 bytes; a name the recorder refuses is dropped, and warned abou
 **Try it:** in a rolling ball's `FixedUpdate`, record the length of its velocity as `Ball.Speed`, open View > Telemetry
 and play: the lane draws itself as the ball rolls.
 
+### Saves and settings
+
+A game of graphs keeps a best score and its settings screen's choices as a game of C# does
+([Scripting.md](Scripting.md#saves-and-settings) has the rules); none of these nodes names a file.
+
+- **Open** (`Call:Strada.SaveSlot.Open(string)`) reads a slot by `Name` and answers a `Strada.SaveSlot`: keep it in a
+  private variable of that type, since Open reads the disk each time the flow passes it. **Get Names** lists the slots.
+- **Get** (`Call:Strada.SaveSlot.Get<T>(string,T)`) is pure: the value of `Name`, or `Fallback` when the slot has none of
+  that type. **Set** (`Call:Strada.SaveSlot.Set<T>(string,T)`) changes the value in the slot object, and **Has** and
+  **Remove** do what they say. Both are typed by their links: link a `float[]` to Set's `Value` (or Get's `Fallback`)
+  and the node is the `float[]` one; with nothing linked, choose `T` in Details (`TypeArguments`).
+- **Save** writes every value of the slot and returns once it is on disk; it answers false (and logs why) while no game
+  runs, for a slot a later build wrote, or for a file it cannot read at all (a folder of that name), which it keeps. The
+  frame that saves waits for the disk, so save at a results screen or a menu,
+  never while the player rides, and keep a lap's best in a variable until then. **Delete** removes the slot. `Status`
+  (`Strada.SaveSlotStatus`) says what Open found: `Missing`, `Present`, `Damaged`, `Newer` or `Unavailable`.
+- `Strada.Settings`: `Quality`, `WindowMode`, `VSync` and `MasterVolume` have Get and Set nodes, **Set Window Size**,
+  **Set Bus Volume** and **Set Bus Muted** change the window and the player's volumes at once (pure **Get Bus Volume**
+  and **Is Bus Muted** read them), Get, Set, Has and Remove keep the game's own values (an assist as a `bool`), and
+  **Save** keeps everything for the next run.
+
+**Try it:** at a race's end, Open the slot `Best` into a variable, Get `Lap` with a fallback of 1000, and when the lap is
+faster, Set it and Save; show the Get on the title screen.
+
 ## Graphs that talk to graphs
 
 A VisualScript component runs one graph. To give an entity several behaviors, put each on a child entity with a

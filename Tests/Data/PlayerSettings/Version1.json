@@ -1,0 +1,42 @@
+{
+	"Strada": {
+		"Version": 1,
+		"Type": "PlayerSettings"
+	},
+	"PlayerSettings": {
+		"Window": {
+			"Mode": "Fullscreen",
+			"Width": 1600,
+			"Height": 900,
+			"VSync": false
+		},
+		"Quality": "Medium",
+		"MasterVolume": 0.8,
+		"Buses": [
+			{
+				"Bus": "Music",
+				"VolumeDb": -9.5,
+				"Muted": false
+			},
+			{
+				"Bus": "Engine",
+				"VolumeDb": 0.0,
+				"Muted": true
+			}
+		],
+		"Values": {
+			"BrakeShare": {
+				"Type": "Float",
+				"Value": 0.35
+			},
+			"LinkedBrakes": {
+				"Type": "Bool",
+				"Value": true
+			},
+			"Units": {
+				"Type": "String",
+				"Value": "Metric"
+			}
+		}
+	}
+}

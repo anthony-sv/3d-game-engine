@@ -29,6 +29,15 @@ namespace Strada
 	{
 		using SteadyClock = std::chrono::steady_clock;
 
+		// A bus's value in a stage after the mixer's own (§9.5): the game's, the player's, or the two combined, kept by key.
+		struct AudioGameBusValues
+		{
+			float VolumeDb = 0.0f;
+			bool Muted = false;
+
+			bool operator==(AudioGameBusValues const& other) const = default;
+		};
+
 		// A bus of the mixer, as the main thread last made and sent it.
 		struct AudioBusState
 		{
@@ -45,13 +54,8 @@ namespace Strada
 			AudioBusNode* DuckTrigger = nullptr;
 			std::array<float, 4> DuckValues = {MixerBus{}.DuckAmountDb, MixerBus{}.DuckThresholdDb, MixerBus{}.DuckAttackSeconds,
 			                                   MixerBus{}.DuckReleaseSeconds};
-		};
-
-		// The game's value of a bus (§9.5), kept by key.
-		struct AudioGameBusValues
-		{
-			float VolumeDb = 0.0f;
-			bool Muted = false;
+			// The game's and the player's stages combined, as last sent to the node (CombineStages).
+			AudioGameBusValues SentStages;
 		};
 
 		struct AudioEngineData
@@ -72,15 +76,20 @@ namespace Strada
 			Scope<AudioMixer> Mixer;
 			Scope<AudioVoiceManager> Voices;
 			AudioSampleCache Samples;
+			// The game's master volume, the player's, and their product as last sent to the mix.
 			float MasterVolume = 1.0f;
+			float PlayerMasterVolume = 1.0f;
+			float SentMasterVolume = 1.0f;
 
-			// The mixer (§9.5): what was last applied (the asset's own values), its buses by key, the game's values by key, and
-			// the names logged as missing since the mixer's buses last changed.
+			// The mixer (§9.5): what was last applied (the asset's own values), its buses by key, the game's and the player's
+			// values by key, and the names logged as missing since the mixer's buses last changed.
 			Strada::Mixer CurrentMixer;
 			std::unordered_map<std::string, AudioBusState> Buses;
 			std::unordered_map<std::string, AudioGameBusValues> GameValues;
+			std::unordered_map<std::string, AudioGameBusValues> PlayerValues;
 			std::unordered_set<std::string> MissingBuses;
 			std::unordered_set<std::string> UnknownGameBuses;
+			std::unordered_set<std::string> UnknownPlayerBuses;
 			std::unordered_set<std::string> UnknownMeterBuses;
 			// The snapshot the mix blends to or holds (§9.8), as the mixer names it; empty for the mixer's own values. The
 			// snapshot names logged as unknown since the mixer last changed.
@@ -223,6 +232,28 @@ namespace Strada
 		float ToBusGain(float decibels, bool muted)
 		{
 			return muted || decibels <= MinMixerVolumeDb ? 0.0f : static_cast<float>(std::pow(10.0, static_cast<double>(decibels) / 20.0));
+		}
+
+		// A bus's game stage and player stage as the one gain stage its node has (§9.5): the volumes summed in decibels
+		// (silence when either is at MinMixerVolumeDb or below, and a sum there is silence too) and either mute.
+		AudioGameBusValues CombineStages(AudioEngineData const& data, std::string const& key)
+		{
+			AudioGameBusValues game;
+			if (auto const found = data.GameValues.find(key); found != data.GameValues.end())
+			{
+				game = found->second;
+			}
+			AudioGameBusValues player;
+			if (auto const found = data.PlayerValues.find(key); found != data.PlayerValues.end())
+			{
+				player = found->second;
+			}
+			AudioGameBusValues combined;
+			combined.Muted = game.Muted || player.Muted;
+			combined.VolumeDb = game.VolumeDb <= MinMixerVolumeDb || player.VolumeDb <= MinMixerVolumeDb
+			                        ? MinMixerVolumeDb
+			                        : std::max(game.VolumeDb + player.VolumeDb, MinMixerVolumeDb);
+			return combined;
 		}
 
 		void SendBusCommand(AudioEngineData& data, AudioCommandType type, AudioMixerObject* object, AudioMixerObject* other,
@@ -371,12 +402,8 @@ namespace Strada
 				// The tree has at most MaxMixerBuses levels.
 				for (uint32_t level = 0; current != nullptr && level <= MaxMixerBuses; level++)
 				{
-					auto const game = data.GameValues.find(MakeMixerBusKey(current->Values.Name));
 					gain *= ToBusGain(current->Values.VolumeDb, current->Values.Muted);
-					if (game != data.GameValues.end())
-					{
-						gain *= ToBusGain(game->second.VolumeDb, game->second.Muted);
-					}
+					gain *= ToBusGain(current->SentStages.VolumeDb, current->SentStages.Muted);
 					auto const parent = current->ParentKey.empty() ? data.Buses.end() : data.Buses.find(current->ParentKey);
 					current = parent != data.Buses.end() ? &parent->second : nullptr;
 				}
@@ -503,9 +530,9 @@ namespace Strada
 				state.Chain = MakeEffectChain(data, bus.Effects);
 				state.Values = bus;
 				state.ParentKey = std::move(parentKey);
-				auto const game = data.GameValues.find(key);
-				state.Node->SetInitialValues(bus.VolumeDb, bus.Muted,
-				                             game != data.GameValues.end() ? ToBusGain(game->second.VolumeDb, game->second.Muted) : 1.0f,
+				// A bus made again (an undo) or at last (a player's setting of a name the mixer lacked) starts at its stages.
+				state.SentStages = CombineStages(data, key);
+				state.Node->SetInitialValues(bus.VolumeDb, bus.Muted, ToBusGain(state.SentStages.VolumeDb, state.SentStages.Muted),
 				                             state.Chain.get());
 				SendBusCommand(data, AudioCommandType::AddBus, state.Node.get(), parent);
 				data.Buses.emplace(std::move(key), std::move(state));
@@ -531,6 +558,7 @@ namespace Strada
 				// Each name a source asks for and the mixer lacks is logged once per mixer.
 				data.MissingBuses.clear();
 				data.UnknownGameBuses.clear();
+				data.UnknownPlayerBuses.clear();
 				data.UnknownMeterBuses.clear();
 			}
 			if (mixer.Snapshots != data.CurrentMixer.Snapshots)
@@ -807,6 +835,25 @@ namespace Strada
 		return s_Data != nullptr ? ma_engine_get_channels(&s_Data->Engine) : 0;
 	}
 
+	namespace
+	{
+		// Sends the mix the product of the game's and the player's master volumes when it changed.
+		void SendMasterVolume(AudioEngineData& data)
+		{
+			// The player's volume is finite: a silent player stage silences whatever the game's is.
+			float const volume = data.PlayerMasterVolume > 0.0f ? data.MasterVolume * data.PlayerMasterVolume : 0.0f;
+			if (volume == data.SentMasterVolume)
+			{
+				return;
+			}
+			data.SentMasterVolume = volume;
+			AudioCommand command;
+			command.Type = AudioCommandType::SetMasterVolume;
+			command.Values[0] = volume;
+			data.Queue->Push(command);
+		}
+	}
+
 	float AudioEngine::GetMasterVolume()
 	{
 		return s_Data != nullptr ? s_Data->MasterVolume : 0.0f;
@@ -819,16 +866,8 @@ namespace Strada
 			return;
 		}
 		// Also replaces NaN.
-		volume = volume > 0.0f ? volume : 0.0f;
-		if (volume == s_Data->MasterVolume)
-		{
-			return;
-		}
-		s_Data->MasterVolume = volume;
-		AudioCommand command;
-		command.Type = AudioCommandType::SetMasterVolume;
-		command.Values[0] = volume;
-		s_Data->Queue->Push(command);
+		s_Data->MasterVolume = volume > 0.0f ? volume : 0.0f;
+		SendMasterVolume(*s_Data);
 	}
 
 	void AudioEngine::SetMixer(Mixer const& mixer)
@@ -976,17 +1015,54 @@ namespace Strada
 			return nullptr;
 		}
 
-		void SetGameValues(AudioEngineData& data, AudioBusState& state, AudioGameBusValues const& values)
+		// Sends a bus's node its game and player stages combined (CombineStages) when they changed since last sent.
+		void SendStages(AudioEngineData& data, AudioBusState& state)
 		{
-			AudioGameBusValues& kept = data.GameValues[MakeMixerBusKey(state.Values.Name)];
-			if (kept.VolumeDb == values.VolumeDb && kept.Muted == values.Muted)
+			AudioGameBusValues const combined = CombineStages(data, MakeMixerBusKey(state.Values.Name));
+			if (combined == state.SentStages)
 			{
 				return;
 			}
-			kept = values;
+			state.SentStages = combined;
 			SendBusCommand(data, AudioCommandType::SetBusGameValues, state.Node.get(), nullptr,
-			               {values.VolumeDb, values.Muted ? 1.0f : 0.0f, 0.0f, 0.0f});
+			               {combined.VolumeDb, combined.Muted ? 1.0f : 0.0f, 0.0f, 0.0f});
 			UpdateChainGains(data);
+		}
+
+		void SetGameValues(AudioEngineData& data, AudioBusState& state, AudioGameBusValues const& values)
+		{
+			data.GameValues[MakeMixerBusKey(state.Values.Name)] = values;
+			SendStages(data, state);
+		}
+
+		// The player's value of a bus by its key, kept whether the mixer has the bus or not (an entry back at 0 dB and not
+		// muted is dropped), and sent when it has.
+		void SetPlayerValues(AudioEngineData& data, std::string_view bus, AudioGameBusValues const& values)
+		{
+			std::string key = MakeMixerBusKey(bus);
+			if (values == AudioGameBusValues{})
+			{
+				data.PlayerValues.erase(key);
+			}
+			else
+			{
+				data.PlayerValues[key] = values;
+			}
+			if (auto const found = data.Buses.find(key); found != data.Buses.end())
+			{
+				SendStages(data, found->second);
+				return;
+			}
+			if (data.UnknownPlayerBuses.insert(std::move(key)).second)
+			{
+				ST_CORE_WARN("The mixer has no bus named '{}': the player's volume of it applies once a bus of that name exists", bus);
+			}
+		}
+
+		AudioGameBusValues GetPlayerValues(AudioEngineData const& data, std::string_view bus)
+		{
+			auto const found = data.PlayerValues.find(MakeMixerBusKey(bus));
+			return found != data.PlayerValues.end() ? found->second : AudioGameBusValues{};
 		}
 	}
 
@@ -1050,11 +1126,11 @@ namespace Strada
 			return;
 		}
 		SetMasterVolume(1.0f);
+		s_Data->GameValues.clear();
 		for (auto& entry : s_Data->Buses)
 		{
-			SetGameValues(*s_Data, entry.second, AudioGameBusValues{});
+			SendStages(*s_Data, entry.second);
 		}
-		s_Data->GameValues.clear();
 		// No snapshot: the mix is back at the mixer's own values, over an edit's ramp.
 		if (!s_Data->CurrentSnapshot.empty())
 		{
@@ -1063,6 +1139,68 @@ namespace Strada
 			ApplyMixer(*s_Data, own, 0.0f);
 		}
 		UpdateChainGains(*s_Data);
+	}
+
+	float AudioEngine::GetPlayerMasterVolume()
+	{
+		return s_Data != nullptr ? s_Data->PlayerMasterVolume : 1.0f;
+	}
+
+	void AudioEngine::SetPlayerMasterVolume(float volume)
+	{
+		if (s_Data == nullptr || !std::isfinite(volume))
+		{
+			return;
+		}
+		s_Data->PlayerMasterVolume = std::max(volume, 0.0f);
+		SendMasterVolume(*s_Data);
+	}
+
+	float AudioEngine::GetPlayerBusVolume(std::string_view bus)
+	{
+		return s_Data != nullptr ? GetPlayerValues(*s_Data, bus).VolumeDb : 0.0f;
+	}
+
+	void AudioEngine::SetPlayerBusVolume(std::string_view bus, float decibels)
+	{
+		if (s_Data == nullptr || std::isnan(decibels))
+		{
+			return;
+		}
+		AudioGameBusValues values = GetPlayerValues(*s_Data, bus);
+		values.VolumeDb = std::clamp(decibels, MinMixerVolumeDb, MaxMixerVolumeDb);
+		SetPlayerValues(*s_Data, bus, values);
+	}
+
+	bool AudioEngine::IsPlayerBusMuted(std::string_view bus)
+	{
+		return s_Data != nullptr && GetPlayerValues(*s_Data, bus).Muted;
+	}
+
+	void AudioEngine::SetPlayerBusMuted(std::string_view bus, bool muted)
+	{
+		if (s_Data == nullptr)
+		{
+			return;
+		}
+		AudioGameBusValues values = GetPlayerValues(*s_Data, bus);
+		values.Muted = muted;
+		SetPlayerValues(*s_Data, bus, values);
+	}
+
+	void AudioEngine::ResetPlayerValues()
+	{
+		if (s_Data == nullptr)
+		{
+			return;
+		}
+		s_Data->PlayerMasterVolume = 1.0f;
+		SendMasterVolume(*s_Data);
+		s_Data->PlayerValues.clear();
+		for (auto& entry : s_Data->Buses)
+		{
+			SendStages(*s_Data, entry.second);
+		}
 	}
 
 	void AudioEngine::ClearEffectState()

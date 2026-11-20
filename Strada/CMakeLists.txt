@@ -189,6 +189,8 @@ set(STRADA_PROJECT_SOURCES
     Source/Strada/Project/ExampleCatalog.h
     Source/Strada/Project/GameExporter.cpp
     Source/Strada/Project/GameExporter.h
+    Source/Strada/Project/PlayerWindow.cpp
+    Source/Strada/Project/PlayerWindow.h
     Source/Strada/Project/Project.cpp
     Source/Strada/Project/Project.h
     Source/Strada/Project/ProjectCopy.cpp
@@ -212,6 +214,8 @@ set(STRADA_RENDERER_SOURCES
     Source/Strada/Renderer/InstanceMath.h
     Source/Strada/Renderer/QuadRenderer.cpp
     Source/Strada/Renderer/QuadRenderer.h
+    Source/Strada/Renderer/QualityPresets.cpp
+    Source/Strada/Renderer/QualityPresets.h
     Source/Strada/Renderer/Renderer.cpp
     Source/Strada/Renderer/Renderer.h
     Source/Strada/Renderer/SceneRenderer.cpp
@@ -262,7 +266,11 @@ set(STRADA_SCENE_SOURCES
 set(STRADA_SCRIPT_SOURCES
     Source/Strada/Script/DotNetHost.cpp
     Source/Strada/Script/DotNetHost.h
+    Source/Strada/Script/PlayerSettings.cpp
+    Source/Strada/Script/PlayerSettings.h
     Source/Strada/Script/ReplyReader.h
+    Source/Strada/Script/SaveSlots.cpp
+    Source/Strada/Script/SaveSlots.h
     Source/Strada/Script/ScriptBindings.cpp
     Source/Strada/Script/ScriptBindings.h
     Source/Strada/Script/ScriptBindingsApplication.cpp
@@ -270,6 +278,7 @@ set(STRADA_SCRIPT_SOURCES
     Source/Strada/Script/ScriptBindingsComponents.cpp
     Source/Strada/Script/ScriptBindingsEntity.cpp
     Source/Strada/Script/ScriptBindingsRuntime.cpp
+    Source/Strada/Script/ScriptBindingsSaves.cpp
     Source/Strada/Script/ScriptBindingsUI.cpp
     Source/Strada/Script/ScriptEngine.cpp
     Source/Strada/Script/ScriptEngine.h

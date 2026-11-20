@@ -17,6 +17,9 @@ public sealed class GenericMethodTests
 	private const string Repeat = "Call:Strada.ScriptCore.Tests.Probe.Repeat<T>(T,int)";
 	private const string Default = "Call:Strada.ScriptCore.Tests.Probe.Default<T>()";
 	private const string Echo = "Call:Strada.ScriptCore.Tests.Probe.Echo<T>(T)";
+	private const string ShelfOpen = "Call:Strada.ScriptCore.Tests.Shelf.Open()";
+	private const string ShelfSet = "Call:Strada.ScriptCore.Tests.Shelf.Set<T>(string,T)";
+	private const string ShelfGet = "Call:Strada.ScriptCore.Tests.Shelf.Get<T>(string,T)";
 
 	private static AnalyzedDocument Analyze(DocumentBuilder document) => VisualScriptTesting.Analyze(RuntimeTesting.Library, document.Build());
 
@@ -189,6 +192,71 @@ public sealed class GenericMethodTests
 		TestRuntime runtime = TestRuntime.Start(document);
 		runtime.Invoke(ScriptEvent.Create);
 		Assert.Equal(["(0, 0)"], runtime.Records);
+	}
+
+	// Unconstrained generic members of an instance of a plain class, the shape of SaveSlot.Get<T> and Set<T> (Docs/
+	// Architecture.md §10.4): the Target is an object held in a private variable, and T comes from links alone, with no
+	// TypeArguments, for an array of vectors, an array of floats, an enum and a float.
+	[Fact]
+	public void InstanceMethodsOfPlainClassesInferTheirTypeFromLinks()
+	{
+		DocumentBuilder document = new();
+		uint shelf = document.Variable("Shelf", "Strada.ScriptCore.Tests.Shelf");
+		(string Name, string Type, string Value, string Fallback)[] values =
+		[
+			("Points", "Strada.Vector3[]", "[[1, 2, 3], [4, 5, 6]]", "[]"),
+			("Times", "float[]", "[30.5, 61.25]", "[]"),
+			("Key", "Strada.KeyCode", "\"Space\"", "\"W\""),
+			("Best", "float", "92.5", "0"),
+		];
+		GraphBuilder graph = document.Graph;
+		uint open = graph.Node(ShelfOpen);
+		uint store = graph.Set(shelf);
+		graph.Flow(graph.Node("Event.Create"), open);
+		graph.Flow(open, store);
+		graph.Link(open, "Result", store, "Value");
+		uint previous = store;
+		uint text = graph.Node("FormatString", """{ "Format": "{Points} {Times} {Key} {Best} {Missing}" }""");
+		uint[] sets = new uint[values.Length];
+		uint[] gets = new uint[values.Length];
+		for (int index = 0; index < values.Length; index++)
+		{
+			(string name, string type, string value, string fallback) = values[index];
+			uint variable = document.Variable(name, type, value);
+			sets[index] = graph.Node(ShelfSet, inputs: $$"""{ "Name": {{RuntimeTesting.Quote(name)}} }""");
+			graph.Link(graph.Get(shelf), "Value", sets[index], "Target");
+			graph.Link(graph.Get(variable), "Value", sets[index], "Value");
+			graph.Flow(previous, sets[index]);
+			previous = sets[index];
+
+			gets[index] = graph.Node(ShelfGet, inputs: $$"""{ "Name": {{RuntimeTesting.Quote(name)}} }""");
+			graph.Link(graph.Get(shelf), "Value", gets[index], "Target");
+			graph.Link(graph.Literal(type, fallback), "Value", gets[index], "Fallback");
+			graph.Link(gets[index], "Result", text, name);
+		}
+		// A name the shelf lacks answers the fallback.
+		uint missing = graph.Node(ShelfGet, inputs: """{ "Name": "Missing" }""");
+		graph.Link(graph.Get(shelf), "Value", missing, "Target");
+		graph.Link(graph.Literal("float", "7"), "Value", missing, "Fallback");
+		graph.Link(missing, "Result", text, "Missing");
+		graph.Flow(previous, graph.Write(text, "Result"));
+
+		AnalyzedDocument analyzed = Analyze(document);
+		VisualScriptTesting.AssertNoErrors(analyzed);
+		for (int index = 0; index < values.Length; index++)
+		{
+			string type = values[index].Type;
+			Assert.Equal(type, VisualScriptTesting.Pin(analyzed, sets[index], "Value", PinDirection.In).Type.Id);
+			Assert.Equal(type, VisualScriptTesting.Pin(analyzed, gets[index], "Result").Type.Id);
+			Assert.Equal("Strada.ScriptCore.Tests.Shelf", VisualScriptTesting.Pin(analyzed, gets[index], "Target", PinDirection.In).Type.Id);
+			MemberBinding binding = Assert.IsType<MemberBinding>(VisualScriptTesting.Node(analyzed, gets[index]).Binding);
+			Assert.Equal(type, Assert.Single(binding.TypeArguments).Id);
+		}
+
+		TestRuntime runtime = TestRuntime.Start(document);
+		Assert.Equal(VisualScriptStatus.Success, runtime.Invoke(ScriptEvent.Create));
+		Assert.Equal(["[(1, 2, 3), (4, 5, 6)] [30.5, 61.25] Space 92.5 7"], runtime.Records);
+		Assert.True(Assert.IsType<Shelf>(runtime.Variable("Shelf")).Has("Points"));
 	}
 
 	// The method is closed when the graph is analyzed, once per node, and its invoker is built the first time a node of each

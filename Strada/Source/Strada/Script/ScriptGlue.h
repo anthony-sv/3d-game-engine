@@ -308,6 +308,7 @@ namespace Strada::ScriptGlue
 	void RegisterAssetBindings(BindingTable& table);
 	void RegisterApplicationBindings(BindingTable& table);
 	void RegisterUIBindings(BindingTable& table);
+	void RegisterSaveBindings(BindingTable& table);
 
 	// The registered asset of a type at a path of the asset directory ("Prefabs/Enemy.sprefab") or a reference
 	// ("builtin://Cube"); invalid (logged as a script error naming the function) otherwise.

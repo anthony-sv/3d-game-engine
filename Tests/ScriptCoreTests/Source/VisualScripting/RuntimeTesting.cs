@@ -18,7 +18,7 @@ internal static class RuntimeTesting
 
 	private static readonly Lazy<NodeLibrary> s_Library = new(() => NodeLibraryBuilder.Build(new NodeLibrarySources
 	{
-		ApiTypes = [.. NodeLibrarySources.GetApiTypes(), typeof(Probe), typeof(Pair), typeof(Holder), typeof(ProbeAccess)],
+		ApiTypes = [.. NodeLibrarySources.GetApiTypes(), typeof(Probe), typeof(Pair), typeof(Holder), typeof(ProbeAccess), typeof(Shelf)],
 		ScriptClasses = [typeof(Mover), typeof(Jumper)],
 	}));
 

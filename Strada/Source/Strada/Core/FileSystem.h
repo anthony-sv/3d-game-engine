@@ -21,9 +21,29 @@ namespace Strada
 		[[nodiscard]] static Result<std::string> ReadTextFile(std::filesystem::path const& path);
 		[[nodiscard]] static Result<Buffer> ReadBinaryFile(std::filesystem::path const& path);
 
-		// Writes atomically (temporary file + rename) and creates missing parent directories.
+		// Writes atomically and creates missing parent directories: the bytes go into a temporary file beside the path
+		// (<path>.tmp<UUID>), which is then renamed over it, so a reader sees the old file or the new one, never a part of
+		// either. A write that fails removes its temporary file and leaves the path as it was. Nothing is synced to the
+		// storage device: after a power loss or a crash of the system the last write may be missing, and some file systems
+		// may then show the new name with no data (an empty file). Files a player keeps use the durable forms below.
 		[[nodiscard]] static Result<void> WriteTextFile(std::filesystem::path const& path, std::string_view text);
 		[[nodiscard]] static Result<void> WriteBinaryFile(std::filesystem::path const& path, std::span<uint8_t const> data);
+		// Writes atomically and durably (Docs/Architecture.md §13.1, "The durable write"): as WriteTextFile, and the
+		// temporary file's data are synced to the storage device before the rename (FlushFileBuffers on Windows, fsync on
+		// Linux, fcntl's F_FULLFSYNC on macOS, which also empties the drive's cache, falling back to fsync on a file system
+		// that refuses it), so that a power loss or a crash of the system, during the write or after it, leaves the old
+		// file or the new one under the path, whole: never an empty or partial file. On Linux and macOS the folder that
+		// holds the path is synced after the rename, so once the write returns the new file is the one that stays (a folder
+		// the device refuses to sync is logged as a warning and the write succeeds: the new file is in place; a file system
+		// that cannot sync folders says nothing). On
+		// Windows the rename is MoveFileExW with MOVEFILE_WRITE_THROUGH, whose documented wait is for moves across volumes;
+		// a rename within one is a journaled change of NTFS's metadata, which a power loss right after the call can still
+		// undo, leaving the old file whole. A crash between the write and the rename can leave the temporary file beside
+		// the path; nothing reads it. A folder the write creates is not itself synced into its parent, so the first file
+		// written into a new folder may be missing after a power loss, never partial. Costs one or more waits for the
+		// device: the game's saves, its player's settings and its binding profile use it, never per-frame work.
+		[[nodiscard]] static Result<void> WriteTextFileDurably(std::filesystem::path const& path, std::string_view text);
+		[[nodiscard]] static Result<void> WriteBinaryFileDurably(std::filesystem::path const& path, std::span<uint8_t const> data);
 
 		static bool Exists(std::filesystem::path const& path);
 		static bool IsDirectory(std::filesystem::path const& path);

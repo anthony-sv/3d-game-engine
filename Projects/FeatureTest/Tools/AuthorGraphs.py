@@ -222,9 +222,10 @@ FEATURES_DESCRIPTION = (
     "checks, which wait for it before Done, and a curve asset and a physics material, as literals and loaded by path, after it; a raycast and sphere, "
     "box and capsule casts onto the physics material probe name the material they hit. A source it makes plays one-shots, "
     "the scene a clip at a point, and it reads the project's mixer and sets the game's values of its Voices bus. It marks its "
-    "start and its first step for telemetry and records its fixed steps as Features.FixedSteps. It rides the scene's Bike from "
-    "its fixed steps (VehicleComponent: the throttle in the first gear, then both brakes) and sets BikeRidden when the ride "
-    "has ended, for VehicleTests to ride it next.")
+    "start and its first step for telemetry and records its fixed steps as Features.FixedSteps. It saves a slot of its own, "
+    "held in a variable, reads it back through another and deletes it, and sets, reads and removes a value of the player's "
+    "settings. It rides the scene's Bike from its fixed steps (VehicleComponent: the throttle in the first gear, then both "
+    "brakes) and sets BikeRidden when the ride has ended, for VehicleTests to ride it next.")
 
 
 def build_features(references):
@@ -979,6 +980,47 @@ def build_features(references):
     g.chain(marked, marked_step, call_check("telemetry's nodes run, and only the editor records",
                                             g.op("Or", g.op("Not", recording), editor), message_text="the game player records"))
     groups.append(marked)
+
+    # A save slot held in a private variable, whose Set and Get are typed by their links alone (a Vector3[], a float[], an
+    # enum and a float): saved, opened again into another variable and read back, then deleted, so every run starts from
+    # none; and a value of the player's settings of the game's, set, read and removed. Without a game data folder (a scene
+    # the engine's tests run alone) the slot is Unavailable and nothing is saved.
+    slot = doc.variable("Slot", "Strada.SaveSlot")
+    reopened = doc.variable("Reopened", "Strada.SaveSlot")
+    slot_values = [("Line", "Strada.Vector3[]", [[1.0, 2.0, 3.0], [4.0, 5.0, 6.0]], []),
+                   ("Splits", "float[]", [30.5, 61.25], []),
+                   ("Quality", "Strada.QualityPreset", "Medium", "High"),
+                   ("Best", "float", 92.5, 0.0)]
+    opened = g.node("Call:Strada.SaveSlot.Open(string)", None, {"Name": "Features"})
+    slot_nodes = [g.set(slot, (opened, "Result"))]
+    for value_name, type_id, value, _ in slot_values:
+        slot_nodes.append(g.node("Call:Strada.SaveSlot.Set<T>(string,T)", None, {"Name": value_name}, Target=g.get(slot),
+                                 Value=g.literal(type_id, value)))
+    saved = g.node("Call:Strada.SaveSlot.Save()", Target=g.get(slot))
+    opened_again = g.node("Call:Strada.SaveSlot.Open(string)", None, {"Name": "FEATURES"})
+    slot_nodes += [saved, opened_again, g.set(reopened, (opened_again, "Result"))]
+    read = {}
+    for value_name, type_id, _, fallback in slot_values:
+        read[value_name] = (g.node("Call:Strada.SaveSlot.Get<T>(string,T)", None, {"Name": value_name}, Target=g.get(reopened),
+                                   Fallback=g.literal(type_id, fallback)), "Result")
+    status = (g.node("Get:Strada.SaveSlot.Status", Target=g.get(slot)), "Value")
+    unavailable = g.op("Equal", status, g.literal("Strada.SaveSlotStatus", "Unavailable"))
+    kept = g.all_of((saved, "Result"),
+                    g.op("Equal", (g.node("Array.Get", None, {"Index": 1}, Array=read["Line"]), "Element"),
+                         g.literal("Strada.Vector3", [4.0, 5.0, 6.0])),
+                    g.equal((g.node("Array.Get", None, {"Index": 1}, Array=read["Splits"]), "Element"), 61.25),
+                    g.op("Equal", read["Quality"], g.literal("Strada.QualityPreset", "Medium")),
+                    g.equal(read["Best"], 92.5))
+    assist_set = g.node("Call:Strada.Settings.Set<T>(string,T)", None, {"Name": "Features.Assist"}, Value=g.literal("bool", True))
+    assist = (g.node("Call:Strada.Settings.Get<T>(string,T)", None, {"Name": "Features.Assist"}, Fallback=g.literal("bool", False)),
+              "Result")
+    slot_nodes.append(assist_set)
+    checked = call_check("a save slot keeps a graph's arrays, enums and numbers, and the settings a value of the game's",
+                         g.all_of(g.op("Or", unavailable, kept), assist),
+                         g.format("slot {Status}, best {Best}", Status=status, Best=read["Best"]))
+    g.chain(opened, *slot_nodes[0:], checked, g.node("Call:Strada.SaveSlot.Delete()", Target=g.get(reopened)),
+            g.node("Call:Strada.Settings.Remove(string)", None, {"Name": "Features.Assist"}))
+    groups.append(opened)
 
     # By now the scene has updated and stepped physics.
     frames_now = g.get(frames)

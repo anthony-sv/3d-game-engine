@@ -49,7 +49,10 @@ namespace Strada
 
 	struct EditorExportOptions
 	{
-		// After exporting, runs the game headless for SmokeTestFrames frames and checks that it exits cleanly.
+		// After exporting, runs the game headless for SmokeTestFrames frames and checks that it exits cleanly. The run is a
+		// check, not a player's: the game keeps its saves and settings in a temporary folder removed at exit (the player's
+		// --temporary-data), never in its own folder on this machine, where it still logs, as every run of the exported game
+		// does.
 		bool SmokeTest = false;
 		uint32_t SmokeTestFrames = 60;
 	};
@@ -83,7 +86,8 @@ namespace Strada
 		void Update();
 
 		// Starts an exported game (the executable, or the app bundle on macOS) as its own process, which the editor stops
-		// when it closes. Fails while one runs or when it cannot be started.
+		// when it closes. It runs as a player's run does, in the game's own data folder, with the saves and settings found
+		// there. Fails while one runs or when it cannot be started.
 		[[nodiscard]] Result<void> RunGame(std::filesystem::path const& executable);
 		bool IsGameRunning() const;
 		void StopGame();
