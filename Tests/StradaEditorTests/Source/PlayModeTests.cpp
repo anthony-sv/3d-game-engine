@@ -7,6 +7,7 @@
 #include "Editor/EditorOperations.h"
 #include "Editor/EditorScripts.h"
 #include "Editor/Panels/GameViewPanel.h"
+#include "Editor/Panels/ViewportPanel.h"
 #include "Editor/PlayMode.h"
 #include "Editor/Viewport/ViewportOverlays.h"
 
@@ -30,8 +31,10 @@
 #include "Strada/Physics/PhysicsTypes.h"
 #include "Strada/Project/PlayerWindow.h"
 #include "Strada/Renderer/QualityPresets.h"
+#include "Strada/Renderer/SceneRendererSettings.h"
 #include "Strada/Scene/Components.h"
 #include "Strada/Scene/Entity.h"
+#include "Strada/Scene/PostProcessVolumes.h"
 #include "Strada/Scene/Scene.h"
 #include "Strada/Scene/SceneRendering.h"
 #include "Strada/Scene/SceneSerializer.h"
@@ -595,10 +598,26 @@ TEST_CASE("PlayMode: the player's settings come from the play data, the Game Vie
 	CHECK(PlayerSettingsStore::GetStatus() == PlayerSettingsStatus::Present);
 	CHECK(PlayerSettingsStore::Get() == chosen);
 	CHECK(Testing::WasLogged(logStart, "Player settings: quality Low, window 800x600 windowed, vsync off, 0 buses, from Settings.json"));
-	// The Game View takes the game's quality; the editor's other views never set one (SceneRenderOptions{} renders the
-	// scene's own settings: QualityPreset tests).
+	// The Game View takes the game's quality; the Scene View, as its panel builds its options, renders the playing scene's
+	// own settings (the thumbnails render with SceneRenderOptions{}, High likewise).
 	CHECK(MakeGameViewRenderOptions(1.0f).Quality == QualityPreset::Low);
 	CHECK(SceneRenderOptions{}.Quality == QualityPreset::High);
+	{
+		Scene& playing = fixture.Context.GetScene();
+		glm::vec3 const eye(0.0f, 2.0f, 10.0f);
+		SceneRendererSettings const own = PostProcessVolumes::Resolve(playing, eye);
+		ViewportPanel sceneView;
+		SceneRendererSettings const scene = ResolveViewSettings(playing, eye, sceneView.MakeRenderOptions(fixture.Context, 1.0f));
+		SceneRendererSettings const game = ResolveViewSettings(playing, eye, MakeGameViewRenderOptions(1.0f));
+		CHECK(scene == own);
+		CHECK(game == ApplyQualityPreset(own, QualityPreset::Low));
+		// What Low lowers of a scene at the defaults (QualityPresets.h), so the two views differ.
+		REQUIRE(own.ShadowMapSize > QualityPresetMinShadowMapSize);
+		REQUIRE((own.AmbientOcclusion && own.Bloom));
+		CHECK(game.ShadowMapSize < scene.ShadowMapSize);
+		CHECK_FALSE(game.AmbientOcclusion);
+		CHECK_FALSE(game.Bloom);
+	}
 
 	// A window the game asks for reaches play mode's runner, which hands it to no window after the frame (play mode sets
 	// no SceneRunnerSettings::ApplyWindow): it is kept for the game to save.
