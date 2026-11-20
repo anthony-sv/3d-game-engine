@@ -3482,7 +3482,9 @@ wheel all of its torque).
   step reaches it, so a ride compared across frame rates sets its inputs in the fixed step as a function of the
   simulation. Every member is a node: the methods impure but `GetWheelState`, a `[PureNode]` query, and the getters
   pure. The node coverage runs them on a chassis of FeatureTest's proportions (250 kg, the 0.25 by 0.5 by 0.6 m box)
-  with FeatureTest's definition, in a scene with physics (`MemberTypeRecipes`). The `Vehicle` asset class reads the
+  with FeatureTest's definition, in a scene with physics (`MemberTypeRecipes`, whose entry allows the warning that the
+  definition's wheels, 0.12 and 0.18 m wide, are wider than a round cast: below, "The wide wheel's warning"). The
+  `Vehicle` asset class reads the
   definition (`TransmissionMode`, `GearCount`, `GetGearRatio(gear)`, `FinalDrive`, `MaxTorque`, `MinRPM`, `MaxRPM`,
   `ShiftUpRPM`, `ShiftDownRPM`, `MaxLeanAngle`, `GetWheelName(index)`) from the runtime's copy of its values
   (`Vehicle_Read`, `VehicleCache`, read again when the asset's version changes, §6.4).
