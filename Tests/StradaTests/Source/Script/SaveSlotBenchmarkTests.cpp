@@ -1,10 +1,14 @@
 #include "Core/ProfilerTestUtilities.h"
+#include "Script/ScriptTestUtilities.h"
 #include "TestUtilities.h"
 
 #include "Strada/Core/FileSystem.h"
 #include "Strada/Core/GameData.h"
 #include "Strada/Core/Platform.h"
 #include "Strada/Core/Profiler.h"
+#include "Strada/Scene/Components.h"
+#include "Strada/Scene/Entity.h"
+#include "Strada/Scene/Scene.h"
 #include "Strada/Script/SaveSlots.h"
 #include "Strada/Script/ScriptField.h"
 #include "Strada/Serialization/JsonSerialization.h"
@@ -202,4 +206,36 @@ TEST_CASE("SaveSlotBenchmark: a 1 MB slot written and read back, with and withou
 	                     << "Saves.WriteSlot " << GetZoneMilliseconds(medians, "Saves.WriteSlot") << " ms, Saves.ReadSlot "
 	                     << GetZoneMilliseconds(medians, "Saves.ReadSlot") << " ms, SyncFile " << GetZoneMilliseconds(medians, "SyncFile")
 	                     << " ms");
+}
+
+TEST_CASE("SaveSlotBenchmark: the 1 MB slot set, saved, opened and read back by a C# script, through the scripting API" *
+          doctest::skip(!Platform::ReadEnvironmentVariable("STRADA_SAVE_BENCHMARK")))
+{
+	// The probe builds the same slot as MakeMegabyteSlot: as many laps of positions.
+	SaveSlotData const slot = MakeMegabyteSlot();
+	int32_t const laps = static_cast<int32_t>(std::count_if(slot.Values.begin(), slot.Values.end(),
+	                                                        [](auto const& value)
+	                                                        {
+																return value.first.starts_with("Ghost.Positions.");
+															}));
+	Testing::ScriptEngineScope scripting;
+	Testing::TemporaryDirectory directory;
+	GameDataScope const gameData(directory.GetPath(), GameDataLifetime::Kept);
+	Scene scene("Benchmark");
+	Entity probe = scene.CreateEntity("Probe");
+	ScriptComponent& script = probe.AddComponent<ScriptComponent>();
+	script.ClassName = "Strada.Tests.SaveSlotProbe";
+	script.Fields["Slot"] = ScriptFieldValue::FromString("Benchmark");
+	script.Fields["BenchmarkRounds"] = ScriptFieldValue::FromInt32(static_cast<int32_t>(Rounds));
+	script.Fields["BenchmarkLaps"] = ScriptFieldValue::FromInt32(laps);
+	scene.OnRuntimeStart();
+	std::string const result = probe.GetName();
+	scene.OnRuntimeStop();
+	Result<std::string> const file = FileSystem::ReadTextFile(directory.GetPath() / "Saves" / "benchmark.ssave");
+	REQUIRE(file.IsOk());
+	CHECK(file.GetValue().size() >= SlotBytes);
+	CHECK(result.starts_with("Benchmark: set "));
+	MESSAGE("a slot of " << file.GetValue().size() << " bytes over " << Rounds << " rounds, through the scripting API (each round a save "
+	                     << "of a new object's values and an open with every value read back; the store's durable write is in the save): "
+	                     << result);
 }

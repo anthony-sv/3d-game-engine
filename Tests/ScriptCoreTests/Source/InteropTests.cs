@@ -280,6 +280,15 @@ public sealed class InteropTests
 		RebindStatus[] statuses = [RebindStatus.None, RebindStatus.Listening, RebindStatus.Done, RebindStatus.Cancelled, RebindStatus.Refused];
 		Assert.Equal([0, 1, 2, 3, 4], statuses.Select(static status => (int)status));
 		Assert.Equal(-1, NativeRebindAnswer.NoScene);
+		// ScriptBindingsSaves.cpp: the window, and the values of the enums it passes as integers (static_asserted there).
+		Assert.Equal(16, Unsafe.SizeOf<NativePlayerWindow>());
+		Assert.Equal(4, (int)Marshal.OffsetOf<NativePlayerWindow>(nameof(NativePlayerWindow.Width)));
+		Assert.Equal(12, (int)Marshal.OffsetOf<NativePlayerWindow>(nameof(NativePlayerWindow.VSync)));
+		Assert.Equal([0, 1], new[] { (int)WindowMode.Windowed, (int)WindowMode.Fullscreen });
+		Assert.Equal([0, 1, 2], new[] { (int)QualityPreset.Low, (int)QualityPreset.Medium, (int)QualityPreset.High });
+		SaveSlotStatus[] slotStatuses = [SaveSlotStatus.Missing, SaveSlotStatus.Present, SaveSlotStatus.Damaged, SaveSlotStatus.Newer,
+			SaveSlotStatus.Unavailable];
+		Assert.Equal([0, 1, 2, 3, 4], slotStatuses.Select(static status => (int)status));
 	}
 
 	[Fact]

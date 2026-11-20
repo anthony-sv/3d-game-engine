@@ -25,6 +25,7 @@ a game that runs without the editor. Strada has no installer or release yet: you
   - [Save](#save)
 - [Test the game](#test-the-game)
 - [Export the game](#export-the-game)
+  - [Where a game keeps its data](#where-a-game-keeps-its-data)
 - [Work with an AI agent](#work-with-an-ai-agent)
 - [Where to go next](#where-to-go-next)
 
@@ -605,13 +606,25 @@ Run the game by starting its executable. It is the player renamed, so it takes t
 `<Name> --scene Scenes/Tests.sscene --test` runs the exported test scene. Visual-script nodes marked Development Only
 are disabled in exported games.
 
+### Where a game keeps its data
+
 On each player's machine the game has a data folder of its own, named by the **Identity** in Project Settings
 (**Company** and **Product**; an empty product uses the game's name, so set an ASCII one for a name in another script):
 `%APPDATA%\<Company>\<Product>` on Windows, `~/Library/Application Support/<Company>/<Product>` on macOS and
-`~/.local/share/<company>-<product>` on Linux. The game logs to `Logs/<Name>.log` there and leaves crash reports in
-`Crashes/`. Playing the game in the editor never touches
-that folder: play mode uses the project's `.strada/PlayData` folder instead
-([Editor.md](Editor.md#where-an-exported-game-keeps-its-data) has the details).
+`~/.local/share/<company>-<product>` on Linux. In it the game keeps:
+
+| Path | What it is |
+|------|------------|
+| `Saves/<slot>.ssave` | Its save slots: what scripts and graphs keep with `SaveSlot` (a best lap, progress), by slot name in lower case |
+| `Settings.json` | The player's settings, which the game's settings screen saves with `Settings.Save`: the window, the quality, the volumes and the game's own options |
+| `Input/<actions>.sinput.json` | The bindings the player changed, by input actions asset |
+| `Logs/<Name>.log`, `Crashes/` | Its log and crash reports |
+
+The game reads its settings before its window opens, so the window, the quality and the volumes start as the player
+left them. A save of a later build of the game is never written over by an earlier one, and a damaged file is kept
+until the game saves that slot again ([Scripting.md](Scripting.md#saves-and-settings) shows the scripting side).
+Playing the game in the editor never touches that folder: play mode uses the project's `.strada/PlayData` folder
+instead, and a test run a temporary one ([Editor.md](Editor.md#where-an-exported-game-keeps-its-data) has the details).
 
 ## Work with an AI agent
 

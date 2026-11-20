@@ -271,6 +271,7 @@ set(STRADA_SCRIPT_SOURCES
     Source/Strada/Script/ScriptBindingsComponents.cpp
     Source/Strada/Script/ScriptBindingsEntity.cpp
     Source/Strada/Script/ScriptBindingsRuntime.cpp
+    Source/Strada/Script/ScriptBindingsSaves.cpp
     Source/Strada/Script/ScriptBindingsUI.cpp
     Source/Strada/Script/ScriptEngine.cpp
     Source/Strada/Script/ScriptEngine.h

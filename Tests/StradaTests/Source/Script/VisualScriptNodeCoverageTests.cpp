@@ -11,6 +11,7 @@
 #include "Strada/Asset/InputRebinding.h"
 #include "Strada/Asset/VisualScriptAsset.h"
 #include "Strada/Core/FileSystem.h"
+#include "Strada/Core/GameData.h"
 #include "Strada/Core/Input.h"
 #include "Strada/Core/KeyCodes.h"
 #include "Strada/Core/Log.h"
@@ -19,6 +20,7 @@
 #include "Strada/Scene/Components.h"
 #include "Strada/Scene/Entity.h"
 #include "Strada/Scene/Scene.h"
+#include "Strada/Script/PlayerSettings.h"
 #include "Strada/Script/ScriptEngine.h"
 #include "Strada/Script/VisualScriptEngine.h"
 #include "Strada/Script/VisualScriptLibrary.h"
@@ -33,6 +35,7 @@
 #include <chrono>
 #include <cstdint>
 #include <filesystem>
+#include <initializer_list>
 #include <optional>
 #include <span>
 #include <string>
@@ -248,6 +251,15 @@ namespace
 		Recipe("Call:Strada.Audio.PlayClipAtPoint(Strada.AudioClip,Strada.Vector3,float,string)")
 			.WithInputs(R"({"Clip": "9906031496213900225"})"),
 		Recipe("Set:Strada.Audio.MasterVolume").WithInputs(R"({"Value": 1.0})"),
+		// Save slots run against a game data folder of their own (GameDataTypes), named as a slot and a value may be; the
+		// player's settings without one, so that their Save says it keeps nothing (both sides of each are directed cases of
+		// Scene/SceneSavesScriptingTests.cpp).
+		Recipe("Call:Strada.SaveSlot.Open(string)").WithInputs(R"({"Name": "Coverage"})"),
+		Recipe("Call:Strada.SaveSlot.Set<T>(string,T)").WithInputs(R"({"Name": "Coverage"})"),
+		Recipe("Call:Strada.Settings.Set<T>(string,T)").WithInputs(R"({"Name": "Coverage"})"),
+		Recipe("Call:Strada.Settings.SetBusVolume(string,float)").WithInputs(R"({"Bus": "Music"})"),
+		Recipe("Call:Strada.Settings.SetBusMuted(string,bool)").WithInputs(R"({"Bus": "Music"})"),
+		Recipe("Call:Strada.Settings.Save()").WithExpectedLog("Settings.Save: the settings are not saved: no game runs"),
 	});
 
 	// What every member of a type needs beyond its own component: components added before a recipe's own.
@@ -278,23 +290,32 @@ namespace
 		{"Event.Destroy", "it runs when the scene stops, after Ran is read", "Scripts/Features.sgraph", NodeCaseRunner::FeatureTestRun},
 	});
 
-	// Classes the API gives only as results (no constructor, no literal), each with the pure node that answers one: what a
-	// member's Target or an input of the class is linked from, whatever default the pin has.
+	// Classes the API gives only as results (no constructor, no literal), each with the node that answers one: what a
+	// member's Target or an input of the class is linked from, whatever default the pin has. An impure producer runs before
+	// the case's node, with its inputs.
 	struct ResultProducer
 	{
 		std::string_view Type;
 		std::string_view Node;
 		std::string_view Output;
+		// JSON object text: the producer's literals by pin; empty for none.
+		std::string_view Inputs;
 	};
 
 	constexpr auto ResultProducers = std::to_array<ResultProducer>({
-		{"Strada.RebindResult", "Get:Strada.Input.CurrentRebind", "Value"},
+		{"Strada.RebindResult", "Get:Strada.Input.CurrentRebind", "Value", ""},
+		{"Strada.SaveSlot", "Call:Strada.SaveSlot.Open(string)", "Result", R"({"Name": "Coverage"})"},
 	});
 
 	// Types whose members change what every case of a scene sees (time, gravity, the application, the scene): their cases
 	// run alone, as static setters do (Input's among them).
-	constexpr std::array<std::string_view, 4> GlobalEffectTypes = {"Strada.Application", "Strada.Physics", "Strada.SceneManager",
-	                                                               "Strada.Time"};
+	// The player's settings are the process's too.
+	constexpr std::array<std::string_view, 5> GlobalEffectTypes = {"Strada.Application", "Strada.Physics", "Strada.SceneManager",
+	                                                               "Strada.Settings", "Strada.Time"};
+
+	// Types whose members read or write the game data folder: their cases run together in scenes of their own, with a
+	// temporary folder as a test run's (GameDataScope), so that what they write is theirs and goes with it.
+	constexpr std::array<std::string_view, 1> GameDataTypes = {"Strada.SaveSlot"};
 
 	constexpr float FrameTime = 1.0f / 60.0f;
 	constexpr size_t BatchSize = 200;
@@ -328,7 +349,8 @@ namespace
 		uint32_t Finishes = 0;
 	};
 
-	// Input is global: every scene of cases starts and ends with none, and with no binding rebound.
+	// Input and the player's settings are global: every scene of cases starts and ends with none, with no binding rebound
+	// and no settings loaded.
 	class InputScope
 	{
 	public:
@@ -336,9 +358,11 @@ namespace
 		{
 			Input::Reset();
 			InputRebinding::Clear();
+			PlayerSettingsStore::Clear();
 		}
 		~InputScope()
 		{
+			PlayerSettingsStore::Clear();
 			InputRebinding::Clear();
 			Input::Reset();
 		}
@@ -482,6 +506,8 @@ namespace
 		// The components the member's type needs (MemberTypeRecipes); empty for none.
 		std::string_view MemberTypeComponents;
 		bool Alone = false;
+		// Runs with a game data folder (GameDataTypes).
+		bool GameData = false;
 		int Frames = 30;
 		// Why the case could not be made, analyzed or run; empty while it passes.
 		std::string Failure;
@@ -517,6 +543,7 @@ namespace
 			{
 				result.ScriptClass = declaring->ID;
 			}
+			result.GameData = std::find(GameDataTypes.begin(), GameDataTypes.end(), declaringType) != GameDataTypes.end();
 			if (MemberTypeRecipe const* const memberType = FindByType<MemberTypeRecipe>(MemberTypeRecipes, declaringType))
 			{
 				result.MemberTypeComponents = memberType->Components;
@@ -942,7 +969,14 @@ namespace
 				}
 				if (ResultProducer const* const producer = FindByType<ResultProducer>(ResultProducers, pin.Type))
 				{
-					uint32_t const produced = AddNode(m_Document.Graph, MakeNodeOf(std::string(producer->Node)));
+					Json inputs = producer->Inputs.empty() ? Json::object() : ParseRecipe(producer->Inputs, "producer's inputs");
+					uint32_t const produced =
+						AddNode(m_Document.Graph, MakeNodeOf(std::string(producer->Node), Json::object(), std::move(inputs)));
+					VisualScriptNodeTemplate const* const kind = m_Library.FindNode(producer->Node);
+					if (kind != nullptr && kind->FindPin("Execute", VisualScriptPinDirection::In) != nullptr)
+					{
+						m_Prelude.push_back(produced);
+					}
 					Link(produced, std::string(producer->Output), nodeID, pin.Name);
 					continue;
 				}
@@ -1145,6 +1179,16 @@ namespace
 		std::vector<std::string> Run(std::span<NodeCase*> cases)
 		{
 			InputScope input;
+			// A batch of cases that need a game data folder (the main loop runs them apart) gets a new temporary one.
+			std::optional<GameDataScope> gameData;
+			if (std::any_of(cases.begin(), cases.end(),
+			                [](NodeCase const* nodeCase)
+			                {
+								return nodeCase->GameData;
+							}))
+			{
+				gameData.emplace(GameData::MakeTemporaryDirectory(), GameDataLifetime::Temporary);
+			}
 			std::vector<RunningCase> running;
 			running.reserve(cases.size());
 			Scene scene("Coverage");
@@ -1578,6 +1622,13 @@ TEST_CASE("VisualScript: every node of the library analyzes and runs in a genera
 			failures.push_back(fmt::format("{}: a type of GlobalEffectTypes whose members the library does not have: remove it", type));
 		}
 	}
+	for (std::string_view const type : GameDataTypes)
+	{
+		if (!declaresMembers(type))
+		{
+			failures.push_back(fmt::format("{}: a type of GameDataTypes whose members the library does not have: remove it", type));
+		}
+	}
 	for (MemberTypeRecipe const& recipe : MemberTypeRecipes)
 	{
 		if (!declaresMembers(recipe.Type))
@@ -1624,6 +1675,7 @@ TEST_CASE("VisualScript: every node of the library analyzes and runs in a genera
 	// Run: together in batches, and alone where a case changes what the others see.
 	NodeCaseScenes runner;
 	std::vector<NodeCase*> batch;
+	std::vector<NodeCase*> gameDataBatch;
 	size_t alone = 0;
 	for (NodeCase& nodeCase : cases)
 	{
@@ -1638,16 +1690,20 @@ TEST_CASE("VisualScript: every node of the library analyzes and runs in a genera
 			alone++;
 			continue;
 		}
-		batch.push_back(&nodeCase);
-		if (batch.size() == BatchSize)
+		std::vector<NodeCase*>& into = nodeCase.GameData ? gameDataBatch : batch;
+		into.push_back(&nodeCase);
+		if (into.size() == BatchSize)
 		{
-			runner.RunBatch(batch);
-			batch.clear();
+			runner.RunBatch(into);
+			into.clear();
 		}
 	}
-	if (!batch.empty())
+	for (std::vector<NodeCase*>* const rest : {&batch, &gameDataBatch})
 	{
-		runner.RunBatch(batch);
+		if (!rest->empty())
+		{
+			runner.RunBatch(*rest);
+		}
 	}
 	// What the members that end the test run or replace the scene asked of the application.
 	CHECK(host.SceneLoads == 1);

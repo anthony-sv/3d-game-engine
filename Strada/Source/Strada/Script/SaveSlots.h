@@ -63,8 +63,9 @@
 // runtime (stored forms, ScriptFieldCodec), so Get and Set cross no boundary; Open and Save cross it once with the values' JSON (the script
 // field map form, §7.3). Two objects opened with one name are independent copies, and the last Save wins. The bindings, all main thread:
 //   char const* SaveSlot_Read(char const* name, int32_t length, int32_t* status, int32_t* textLength)
-//     the values' JSON in engine-owned storage valid until the next SaveSlot_* call (the caller copies it at once);
-//     *status a SaveSlotStatus, or -1 for a name MakeFileStem refuses (the managed side throws then)
+//     the slot's document (WriteSaveSlotText) in engine-owned storage valid until the next binding of
+//     ScriptBindingsSaves.cpp (the caller copies it at once); *status a SaveSlotStatus, or -1 for a name MakeFileStem
+//     refuses, the text then saying why (the managed side throws with it)
 //   uint8_t SaveSlot_Write(char const* name, int32_t length, char const* values, int32_t valuesLength)
 //   uint8_t SaveSlot_Delete(char const* name, int32_t length)
 //   char const* SaveSlot_GetNames(int32_t* textLength)     the names joined by '\n'

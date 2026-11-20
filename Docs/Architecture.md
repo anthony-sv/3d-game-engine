@@ -3988,9 +3988,11 @@ editor's Simulate mode runs neither kind.
 - `Settings` (static, §13.1 "The player's settings"): `Quality` (`QualityPreset`: `Low`, `Medium`, `High`),
   `WindowMode` (`WindowMode`: `Windowed`, `Fullscreen`), `WindowWidth`, `WindowHeight`, `SetWindowSize(width, height)`,
   `VSync`, `MasterVolume` (0 to 1), `GetBusVolume(bus)` and `IsBusMuted(bus)` (pure), `SetBusVolume(bus, decibels)` and
-  `SetBusMuted(bus, muted)`, the game's own named values `Has(name)` and `Get<T>(name, fallback)` (pure),
-  `Set<T>(name, value)` and `Remove(name)` with `SaveSlot`'s rules (`Set<T>` also refuses a value that would bring the
-  file past 1 MiB), and `Save()` (false, logged, without a game data folder or when the write fails). The volumes are
+  `SetBusMuted(bus, muted)` (a bus's name of 1 to 64 bytes, logged otherwise: the master is `MasterVolume`), the game's
+  own named values `Has(name)` and `Get<T>(name, fallback)` (pure; a value of another type is warned about once per name
+  while the game's scripts are loaded), `Set<T>(name, value)` and `Remove(name)` with `SaveSlot`'s rules (`Set<T>` also
+  refuses a value that would bring the file past 1 MiB, with the engine's reason), and `Save()` (false, logged, without
+  a game data folder or when the write fails). The volumes are
   the player's stage of the mix, apart from `Strada.Audio`'s (§9.5). Every setter applies at once (the window through the host, below) and reaches the
   file only at `Save`. Bindings `Settings_*` in `ScriptBindingsSaves.cpp`, over `PlayerSettingsStore`; the window's four
   values cross in one blittable struct, so a mode and a size change together.

@@ -73,8 +73,9 @@
 // mode change together), Settings_GetMasterVolume/SetMasterVolume (float), Settings_GetBusVolume/SetBusVolume and
 // Settings_IsBusMuted/SetBusMuted (a bus name as char const* and int32_t length), Settings_GetValue(char const* name,
 // int32_t length, int32_t* textLength) -> char const* (one value's { "Type", "Value" } JSON, null when none),
-// Settings_SetValue(name, length, char const* value, int32_t valueLength) -> uint8_t, Settings_RemoveValue(name, length)
-// -> uint8_t and Settings_Save() -> uint8_t. Settings_SetWindow calls PlayerSettingsStore::SetWindow, which asks the
+// Settings_SetValue(char const* values, int32_t length, int32_t* errorLength) -> char const* (a one-member script field
+// map; null when the value is kept, else why it is refused, which the managed side throws with), Settings_RemoveValue(name,
+// length) -> uint8_t and Settings_Save() -> uint8_t. Settings_SetWindow calls PlayerSettingsStore::SetWindow, which asks the
 // application to apply the window through ScriptEngine::GetHost() (ScriptHost::RequestWindowSettings, acted on once the
 // scene's update has returned, as RequestSceneLoad is). SceneRunner records it and applies it in ApplyRequests through
 // SceneRunnerSettings::ApplyWindow (a std::function the player sets to resize, make fullscreen and set vsync on its

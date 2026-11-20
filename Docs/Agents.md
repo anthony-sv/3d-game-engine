@@ -283,6 +283,14 @@ The [`strada-make-game`](../.claude/skills/strada-make-game/SKILL.md) skill is t
    component runs it. [Scripting.md](Scripting.md) shows the API in use.
 7. **Behavior in visual scripts.** `graph_create`, then `graph_edit` batches; a `VisualScript` component runs the graph
    (see [Visual scripts with agents](#visual-scripts-with-agents)).
+
+   A game that keeps a best score and its settings does it with `SaveSlot` and `Settings`, in C# or as nodes
+   ([Scripting.md](Scripting.md#saves-and-settings), [VisualScripting.md](VisualScripting.md#saves-and-settings)): open
+   a slot once and hold it in a variable, `Get` with a fallback, `Set`, and `Save` at a results screen or a menu, never
+   in a frame of play (it waits for the disk); a settings screen sets `Settings.Quality`, the volumes and its options
+   and calls `Settings.Save`. No member names a file. Play mode keeps both in the project's `.strada/PlayData` (two plays
+   in a row show that a value is kept, and `play_stop` keeps what was saved), a `test_run` in a temporary folder, so a
+   test scene starts from none, and the exported game in its own data folder.
 8. **Look at the result.** In a windowed editor, `viewport_frame` points the scene view's camera at entities,
    `viewport_camera` sets the view, `viewport_overlays` chooses what the scene view draws over the scene (`colliders`
    `all` shows every physics shape, `contacts` where contacts began in the last frame while the game plays), and `viewport_screenshot` returns an image of the editor or of one window

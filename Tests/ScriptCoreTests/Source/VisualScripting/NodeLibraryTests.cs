@@ -276,7 +276,8 @@ public sealed class NodeLibraryTests
 			"Input.IsGamepadButtonPressed", "Input.IsGamepadButtonReleased", "Input.IsGamepadConnected", "Input.IsKeyDown",
 			"Input.IsKeyPressed", "Input.IsKeyReleased", "Input.IsMouseButtonDown", "Input.IsMouseButtonPressed",
 			"Input.IsMouseButtonReleased", "MeshComponent.GetMaterial", "Mixer.GetBusName", "Mixer.GetBusParent", "Mixer.GetBusVolume",
-			"Mixer.HasBus", "Mixer.IsBusMuted", "Ray.GetPoint",
+			"Mixer.HasBus", "Mixer.IsBusMuted", "Ray.GetPoint", "SaveSlot.Get", "SaveSlot.Has", "Settings.Get", "Settings.GetBusVolume",
+			"Settings.Has", "Settings.IsBusMuted",
 		], marked);
 	}
 

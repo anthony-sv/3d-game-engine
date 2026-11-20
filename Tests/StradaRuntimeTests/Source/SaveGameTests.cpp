@@ -4,24 +4,34 @@
 #include "TestUtilities.h"
 
 #include "Strada/Asset/AssetManager.h"
+#include "Strada/Asset/DataAsset.h"
+#include "Strada/Asset/MixerAsset.h"
+#include "Strada/Asset/VisualScriptAsset.h"
+#include "Strada/Asset/VisualScriptSerializer.h"
 #include "Strada/Core/FileSystem.h"
 #include "Strada/Core/GameData.h"
 #include "Strada/Core/Image.h"
 #include "Strada/Platform/Process.h"
+#include "Strada/Project/GameExporter.h"
 #include "Strada/Project/Project.h"
 #include "Strada/Project/ProjectSettings.h"
 #include "Strada/Renderer/QualityPresets.h"
+#include "Strada/Scene/Components.h"
+#include "Strada/Scene/Entity.h"
 #include "Strada/Scene/Scene.h"
 #include "Strada/Scene/SceneSerializer.h"
 #include "Strada/Script/PlayerSettings.h"
+#include "Strada/Script/SaveSlots.h"
 #include "Strada/Serialization/JsonSerialization.h"
 
 #include <doctest/doctest.h>
 
 #include <cstdint>
 #include <filesystem>
+#include <memory>
 #include <string>
 #include <string_view>
+#include <utility>
 
 using namespace Strada;
 using namespace Strada::RuntimeTesting;
@@ -70,6 +80,166 @@ namespace
 		Result<std::string> const text = WritePlayerSettingsText(settings);
 		REQUIRE(text.IsOk());
 		REQUIRE(FileSystem::WriteTextFile(folder / "Settings.json", text.GetValue()).IsOk());
+	}
+
+	VisualScriptNode MakeNode(uint32_t id, std::string type, Json settings = Json::object(), Json inputs = Json::object())
+	{
+		VisualScriptNode node;
+		node.ID = id;
+		node.Type = std::move(type);
+		node.Settings = std::move(settings);
+		node.Inputs = std::move(inputs);
+		return node;
+	}
+
+	VisualScriptVariable MakeVariable(uint32_t id, std::string name, std::string type)
+	{
+		VisualScriptVariable variable;
+		variable.ID = id;
+		variable.Name = std::move(name);
+		variable.Type = std::move(type);
+		return variable;
+	}
+
+	// An exported game whose start scene runs one graph, with a mixer of a Music bus below Master: Game.sgame, its player and
+	// its identity.
+	class ExportedGraphGame
+	{
+	public:
+		explicit ExportedGraphGame(VisualScriptDocument const& graph)
+		{
+			Testing::AssetManagerScope assets;
+			Result<Ref<Project>> created =
+				Project::Create(m_Directory.GetPath() / "Project", "Kept Progress", *MakeScene("Main", std::nullopt));
+			REQUIRE(created.IsOk());
+			Ref<Project> const project = created.GetValue();
+			m_Identity = GetGameIdentity(project->GetSettings());
+
+			MixerBus music;
+			music.Name = "Music";
+			Mixer mixer;
+			mixer.Buses.push_back(music);
+			TypedDataAssetType<Mixer> const* type = DataAssetRegistry::Find<Mixer>();
+			REQUIRE(type != nullptr);
+			Ref<TypedDataAsset<Mixer>> const asset = std::static_pointer_cast<TypedDataAsset<Mixer>>(type->CreateAsset());
+			REQUIRE(asset->SetData(mixer).IsOk());
+			std::filesystem::path const mixerFile = project->GetAssetDirectory() / "Audio" / "Game.smixer";
+			REQUIRE(FileSystem::CreateDirectories(mixerFile.parent_path()).IsOk());
+			REQUIRE(DataAssetSerializer::SaveToFile(*asset, mixerFile).IsOk());
+			Result<AssetHandle> const imported = AssetManager::ImportFile(mixerFile);
+			REQUIRE(imported.IsOk());
+
+			std::filesystem::path const graphFile = project->GetAssetDirectory() / "Scripts" / "Progress.sgraph";
+			REQUIRE(FileSystem::CreateDirectories(graphFile.parent_path()).IsOk());
+			REQUIRE(VisualScriptSerializer::SaveToFile(graph, graphFile).IsOk());
+			Result<AssetHandle> const graphAsset = AssetManager::ImportFile(graphFile);
+			REQUIRE(graphAsset.IsOk());
+			REQUIRE(AssetManager::SaveRegistry().IsOk());
+			REQUIRE(project->ApplySettings(Json::object({{"Mixer", imported.GetValue().ToString()}})).IsOk());
+			REQUIRE(project->Save().IsOk());
+
+			Ref<Scene> const main = MakeScene("Main", std::nullopt);
+			main->CreateEntity("Progress").AddComponent<VisualScriptComponent>().Graph = graphAsset.GetValue();
+			REQUIRE(SceneSerializer::SaveToFile(*main, project->GetAssetDirectory() / "Scenes" / "Main.sscene").IsOk());
+
+			Result<GameExportSettings> prepared = GameExporter::Prepare(*project, m_Directory.GetPath() / "Export");
+			REQUIRE_MESSAGE(prepared.IsOk(), (prepared ? std::string() : prepared.GetError()));
+			Result<GameExportResult> exported = GameExporter::Export(prepared.GetValue());
+			REQUIRE_MESSAGE(exported.IsOk(), (exported ? std::string() : exported.GetError()));
+			REQUIRE(exported.GetValue().Succeeded);
+			m_Player = exported.GetValue().Executable;
+			if (m_Player.extension() == ".app")
+			{
+				m_Player = m_Player / "Contents" / "MacOS" / m_Player.stem();
+			}
+		}
+
+		std::filesystem::path const& GetPlayer() const { return m_Player; }
+		GameIdentity const& GetIdentity() const { return m_Identity; }
+		std::filesystem::path const& GetDirectory() const { return m_Directory.GetPath(); }
+
+	private:
+		Testing::TemporaryDirectory m_Directory;
+		std::filesystem::path m_Player;
+		GameIdentity m_Identity;
+	};
+
+	// As the game starts: open the slot Progress, log "Run <Runs>: quality <Quality>, music <Music> dB, slot <Status>" (Runs
+	// from the slot, 0 without one; the quality and Music's volume from the player's settings), then save Runs + 1 in the slot,
+	// set the quality Low and Music at -12 dB, and save the settings, as a results screen and a settings screen would.
+	VisualScriptDocument MakeProgressGraph()
+	{
+		VisualScriptDocument document;
+		document.Variables.push_back(MakeVariable(1, "Slot", "Strada.SaveSlot"));
+		document.Variables.push_back(MakeVariable(2, "Runs", "int"));
+		std::vector<VisualScriptNode>& nodes = document.Graph.Nodes;
+		std::vector<VisualScriptLink>& links = document.Graph.Links;
+		Json const typedInt = Json::object({{"TypeArguments", Json::array({"int"})}});
+		nodes.push_back(MakeNode(10, "Event.Create"));
+		nodes.push_back(MakeNode(11, "Call:Strada.SaveSlot.Open(string)", Json::object(), Json::object({{"Name", "Progress"}})));
+		nodes.push_back(MakeNode(12, "Variable.Set", Json::object({{"Variable", 1}})));
+		nodes.push_back(MakeNode(13, "Variable.Get", Json::object({{"Variable", 1}})));
+		nodes.push_back(MakeNode(14, "Call:Strada.SaveSlot.Get<T>(string,T)", typedInt, Json::object({{"Name", "Runs"}, {"Fallback", 0}})));
+		nodes.push_back(MakeNode(15, "Variable.Set", Json::object({{"Variable", 2}})));
+		nodes.push_back(MakeNode(16, "Variable.Get", Json::object({{"Variable", 2}})));
+		nodes.push_back(
+			MakeNode(17, "FormatString", Json::object({{"Format", "Run {Runs}: quality {Quality}, music {Music} dB, slot {Status}"}})));
+		nodes.push_back(MakeNode(18, "Get:Strada.Settings.Quality"));
+		nodes.push_back(MakeNode(19, "Call:Strada.Settings.GetBusVolume(string)", Json::object(), Json::object({{"Bus", "Music"}})));
+		nodes.push_back(MakeNode(20, "Get:Strada.SaveSlot.Status"));
+		nodes.push_back(MakeNode(21, "Call:Strada.Log.Info(string)"));
+		nodes.push_back(MakeNode(22, "Operator.Add", Json::object(), Json::object({{"B", 1}})));
+		nodes.push_back(MakeNode(23, "Call:Strada.SaveSlot.Set<T>(string,T)", typedInt, Json::object({{"Name", "Runs"}})));
+		nodes.push_back(MakeNode(24, "Call:Strada.SaveSlot.Save()"));
+		nodes.push_back(MakeNode(25, "Set:Strada.Settings.Quality", Json::object(), Json::object({{"Value", "Low"}})));
+		nodes.push_back(MakeNode(26, "Call:Strada.Settings.SetBusVolume(string,float)", Json::object(),
+		                         Json::object({{"Bus", "Music"}, {"Decibels", -12.0}})));
+		nodes.push_back(MakeNode(27, "Call:Strada.Settings.Save()"));
+		for (auto const& [from, to] : std::vector<std::pair<uint32_t, uint32_t>>{
+				 {10, 11}, {11, 12}, {12, 15}, {15, 21}, {21, 23}, {23, 24}, {24, 25}, {25, 26}, {26, 27}})
+		{
+			links.push_back({{from, "Then"}, {to, "Execute"}});
+		}
+		links.push_back({{11, "Result"}, {12, "Value"}});
+		links.push_back({{13, "Value"}, {14, "Target"}});
+		links.push_back({{14, "Result"}, {15, "Value"}});
+		links.push_back({{16, "Value"}, {17, "Runs"}});
+		links.push_back({{18, "Value"}, {17, "Quality"}});
+		links.push_back({{19, "Result"}, {17, "Music"}});
+		links.push_back({{13, "Value"}, {20, "Target"}});
+		links.push_back({{20, "Value"}, {17, "Status"}});
+		links.push_back({{17, "Result"}, {21, "Message"}});
+		links.push_back({{16, "Value"}, {22, "A"}});
+		links.push_back({{13, "Value"}, {23, "Target"}});
+		links.push_back({{22, "Result"}, {23, "Value"}});
+		links.push_back({{13, "Value"}, {24, "Target"}});
+		return document;
+	}
+
+	// As the game starts: unless the player's window is 400 x 100 already, ask for it (windowed, vsync off) and save the
+	// settings, as a settings screen would.
+	VisualScriptDocument MakeWindowGraph()
+	{
+		VisualScriptDocument document;
+		std::vector<VisualScriptNode>& nodes = document.Graph.Nodes;
+		std::vector<VisualScriptLink>& links = document.Graph.Links;
+		nodes.push_back(MakeNode(10, "Event.Create"));
+		nodes.push_back(MakeNode(11, "Get:Strada.Settings.WindowWidth"));
+		nodes.push_back(MakeNode(12, "Operator.NotEqual", Json::object(), Json::object({{"B", 400}})));
+		nodes.push_back(MakeNode(13, "Flow.Branch"));
+		nodes.push_back(
+			MakeNode(14, "Call:Strada.Settings.SetWindowSize(int,int)", Json::object(), Json::object({{"Width", 400}, {"Height", 100}})));
+		nodes.push_back(MakeNode(15, "Set:Strada.Settings.WindowMode", Json::object(), Json::object({{"Value", "Windowed"}})));
+		nodes.push_back(MakeNode(16, "Set:Strada.Settings.VSync", Json::object(), Json::object({{"Value", false}})));
+		nodes.push_back(MakeNode(17, "Call:Strada.Settings.Save()"));
+		links.push_back({{10, "Then"}, {13, "Execute"}});
+		links.push_back({{11, "Value"}, {12, "A"}});
+		links.push_back({{12, "Result"}, {13, "Condition"}});
+		links.push_back({{13, "True"}, {14, "Execute"}});
+		links.push_back({{14, "Then"}, {15, "Execute"}});
+		links.push_back({{15, "Then"}, {16, "Execute"}});
+		links.push_back({{16, "Then"}, {17, "Execute"}});
+		return document;
 	}
 
 	// The folder the player logs that it gave the game; empty when it logged none.
@@ -158,4 +328,80 @@ TEST_CASE("SaveGame: the window opens as the player's settings left it, under th
 	REQUIRE(sizedImage.IsOk());
 	CHECK(sizedImage.GetValue().GetWidth() == 320);
 	CHECK(sizedImage.GetValue().GetHeight() == 184);
+}
+
+TEST_CASE("SaveGame: an exported game's quality, a bus volume and a slot written in one run are read back by the next")
+{
+	ExportedGraphGame const game(MakeProgressGraph());
+	// Both runs share one per-user root, as two runs on a player's machine do; neither is a test run, whose folder is removed.
+	Testing::IsolatedUserRoot const root;
+	std::filesystem::path const gameData = root.GetGameDirectory(game.GetIdentity());
+	ProcessResult const first = RunProgram(game.GetPlayer(), {"--headless", "--frames", "3"}, root);
+	CAPTURE(first.Output);
+	CHECK(first.ExitCode == 0);
+	CHECK(Contains(first.Output, "Player settings: quality High, window 1280x720 windowed, vsync on, 0 buses, the game's defaults"));
+	CHECK(Contains(first.Output, "Run 0: quality High, music 0 dB, slot Missing"));
+	CHECK(FileSystem::IsRegularFile(gameData / "Saves" / "progress.ssave"));
+	CHECK(FileSystem::IsRegularFile(gameData / "Settings.json"));
+
+	ProcessResult const second = RunProgram(game.GetPlayer(), {"--headless", "--frames", "3"}, root);
+	CAPTURE(second.Output);
+	CHECK(second.ExitCode == 0);
+	CHECK(Contains(second.Output, "Player settings: quality Low, window 1280x720 windowed, vsync on, 1 bus, from Settings.json"));
+	CHECK(Contains(second.Output, "Run 1: quality Low, music -12 dB, slot Present"));
+	// Neither the slot nor the settings had anything to say.
+	CHECK_FALSE(Contains(second.Output, "SaveSlot."));
+	CHECK_FALSE(Contains(second.Output, "Settings.Save:"));
+
+	// What the second run left: Runs 2, and the settings as the first run saved them.
+	Result<std::string> const slot = FileSystem::ReadTextFile(gameData / "Saves" / "progress.ssave");
+	REQUIRE(slot.IsOk());
+	SaveSlotRead const read = ReadSaveSlotText(slot.GetValue());
+	REQUIRE(read.Status == SaveSlotStatus::Present);
+	CHECK(read.Data.Values == ScriptFieldMap{{"Runs", ScriptFieldValue::FromInt32(2)}});
+	PlayerSettingsRead const settings = ReadPlayerSettingsFile(gameData / "Settings.json", {});
+	REQUIRE(settings.Status == PlayerSettingsStatus::Present);
+	CHECK(settings.Settings.Quality == QualityPreset::Low);
+	CHECK(settings.Settings.Buses == std::vector<PlayerBusSettings>{{"Music", -12.0f, false}});
+}
+
+TEST_CASE("SaveGame: a script's window request resizes the player's window after the frame, an exported game opens its window "
+          "as saved, and --resolution holds against a request")
+{
+	{
+		// The player needs a Vulkan device (this probe's is released at the end of the block) and a display.
+		ST_REQUIRE_GPU();
+	}
+	ST_REQUIRE_DISPLAY();
+	ExportedGraphGame const game(MakeWindowGraph());
+	Testing::IsolatedUserRoot const root;
+	std::filesystem::path const settingsFile = root.GetGameDirectory(game.GetIdentity()) / "Settings.json";
+	// The drawing area's shape, whatever the display's scale; a resize takes a frame or two to reach the swapchain.
+	auto const capture = [&](std::string const& name, std::vector<std::string> arguments)
+	{
+		std::filesystem::path const shot = game.GetDirectory() / FileSystem::PathFromUtf8(name);
+		arguments.insert(arguments.end(), {"--frames", "20", "--screenshot", Native(shot)});
+		ProcessResult const run = RunProgram(game.GetPlayer(), std::move(arguments), root);
+		CAPTURE(run.Output);
+		REQUIRE(run.ExitCode == 0);
+		Result<Image> image = Image::LoadFromFile(shot);
+		REQUIRE(image.IsOk());
+		return image.TakeValue();
+	};
+
+	// The game opens at its own 1280 x 720 (16:9), and its script asks for 4:1 in its first frame.
+	Image const requested = capture("Requested.png", {});
+	CHECK(requested.GetWidth() == 4 * requested.GetHeight());
+	REQUIRE(FileSystem::IsRegularFile(settingsFile));
+	CHECK(ReadPlayerSettingsFile(settingsFile, {}).Settings.Window == PlayerWindowSettings{PlayerWindowMode::Windowed, 400, 100, false});
+
+	// The next run opens at the saved size, and its script asks for nothing.
+	Image const reopened = capture("Reopened.png", {});
+	CHECK(reopened.GetWidth() == 4 * reopened.GetHeight());
+
+	// Without the saved settings the script asks again, and --resolution keeps the drawing size it names.
+	REQUIRE(FileSystem::Remove(settingsFile).IsOk());
+	Image const sized = capture("Sized.png", {"--resolution", "320x184"});
+	CHECK(sized.GetWidth() == 320);
+	CHECK(sized.GetHeight() == 184);
 }
