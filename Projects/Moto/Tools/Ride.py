@@ -12,8 +12,9 @@ curvature (1/m, positive to the right).
 Each fixed step, whoever rides:
 
 - the graph finds the line's point nearest the bike: from the last one on, up to TRACK_STEPS points further while each is
-  nearer (the bike rides at most one point a step), and the whole line again when the nearest is farther than LOST (a bike
-  placed elsewhere);
+  nearer (the bike rides at most one point a step), and the whole line again when the bike moved more than JUMP meters
+  since the last step (placed elsewhere: no ride covers that in a step), never merely for riding far from the line (a gravel
+  trap is 20 m from it);
 - Distance (a read-out) is the bike's foot on the line between that point and the next, along the lap (MotoLib's
   LineDistance), and Offset (a read-out) how far right of the line it rides (meters, negative to the left);
 - while the editor records telemetry, it records Ride.Distance (meters along the lap, which the Telemetry panel plots laps
@@ -78,9 +79,10 @@ BRAKE_MARGIN = 0.5
 BRAKE_MAX = 0.45
 # The pace: the share of LineSpeed it rides at.
 PACE = 1.0
-# Following the bike: points it may move on in a step, and how far the nearest point may be before the whole line is searched.
+# Following the bike: points it may move on in a step, and how far the bike may move in a step before the whole line is
+# searched (at 80 m/s it rides 1.3 m a step).
 TRACK_STEPS = 3
-LOST = 15.0
+JUMP = 5.0
 
 # The telemetry the graph records while the editor records.
 CHANNELS = ("Ride.Distance", "Ride.Speed", "Ride.Offset")
@@ -224,6 +226,7 @@ def declare(author):
         private("LineSpeed", "float[]", speeds),
         private("LineCurvature", "float[]", curvatures),
         private("Index", "int", 0),
+        private("LastAt", VECTOR),
     ), events=(("StartAutopilot", ()), ("StopAutopilot", ())), functions=(
         ("Find", False, (), (), (("Best", "float", 1.0e9),)),
         ("Track", False, (), (), ()),
@@ -251,7 +254,7 @@ def write_find(b):
     b.chain(b.entry, best, each)
     b.flow(each["Body"], closer)
     b.chain(closer["True"], b.set("Best", near), b.set("Index", each["Index"]))
-    b.flow(each["Completed"], b.ret)
+    b.chain(each["Completed"], b.set("LastAt", bike_at(b), comment="Where the bike was searched from"), b.ret)
 
 
 def write_track(b):
@@ -261,14 +264,15 @@ def write_track(b):
     here = b.add("Array.Get", None, "Element", Array=b.var("Line"), Index=b.var("Index")).out
     nearer = b.branch(b.expr("distance(vec2(p.X, p.Z), vec2(n.X, n.Z)) < distance(vec2(p.X, p.Z), vec2(h.X, h.Z))", p=bike_at(b),
                              n=ahead, h=here), comment="The next point is nearer: the bike has passed this one")
-    lost = b.branch(b.expr(f"distance(vec2(p.X, p.Z), vec2(h.X, h.Z)) > {LOST}", p=bike_at(b), h=here),
-                    comment="Placed elsewhere: the whole line")
-    b.chain(b.entry, each)
+    jumped = b.branch(b.expr(f"distance(vec2(p.X, p.Z), vec2(last.X, last.Z)) > {JUMP}", p=bike_at(b), last=b.var("LastAt")),
+                      comment="Placed elsewhere since the last step: the whole line")
+    moved = b.set("LastAt", bike_at(b))
+    b.chain(b.entry, jumped)
+    b.chain(jumped["True"], b.own("Find"), b.ret)
+    b.chain(jumped["False"], moved, each)
     b.flow(each["Body"], nearer)
     b.flow(nearer["True"], b.set("Index", following))
-    b.flow(each["Completed"], lost)
-    b.chain(lost["True"], b.own("Find"), b.ret)
-    b.flow(lost["False"], b.ret)
+    b.flow(each["Completed"], b.ret)
 
 
 def write(author):

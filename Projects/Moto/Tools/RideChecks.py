@@ -21,7 +21,11 @@ and StopAutopilot, and takes every reading in the step it belongs to. The phases
    and Turn 2; Autopilot B: SEGMENT_B steps on, through the corners after. Each segment's lap distance covered (the Ride
    graph's Distance), the farthest the bike rode from the racing line (its Offset), the steps a wheel touched gravel or
    grass, and the deepest lean.
-8. Done: StopAutopilot; every reading logged in one line ("Moto's assists and autopilot: ..."), the same at every frame rate.
+8. Stand: StopAutopilot; every reading logged in one line ("Moto's assists and autopilot: ..."), the same at every frame
+   rate; the riding graph back on its test driver with the assists off, the bike placed on the grid at rest, both brakes on
+   and shifted down into neutral until its wheels have stopped; then Done, which no case of the switch runs: the bike stands
+   on the grid in neutral, as BikeChecks' ride leaves it, for the modules whose checks join the scene after these (they
+   start their rides when AssistPhase is Done).
 
 The checks (latent functions of the update) wait for a reading and report it; the pose's two read the rider and the fork as
 the riding graph posed them in a frame of the autopilot's ride. Bands: Docs/Architecture.md section 15, the ride in graphs.
@@ -70,6 +74,7 @@ PHASES = (
     ("Lean", "AssistLean"),
     ("AutopilotA", "AutopilotA"),
     ("AutopilotB", "AutopilotB"),
+    ("Stand", "AssistStand"),
 )
 
 # --- The bands -------------------------------------------------------------------------------------------------------------
@@ -85,8 +90,10 @@ REAR_SHARE_BAND = (round(Vehicle.LINKED_SHARE * Vehicle.brake_ease(3.0), 3), Veh
 # turn is what the mapping is checked by, and the lean is read and logged.
 TURN_ROOM = (0.6, 1.25)
 # The autopilot's segments: the lap distance covered against Ride.predict's point mass, the farthest from the line (meters),
-# no step with a wheel on gravel or grass, and no lean past the line's limit.
-COVERED_ROOM = (0.85, 1.15)
+# no step with a wheel on gravel or grass, and no lean past the line's limit. The point mass takes each speed the line gives
+# at once and slows exactly as the profile does, where the autopilot's throttle and brake follow the speed by their gains,
+# behind it: the ride covers less than the point mass, or a little more (read 0.94 and 1.03 of it), never much more.
+COVERED_ROOM = (0.75, 1.15)
 MOST_OFFSET = 3.0
 MOST_LEAN = RacingLine.MAX_LEAN
 # The pose: how far the rider may stand from where the riding graph poses him for the bike's drawn lean and speed (meters;
@@ -306,8 +313,29 @@ def write_autopilot_b(b):
         Speed=b.var("LeanSpeed"), A=b.var("CoveredA"), B=b.var("CoveredB"), OffsetA=b.var("OffsetA"), OffsetB=b.var("OffsetB"),
         RoughA=b.var("OffRoadA"), RoughB=b.var("OffRoadB"), DeepA=b.var("DeepestA"), DeepB=b.var("DeepestB"), Step=b.var("AssistStep"))
     log = b.call("Call:Strada.Log.Info(string)", Message=readings, comment="Every reading, the same at every frame rate")
+    at, yaw, along = BikeChecks.grid_spot()
+    back = [b.set("Driver", Vehicle.TEST, graph=BIKE, target=bike(b), comment="Back on the test driver, as the scene had it")]
+    back += [assist(b, name, False) for name in ("LeanAssist", "LinkedBrakes", "AutoShift")]
+    place = b.own("Place", At=at, Yaw=yaw, Along=along, Speed=0.0, comment="Back onto the grid, at rest")
     write_segment(b, "OffsetB", "OffRoadB", "DeepestB", "CoveredB", SEGMENT_B,
-                  [stop, log, b.set("AutopilotDone", True), enter(b, "Done")])
+                  [stop, log, b.set("AutopilotDone", True), *back, place, enter(b, "Stand")])
+
+
+def write_stand(b):
+    held = drive(b, front=1.0, rear=1.0)
+    down = b.branch(b.expr(f"elapsed % {SHIFT_DOWN_EVERY} == 0 && gear > 0", elapsed=elapsed(b), gear=gear(b)),
+                    comment="One gear down at a time, until neutral")
+    shift = b.send("ShiftDown", bike(b), graph=BIKE)
+    done = b.branch(b.expr(f"elapsed >= {BikeChecks.STAND_STEPS} && speed < {STOPPED} && gear == 0", elapsed=elapsed(b),
+                           speed=speed(b), gear=gear(b)), comment="Its wheels have stopped turning too, in neutral")
+    released = drive(b)
+    enter_done = enter(b, "Done")
+    b.chain(b.entry, held, down)
+    b.flow(down["True"], shift)
+    b.chain(shift, done)
+    b.flow(down["False"], done)
+    b.chain(done["True"], released, enter_done, b.ret)
+    b.flow(done["False"], b.ret)
 
 
 HELPERS = (
@@ -321,6 +349,7 @@ HELPERS = (
     (("AssistLean", False, (), (), ()), "Lean: a lean asked of the assist, then the grid", write_lean),
     (("AutopilotA", False, (), (), ()), "Autopilot A: from the grid through Turns 1 and 2", write_autopilot_a),
     (("AutopilotB", False, (), (), ()), "Autopilot B: on through the corners after, then stopped", write_autopilot_b),
+    (("AssistStand", False, (), (), ()), "Stand: on the grid, braked into neutral, then the ride lets go", write_stand),
 )
 
 

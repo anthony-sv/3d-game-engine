@@ -6835,7 +6835,10 @@ graphs alone keeps its best lap and its settings screen, and none exposes a path
   15 s more when a brake never stops the bike (a stop gives up after 900 steps). A module whose checks join
   `Ride.sscene` (a line of `MODULES` naming `Ride`) runs them after the seven, from about step 1,875, with the bike on
   the grid in neutral and `Driver` still 2, and raises the scene's test timeout (120 s since the assists' checks joined, in
-  `Checks.SCENES` and in `MotoRideTests.cpp`'s `--timeout`) by what they add; a check's wait (`BikeChecks.WAIT`) stays below it. A module that
+  `Checks.SCENES` and in `MotoRideTests.cpp`'s `--timeout`) by what they add; a check's wait (`BikeChecks.WAIT`) stays
+  below it. Since the assists' and the autopilot's checks joined after the seven (the ride in graphs, below), a module
+  registered after theirs starts its ride when their ride's phase (`AssistPhase`) is `Done`, at about step 4,700, the
+  bike again on the grid at rest in neutral, `Driver` 2 and the assists off. A module that
   needs the bike from the grid at the first step (a ride compared across frame rates from the start) registers a test
   scene of its own instead, one line of `SCENES`: it too is the main scene without its props, its runner runs only the
   modules that name it, the ride is not in it, and the riding graph's `Driver` is what that module's `prepare` sets (0,
@@ -6908,7 +6911,7 @@ graphs alone keeps its best lap and its settings screen, and none exposes a path
   lap distance at each; `LineSpeed`, the autopilot's speeds; `LineCurvature`), none public, so the inspector, which reads
   a selected entity's public lists back whole on every draw while a game plays, never copies them. Each fixed step,
   whoever rides, it follows the line's point nearest the bike (on from the last, up to three a step, and the whole line
-  again past 15 m), publishes `Distance` (meters along the lap's center line from the start and finish line, where the
+  again only when the bike moved more than 5 m in a step: placed elsewhere), publishes `Distance` (meters along the lap's center line from the start and finish line, where the
   gates are) and `Offset` (meters right of the line), and while the editor records telemetry, records **`Ride.Distance`**,
   `Ride.Speed` (km/h) and `Ride.Offset`. **The autopilot** (`Autopilot`, off: Moto starts as it did, the player riding;
   the events `StartAutopilot` and `StopAutopilot`) rides by the simulation alone from that fixed step: it sets the riding
@@ -6942,13 +6945,18 @@ graphs alone keeps its best lap and its settings screen, and none exposes a path
   the 20.1 m (read 21.3 m) and shorter than the front brake alone in the same run (25.5 m), the rear applied at the
   share eased by the lean (0.287 to 0.3; read 0.299); (10) a lean request of −0.4 (20.1°) held 1.5 s from 20 m/s turns
   the bike, over its last 0.5 s, at 0.6 to 1.25 times the rate at which that lean balances the turn at the speed then,
-  g tan(lean) / v (read 8.3°/s against 8.3; the lean itself is read and logged, not checked: Jolt's motorcycle leans far
-  less than a rider balances, −0.9° here, which the feel pass takes up); (11) at over 47 m/s the rider stands where the
+  g tan(lean) / v (read 8.3°/s against 8.3). The lean itself is read and logged, not checked: in this turn, where 20°
+  balances it, the vehicle's target lean (the direction of the ground's impulse, `vehicle.state`'s `targetLeanAngle`)
+  read 0 to −2.9° in a probe and the chassis followed it (−0.9° at the end), a lean far smaller than a rider's, which the
+  feel pass takes up; (11) at over 47 m/s the rider stands where the
   pose puts him tucked, within 1 cm; (12) leaned over 5° he hangs to its side where the pose puts him, within 1 cm, the
   fork's axle within 0.5° of the front wheel's; (13, 14) the autopilot from the grid at rest for 20 s and then 15 s more
-  covers 0.85 to 1.15 times the lap distance a point mass riding `LineSpeed` covers (`Ride.predict`: 687.9 and 421.2 m;
-  read 632.8 and 398.9), never more than 3 m off the line (read 2.1 and 1.7), with no step of a wheel on gravel or grass,
-  never leaned past the line's 52°. The ride logs every reading in one line ("Moto's assists and autopilot: ..."), which
+  covers 0.75 to 1.15 times the lap distance a point mass riding `LineSpeed` covers (`Ride.predict`: 672.2 and 387.0 m;
+  the point mass takes each speed at once, where the autopilot's throttle and brake follow by their gains, so the ride
+  covers less, or a little more, never much more; read 632.8 and 398.9), never more than 3 m off the line (read 2.1 and
+  1.7), with no step of a wheel on gravel or grass, never leaned past the line's 52°. Then the ride stops the autopilot,
+  puts the riding graph back on its test driver with the assists off and the bike on the grid, brakes it to rest into
+  neutral and enters `Done`. The ride logs every reading in one line ("Moto's assists and autopilot: ..."), which
   `MotoRideTests.cpp` requires the same at 1/60 and 1/30 s a frame (and at 1/144 behind `STRADA_LONG_RIDES=1`); the scene
   takes 4,657 frames and its timeout is 120 s. `PlayModeTests` reads the recorded `Ride.Distance` and `Ride.Speed`
   against the bike's own distance and speed. Every authoring run plays the raw vehicle's launch and stops with the
