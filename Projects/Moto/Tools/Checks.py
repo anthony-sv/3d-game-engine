@@ -28,10 +28,13 @@ as its timeline plays the line's keys: leaned into Turn 6 as the line leans ther
 layout gives), where the line puts it at three moments of its lap and facing the way the line runs (each read with the
 ghost's own LapTime in the same update, the line's point carried on by its velocity for the moments between), and
 across the start and finish line onto its next lap. Its engine's sound plays every voice, driven by the ghost's engine
-speed, their volumes squared summing to 1 within EngineSound.POWER_BAND (the crossfades are equal-power) and each that
+speed, the on-load voices' volumes squared and the off-load voices' over EngineSound.OFF_LOAD_GAIN squared summing to 1
+within EngineSound.POWER_BAND (the crossfades are equal-power, the off-load voices quieter by their gain) and each that
 sounds pitched within its layer's band, on the Engine bus. The camera director, sent the events its actions send, cuts to the first trackside camera, then the second,
 each the one camera that shows and hears the scene and turned to the ghost, then back to the tour's camera. The audio
-director, sent TogglePause twice, blends the mix to the Paused snapshot and back.
+director, sent TogglePause twice, blends the mix to the Paused snapshot and back. The scene turns the directors' own
+cuts and the ride's sounds off (prepare_scene: the camera director's Directs and the audio director's RideSounds), so that
+it plays as Moto did before the race and the ridden bike.
 """
 import importlib
 import math
@@ -90,10 +93,13 @@ class Suite:
       box, its colour, write(b)), for events other than Event.FixedUpdate (a graph handles each event once);
     - steps: functions of the runner graph its one Event.FixedUpdate calls each fixed step, every module's in the order
       MODULES registers them: (name, title of its box, write(b)), such as a ride driven from the fixed step whose readings
-      its checks report; declared after the helpers, which they may call."""
+      its checks report; declared after the helpers, which they may call;
+    - frames: functions of the runner graph its one Event.Update calls each frame, after the steps' and the same way, such
+      as readings of what the graphs set every update (sounds, cameras), which no ride compared across frame rates may
+      take."""
 
     def __init__(self, checks, write, entities=(), variables=(), helpers=(), own=(), make=None, prepare=None, events=(),
-                 steps=()):
+                 steps=(), frames=()):
         self.checks = checks
         self.write = write
         self.entities = entities
@@ -104,6 +110,7 @@ class Suite:
         self.prepare = prepare
         self.events = events
         self.steps = steps
+        self.frames = frames
 
 
 # The test scenes, one line each.
@@ -122,6 +129,7 @@ MODULES = (
     ("Tests", "Checks"),
     ("Ride", "BikeChecks"),
     ("Ride", "RideChecks"),
+    ("Ride", "DirectorChecks"),
 )
 # The runner graphs and the library they report through, and the tests part's files.
 GRAPHS = (CHECKS,) + tuple(scene.graph for scene in SCENES)
@@ -362,6 +370,7 @@ def declare(author):
             tuple(variable for suite in parts for variable in suite.variables)),
             functions=tuple(declaration for suite in parts for declaration, _, _ in suite.helpers) +
             tuple((name, False, (), (), ()) for suite in parts for name, _, _ in suite.steps) +
+            tuple((name, False, (), (), ()) for suite in parts for name, _, _ in suite.frames) +
             tuple((function, False, (), (), ()) for _, function, _, _ in rows))
 
 
@@ -488,12 +497,19 @@ def write_tests(author, scene):
             b.chain(b.event("Event.FixedUpdate"), calls)
             for index, name in enumerate(steps):
                 b.flow(calls[f"Then{index}"], b.own(name))
+    frames = [name for suite in suites(scene) for name, _, _ in suite.frames]
+    if frames:
+        with author.region(scene.graph, "Frames: each module's readings, in turn, every frame", EVENTS) as b:
+            calls = b.sequence(len(frames))
+            b.chain(b.event("Event.Update"), calls)
+            for index, name in enumerate(frames):
+                b.flow(calls[f"Then{index}"], b.own(name))
     for suite in suites(scene):
         for (function, *_), title, write_helper in suite.helpers:
             with author.region(scene.graph, title, CHECK, function) as b:
                 write_helper(b)
     for suite in suites(scene):
-        for function, title, write_step in suite.steps:
+        for function, title, write_step in suite.steps + suite.frames:
             with author.region(scene.graph, title, EVENTS, function) as b:
                 write_step(b)
     for suite, function, title, name in order:
@@ -730,8 +746,9 @@ def check_ghost_laps(b, name):
 
 
 def check_engine_sounds(b, name):
-    # Every voice: playing, its volume squared added to the power, and counted as a stray when it sounds outside its
-    # layer's band or plays off the Engine bus.
+    # Every voice: playing, its volume squared added to the power (an off-load voice's over the off-load gain squared, so
+    # that the sum is 1 at any load), and counted as a stray when it sounds outside its layer's band or plays off the
+    # Engine bus.
     engine = b.var("EngineSound")
     each = b.add("Flow.ForEach", Array=b.pure("Get:Strada.Entity.Children", "Value", Target=engine))
     voice = each["Element"]
@@ -740,7 +757,9 @@ def check_engine_sounds(b, name):
     on_bus = b.equal(b.pure("Get:Strada.AudioSourceComponent.Bus", "Value", Target=voice), b.lit("string", "Engine"))
     playing = b.pure("Get:Strada.AudioSourceComponent.IsPlaying", "Value", Target=voice)
     low, high = 1.0 / EngineSound.LAYER_RATIO - 1e-4, EngineSound.LAYER_RATIO + 1e-4
-    power = b.set("Power", b.expr("power + volume * volume", power=b.var("Power"), volume=volume))
+    gain = round(EngineSound.OFF_LOAD_GAIN ** 2, 6)
+    power = b.set("Power", b.expr(f"power + volume * volume / (index < {EngineSound.LAYERS} ? 1.0 : {gain})", power=b.var("Power"),
+                                  volume=volume, index=each["Index"]))
     count = b.set("Playing", b.expr("count + (playing ? 1 : 0)", count=b.var("Playing"), playing=playing))
     stray = b.set("Strays", b.expr(f"strays + ((volume > 0.001 && (pitch < {low:.6f} || pitch > {high:.6f})) || !engine ? 1 : 0)",
                                    strays=b.var("Strays"), volume=volume, pitch=pitch, engine=on_bus))
@@ -750,7 +769,8 @@ def check_engine_sounds(b, name):
     passed = b.expr(f"count == {voices} && abs(power - 1) <= {EngineSound.POWER_BAND} && strays == 0 && "
                     f"abs(speed - ghost) < 1 && speed > {RacingLine.IDLE}", count=b.var("Playing"), power=b.var("Power"),
                     strays=b.var("Strays"), speed=speed, ghost=b.get("EngineSpeed", Ghost.GHOST, b.var("Ghost")))
-    detail = b.fmt(f"{{Playing}} of {voices} voices play, their volumes squared summing to {{Power}}, {{Strays}} out of their band "
+    detail = b.fmt(f"{{Playing}} of {voices} voices play, their volumes squared summing to {{Power}} (the off-load voices' over "
+                   f"{gain}), {{Strays}} out of their band "
                    "or off the Engine bus, at {Speed} rpm", Playing=b.var("Playing"), Power=b.var("Power"), Strays=b.var("Strays"),
                    Speed=speed)
     reported = b.library(CHECKS, "Check", Name=f"Moto: {name}", Passed=passed, Detail=detail)
@@ -930,12 +950,23 @@ def make_entities(create, handles):
             "PlayOnStart": {"Type": "Bool", "Value": False}, "Repeat": {"Type": "Bool", "Value": False}}}})
 
 
+def set_variables(session, entity, values):
+    """Sets public variables of the graph an entity of the scene runs, keeping its others as the scene has them."""
+    component = session.call("component_get", {"entity": entity, "component": "VisualScript"})["fields"]
+    variables = dict(component.get("Variables", {}))
+    variables.update(values)
+    session.call("component_set", {"entity": entity, "component": "VisualScript", "fields": {"Variables": variables}})
+
+
 def prepare_scene(session, found):
-    """The ghost sets out into its lap where its checks find it early in the run, from the line's pose there."""
+    """The ghost sets out into its lap where its checks find it early in the run, from the line's pose there; the camera
+    director cuts only when told and the audio director plays no ride, as Moto did before the race and the ridden bike."""
     ghost = found[Ghost.ENTITY]
     session.call("component_set", {"entity": ghost, "component": "Transform", "fields": Ghost.transform(Ghost.TEST_START_AT)})
     session.call("component_set", {"entity": ghost, "component": "VisualScript", "fields": {
         "Variables": {"StartAt": {"Type": "Float", "Value": Ghost.TEST_START_AT}}}})
+    set_variables(session, found[Trackside.ROOT], {"Directs": {"Type": "Bool", "Value": False}})
+    set_variables(session, found[Sound.DIRECTOR], {"RideSounds": {"Type": "Bool", "Value": False}})
 
 
 CORE = Suite(checks, write_check, TEST_ENTITIES, VARIABLES, HELPERS, OWN_ENTITIES, make_entities, prepare_scene)

@@ -2425,7 +2425,8 @@ TEST_CASE("PlayCommands: Prism Break's title rebinds Launch to the key the playe
 }
 
 TEST_CASE("PlayCommands: play mode flies the Moto sample's camera tour, a graph's timeline, from the home view, its actions cut "
-          "to a trackside camera and back and muffle the mix, and stopping brings the camera back; an injected gamepad rides "
+          "to a trackside camera and back while the Pause action, the race's, leaves the mix as it is, and stopping brings the "
+          "camera back; an injected gamepad rides "
           "the grid bike off on the throttle alone through the rider assists, leans it each way, slows it on the linked "
           "brakes and on the rear brake and shifts it back to neutral, its distance along the lap recorded, and stopping "
           "brings it back; with PlayOnStart off the "
@@ -2469,9 +2470,11 @@ TEST_CASE("PlayCommands: play mode flies the Moto sample's camera tour, a graph'
 	CHECK(glm::distance(findCamera().GetComponent<TransformComponent>().Translation, home) > 100.0f);
 	CHECK(readTours() == 0);
 
-	// The project's actions, injected as a player's presses would come, reach the directors' graphs: NextCamera cuts to the
-	// first trackside camera (it alone then shows and hears the scene), Pause blends the mix to the Paused snapshot and
-	// back, and ResetCamera cuts back to the tour, which flew on meanwhile.
+	// The project's actions, injected as a player's presses would come, reach the camera director's graph: NextCamera cuts to
+	// the first trackside camera (it alone then shows and hears the scene), and ResetCamera cuts back to the tour, which flew
+	// on meanwhile. The Pause action is the race director's (it pauses the game and sends the audio director TogglePause,
+	// which muffles the mix): the audio director reads no action, and until the race director plays here nothing reads it,
+	// so a press leaves the mix as it is.
 	auto const tap = [&fixture](std::string const& action)
 	{
 		fixture.Ok("input.set", Json::object({{"actions", Json::object({{action, true}})}}));
@@ -2507,9 +2510,6 @@ TEST_CASE("PlayCommands: play mode flies the Moto sample's camera tour, a graph'
 	CHECK_FALSE(shows("Turn 1 Camera"));
 	tap("Pause");
 	fixture.Ok("play.advance", Json::object({{"frames", 40}}));
-	CHECK(readVariable("Audio Director", "Paused").GetBool());
-	CHECK(AudioEngine::GetCurrentSnapshot() == "Paused");
-	tap("Pause");
 	CHECK_FALSE(readVariable("Audio Director", "Paused").GetBool());
 	CHECK(AudioEngine::GetCurrentSnapshot().empty());
 	glm::vec3 const flying = findCamera().GetComponent<TransformComponent>().Translation;
@@ -2653,8 +2653,9 @@ TEST_CASE("PlayCommands: play mode flies the Moto sample's camera tour, a graph'
 	CHECK(readTours() == 0);
 	CHECK(fixture.Ok("play.stop")["state"] == "edit");
 
-	// The camera director's StartCamera, set in the scene: a number that names no camera (its range says 0 to 4, but a scene
-	// file or an agent may hold any) is warned of once, and the tour's camera shows and hears the scene.
+	// The camera director's StartCamera, set in the scene: a number that names no camera (its range says 0 to 8, the tour, the
+	// seven trackside cameras and the chase camera, but a scene file or an agent may hold any) is warned of once, and the
+	// tour's camera shows and hears the scene.
 	auto const startOn = [&fixture](int32_t number)
 	{
 		Entity const director = fixture.Context.GetScene().FindEntityByName("Trackside");

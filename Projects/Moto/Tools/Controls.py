@@ -9,7 +9,9 @@ graph that reads them, each registered by one line of GROUPS; no control is boun
     rear one, each wheel braked by its own (a bike's two brakes).
   - Lean (an axis, -1 left to 1 right): A and D, the left stick's X.
   - ShiftUp and ShiftDown (buttons): E and Q, the right and the left bumper.
-- Pause (a button): Escape, the gamepad's Start. The audio director blends the mix to the Paused snapshot and back.
+- Pause (a button): Escape, the gamepad's Start: the game's pause, which the race director reads (slice 4's GF; it
+  sends the audio director TogglePause, which blends the mix to the Paused snapshot and back). The audio director reads
+  no action, so until the race director plays no graph reads it.
 - NextCamera and ResetCamera (buttons): C and R, the gamepad's Y and Back. The camera director cuts to the next trackside
   camera, and back to the tour.
 
@@ -51,7 +53,7 @@ CAMERAS = (
 # The groups of actions, one line each: (the graph that reads them, its actions), in the order the asset lists them.
 GROUPS = (
     ("the bike's riding graph", RIDING),
-    ("the audio director", PAUSE),
+    ("the race director", PAUSE),
     ("the camera director", CAMERAS),
 )
 ACTIONS = tuple(action for _, actions in GROUPS for action in actions)

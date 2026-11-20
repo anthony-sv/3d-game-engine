@@ -1,7 +1,7 @@
 """Generates the Moto project's sounds (Assets/Audio/*.wav): the engine of a 90 degree V4 with a twin-pulse firing order, as
 eight layers at fixed engine speeds on load (the throttle open) and eight off load (closed, the engine braking), and the
-wind, a tyre squeal, a shift blip and a crowd bed. Standard library only; everything is made here, seeded, so the files
-have no license of their own.
+wind, a tyre squeal, a shift blip, a crowd bed and the crunch of gravel under a tyre. Standard library only; everything is
+made here, seeded, so the files have no license of their own.
 
     python Projects/Moto/Tools/GenerateAudio.py [--output DIRECTORY]
     python Projects/Moto/Tools/GenerateAudio.py --check
@@ -29,6 +29,9 @@ circle of its length, and its filters run round the circle twice, keeping the se
 - Tyre squeal (Audio/TyreSqueal.wav): a rubbery tone near 950 Hz that wavers, with a hiss.
 - Shift blip (Audio/ShiftBlip.wav, a one-shot): the engine blipped for a downshift, its speed swept up and back.
 - Crowd (Audio/Crowd.wav): the murmur of a grandstand, voices of filtered noise swelling and fading.
+- Gravel crunch (Audio/GravelCrunch.wav): loose stones under a rolling tyre, CRUNCH_STONES a second, each a click whose
+  ring is a stone's (rattling resonances from GRAVEL_RATTLE), over the low grind of the bed. It is made last, from the
+  stream of random numbers the others leave, so that adding it left every other file as it was.
 """
 import argparse
 import io
@@ -82,6 +85,16 @@ POP_STRENGTH = 0.9
 # multiple of the crank's).
 COMBUSTION_NOISE = (0.18, 1500.0, 4000.0)
 GEAR_WHINE = (0.035, 23.0)
+
+# --- The gravel ----------------------------------------------------------------------------------------------------------
+
+# How many stones a second a tyre rolling at speed throws or crushes, how short a stone's click is (seconds, its width
+# drawn between the two), and the resonances a stone rings at as it rattles: (frequency in Hz, Q, gain).
+CRUNCH_STONES = 700.0
+STONE_CLICK = (0.00015, 0.0006)
+GRAVEL_RATTLE = ((1350.0, 1.6, 1.0), (2900.0, 2.2, 0.75), (5100.0, 2.8, 0.45))
+# The bed's grind under the stones: noise between these frequencies (Hz), and its gain against the stones.
+GRAVEL_GRIND = (90.0, 420.0, 0.5)
 
 
 def layer_cycles(rpm):
@@ -258,6 +271,24 @@ def crowd(generator, seconds=6.0, voices=6):
     return high_pass(mix(total, scale(rumble, 1.5)), 60.0)
 
 
+def gravel_crunch(generator, seconds=2.0):
+    """Gravel under a rolling tyre: stones' clicks placed at random round the loop (a click that crosses the seam wraps
+    round it), each a short pulse of its own strength and sign, rung through the stones' rattling resonances, over the
+    bed's grind of band-limited noise that swells with the clicks a few whole times a loop."""
+    count = round(seconds * RATE)
+    clicks = [0.0] * count
+    for _ in range(round(CRUNCH_STONES * seconds)):
+        center = generator.uniform(0.0, float(count))
+        strength = generator.uniform(0.15, 1.0) ** 2 * (1.0 if generator.random() < 0.5 else -1.0)
+        add_pulse(clicks, center, generator.uniform(*STONE_CLICK), strength)
+    rattle = mix(*(resonator(clicks, frequency, q, gain) for frequency, q, gain in GRAVEL_RATTLE))
+    low, high, gain = GRAVEL_GRIND
+    swell = (3 + generator.randrange(3), generator.uniform(0.0, 2.0 * math.pi))
+    grind = low_pass(high_pass([generator.uniform(-1.0, 1.0) for _ in range(count)], low), high)
+    ground = [gain * value * (0.75 + 0.25 * math.sin(2.0 * math.pi * swell[0] * i / count + swell[1])) for i, value in enumerate(grind)]
+    return high_pass(mix(rattle, ground), 60.0)
+
+
 # --- Levels and files ----------------------------------------------------------------------------------------------------
 
 def decibels(value):
@@ -304,13 +335,15 @@ def sounds(seed=SEED):
     made["Audio/TyreSqueal.wav"] = (level(tyre_squeal(generator), -14.0), True, None)
     made["Audio/ShiftBlip.wav"] = (level(shift_blip(generator)), False, None)
     made["Audio/Crowd.wav"] = (level(crowd(generator), -18.0), True, None)
+    # Last: the files before it draw from the stream as they did before it was added.
+    made["Audio/GravelCrunch.wav"] = (level(gravel_crunch(generator), -16.0), True, None)
     # As written: 16-bit values read back, so that the checks measure the file.
     return {path: ([value / 32767.0 for value in struct.unpack(f"<{len(samples)}h", pcm(samples))], loops, rpm)
             for path, (samples, loops, rpm) in made.items()}
 
 
 OUTPUTS = tuple(f"Audio/Engine/{kind}{index}.wav" for kind in ("On", "Off") for index in range(1, LAYER_COUNT + 1)) + \
-    ("Audio/Wind.wav", "Audio/TyreSqueal.wav", "Audio/ShiftBlip.wav", "Audio/Crowd.wav")
+    ("Audio/Wind.wav", "Audio/TyreSqueal.wav", "Audio/ShiftBlip.wav", "Audio/Crowd.wav", "Audio/GravelCrunch.wav")
 
 
 # --- Checks --------------------------------------------------------------------------------------------------------------

@@ -10,7 +10,7 @@ repository (the system's temporary folder), whose main scene has the main camera
 (PlayOnStart off), and the bike where the view puts it: on the grid where it waits, or on the circuit, leaned into a
 corner. A view of the tour instead plays the main scene as it is and takes the frame of a time of the tour. The ghost
 bike is hidden in those views (they are the grid bike's, and a tour's would catch it riding). A trackside view is one of
-the four trackside cameras (Trackside.py), on which the camera director starts the game (its StartCamera) and which its
+four of the trackside cameras (Trackside.py), on which the camera director starts the game (its StartCamera) and which its
 graph turns to the ghost, with the ghost set out on its lap (its StartAt) so that the picture's frame catches it riding
 towards the camera, PASS_LEAD seconds before it passes closest. The player runs each with a per-user root of its own
 (APPDATA, LOCALAPPDATA, HOME and XDG_DATA_HOME in a temporary folder), draws 1920 by 1080 pixels (--resolution) and

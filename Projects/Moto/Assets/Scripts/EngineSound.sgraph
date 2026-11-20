@@ -343,7 +343,7 @@
 						1456.0,
 						352.0
 					],
-					"Comment": "Equal-power crossfades: the voices' powers sum to Volume squared; a stopped engine is silent"
+					"Comment": "Equal-power crossfades, off load a little quieter; a stopped engine is silent"
 				},
 				{
 					"ID": 36,

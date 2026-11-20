@@ -24,14 +24,20 @@ using namespace Strada::RuntimeTesting;
 // it, a lean request turns it, and the autopilot (Scripts/Ride.sgraph) rides it from the grid through the corners after
 // Turn 2; the rider's pose is read as the bike rides. So the ride is the same ride at every frame rate, step for step: its
 // readings, which the graph logs in two lines, and the physics state at a step of it are compared exactly between the rates.
+// Meanwhile the directors' checks (Tools/DirectorChecks.py) read every frame what the camera and audio directors set: the
+// attract mode's cuts by the camera director's rule and the race's chase view (the test stands in for the race director's
+// AttractStarted and RaceStarted), the listener on the camera that shows, and the ridden bike's engine voices, squeal, shift
+// blips, gravel crunch and wind, the crowd and the voices mixed; those readings are of frames, so no line compared here holds
+// them, and their checks pass at every rate.
 // A ctest entry of its own (StradaRuntimeTests.Ride, Shards.cmake), which later rides of the sample join. The scene has no
 // props, so a start of the player on it costs less than the 25 s one on Moto's main scene takes on CI's macOS runners: the
 // shard's two starts stay well within its 200 s there.
 
 namespace
 {
-	// The ride test scene's checks: the bike's seven (Tools/BikeChecks.py), then the assists' and the autopilot's seven.
-	constexpr std::string_view RideChecks = "Tests passed: 14 checks";
+	// The ride test scene's checks: the bike's seven (Tools/BikeChecks.py), the assists' and the autopilot's seven, then the
+	// directors' nine.
+	constexpr std::string_view RideChecks = "Tests passed: 23 checks";
 	// A fixed step of the ride after it was teleported into the gravel trap and back (by about step 1,650) and before it ends
 	// (about step 1,870): the physics state there is the same at every frame rate.
 	constexpr std::string_view HashStep = "1750";
