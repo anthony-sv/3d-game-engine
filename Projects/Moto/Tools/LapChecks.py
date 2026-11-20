@@ -39,8 +39,8 @@ LAPS = 2
 CROSSING = 50.0
 # Each lap's time against the racing line's (shares of it): the autopilot rides the line's corners at Ride.AUTO_GRIP of the
 # tyres' grip and slows for them at Ride.AUTO_BRAKING, where the line's point mass takes the grip whole (its profile's lap is
-# Ride.check()'s); the first lap starts 9 m behind the line, the second is flying. The feel pass read 84.4 and 80.9 s (1.19
-# and 1.14 times the line's 71.1 s); the band leaves room for the rides other compilers and configurations give.
+# Ride.check()'s); the first lap starts 9 m behind the line, the second is flying. The feel pass read 82.53 and 79.28 s
+# (1.16 and 1.12 times the line's 71.1 s); the band leaves room for the rides other compilers and configurations give.
 LAP_BAND = (1.0, 1.25)
 # The laps on the line: as the autopilot's segments of the ride test scene (RideChecks).
 MOST_OFFSET = RideChecks.MOST_OFFSET

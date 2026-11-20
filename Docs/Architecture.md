@@ -7080,7 +7080,7 @@ graphs alone keeps its best lap and its settings screen, and none exposes a path
   its own. As drawn, its wheels cast cylinders 120 and 200 mm wide against the ground (the definition's `Width`), and the
   bike leaned 0.07 of the lean that balances its turns (35 to 39° balance Turn 1; it leaned 9 to 11°). The engine rounds a
   cast's edges by half its width (`VehicleWorld.cpp`, as Jolt's own tester does, `VehicleCollisionTester.cpp:261`), but the
-  support function every cast goes through caps a convex radius at 0.05 m (`ScaleHelpers.h:29`, from
+  support function every cast goes through caps a convex radius at 0.05 m (`ScaleHelpers.h:30`, from
   `CylinderShape::GetSupportFunction`, reached from `ConvexShape.cpp:269-273`), so a wheel wider than 0.1 m rides on a flat
   bottom: upright its contact sits half its width less 0.05 m off the wheel's plane (a probe read 52 mm for the 200 mm rear,
   none at 100 mm or less). The ground's force then misses the center of mass at the lean Jolt's controller aims for, the
@@ -7106,15 +7106,17 @@ graphs alone keeps its best lap and its settings screen, and none exposes a path
   its 750 N m (its wheel locks at once and its tyre slides), 26.2 m at 600, 30.9 m at 500 and 37.9 m at 400: a brake that
   does not lock stops longer, so it stays at 750. From 58 m/s a front lever of 0.45, the front tyre rolling, sets the bike
   weaving until it falls within about 2 s, with the linked brakes on or off, the rear brake's share at 0, the lean assist
-  off or the spring at 5,000; at 0.3 it does not, nor at a full lever, which locks the front and slides the bike straight,
-  nor from 50 or 40 m/s at any lever probed: the autopilot's brake ramps on gently. In neutral the engine winds down from
+  off or the spring at 5,000 (at 0.6 it falls with the linked brakes on and rides on with them off; at 0.3 it rides on). A
+  full lever locks the front: the bike slides straight with the linked brakes off or their rear share at 0, but spins
+  round with the share of 0.3 (leaned 47.6° and running backwards 1.5 s later). From 50 m/s (levers of 0.45 and 0.6) and
+  40 m/s (a full lever) nothing weaved; the autopilot's brake ramps on gently. In neutral the engine winds down from
   its red line by 80 rpm a second (Jolt's engine damping, 0.005 of its speed a second, which also takes its share of the
   power at every speed). Neither is tuned here. **M1's sixth step** (`MotoAgentTests.cpp`, StradaEditorTests): in the lap
   test scene, the autopilot riding from the grid, an agent rides through Turn 1's turn-in as the bike is, then again,
   and a second into the second ride `vehicle.set` raises the shift point and the red line by 1,000 rpm and doubles the
   lean spring, its damping left as it was. The riding vehicle takes the spring in place before its next step and rides
   on; `telemetry.read` of the vehicle's channels shows the first upshift at a road speed whose engine speed in first gear
-  is above the old shift point by more than 500 rpm (read 16,505 rpm at 45.0 m/s, against 42.3 m/s without the edit), and
+  is above the old shift point by more than 500 rpm (read 16,505 rpm at 45.0 m/s), and
   a quicker roll into Turn 1: from the turn-in (the first step past 500 m along the lap leaned 2°) to 10° of lean, 0.72 s
   as the bike was and 0.52 s edited (0.72 and 0.53 in Release), on either side of the case's 0.625 s; and `profiler.capture`
   of the frames writes a capture whose subsystems hold `Physics`.

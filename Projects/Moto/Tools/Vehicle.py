@@ -138,7 +138,7 @@ SLIDING_FRICTION = 1.0
 # The lean limit, and Jolt's lean controller: the spring that turns the bike to its target lean and its damping (which
 # stays under the roll inertia's bound, check()), and how much of the last target it keeps each step. The feel pass stiffened
 # the spring from 5,000 with the damping held: on the narrow contacts it leans the bike deeper and faster (Turn 1's peak
-# roll rate 31 against 43 degrees a second); a damping raised with it slows the lean instead.
+# roll rate 43 degrees a second against 31); a damping raised with it slows the lean instead.
 MAX_LEAN = round(math.degrees(math.atan(RacingLine.GRIP)), 1)
 LEAN_SPRING = 10000.0
 LEAN_DAMPING = 400.0
