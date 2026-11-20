@@ -41,8 +41,8 @@ namespace Strada
 	// The telemetry channels a running scene records for each of its vehicles while a recording runs (Docs/Architecture.md
 	// §8, "Telemetry channels"), each named "Vehicle.<entity's UUID in decimal>.<quantity>", in this order: the inputs the
 	// step applied, the engine's speed (rpm), the gear (0 neutral), the speed along the chassis's front (m/s), the lean
-	// (degrees, positive to the right), and for each wheel, front then rear, its longitudinal slip ratio, its slip angle
-	// (degrees), its suspension's length (m) and the tyre grip of the surface under it.
+	// (degrees, positive to the right), and for each wheel, front then rear, its longitudinal slip ratio and its slip angle
+	// (degrees; both sizes, never negative), its suspension's length (m) and the tyre grip of the surface under it.
 	inline constexpr std::array<std::string_view, 16> VehicleChannelQuantities = {
 		"Throttle",
 		"FrontBrake",

@@ -599,7 +599,9 @@ namespace Strada
 		float AngularVelocity = 0.0f;
 		float RotationAngle = 0.0f;
 		float SteerAngle = 0.0f;
-		// Jolt's slips of the step: the longitudinal slip ratio, and the slip angle in radians; 0 without contact.
+		// Jolt's slips of the step, both sizes (WheeledVehicleController.cpp:120, :125): the longitudinal slip ratio, 0
+		// rolling with the ground, 1 locked, never negative whether the tyre spins or brakes, and the slip angle in radians,
+		// 0 to pi / 2 whichever side it slides to; 0 without contact.
 		float LongitudinalSlip = 0.0f;
 		float LateralSlip = 0.0f;
 	};

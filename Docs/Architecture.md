@@ -3365,7 +3365,13 @@ wheel all of its torque).
   Break: `HasContact`, `Ground` (the entity under the wheel), `Material` (its `PhysicsMaterial`, one shared reference per
   material, as a raycast hit's), `ContactPoint`, `ContactNormal`, `SuspensionLength` (m), `Spin` (rad/s, positive rolling
   forward), `LongitudinalSlip` (the ratio) and `LateralSlip` (the slip angle in degrees, the unit of the lateral friction
-  curve), with the getter `Surface` (the material's surface name, empty for none). The reads are one binding
+  curve), with the getter `Surface` (the material's surface name, empty for none). **Both slips are sizes, as Jolt
+  computes them** (`WheeledVehicleController.cpp:120`, `:125`): the ratio is 0 when the tyre rolls with the ground and
+  grows as it spins or slides either way (1 locked, large for a wheel that turns while the bike barely moves), and the
+  angle runs from 0 to 90 degrees whichever side the tyre slides to; neither is ever negative. The API gives them as
+  Jolt does and adds no signed slip: what tells a spinning tyre from a braking one is `Spin` times the wheel's radius
+  against `ForwardSpeed` (faster when it spins, slower when it brakes), and a graph takes the radius from its own
+  definition (Moto's from `Tools/Vehicle.py`; the `Vehicle` class reads no wheel geometry). The reads are one binding
   (`VehicleComponent_GetState`, the layout `NativeVehicleState`) that applies pending physics changes first, as the
   character's reads do; without a simulated vehicle (the scene does not play, the entity has no dynamic body or no
   definition that loads, or physics is unavailable) they are a vehicle at rest in neutral and a wheel without contact,

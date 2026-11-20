@@ -153,12 +153,16 @@ public struct VehicleWheelState
 	/// <summary>How fast the wheel turns around its axle, in radians per second: positive when it rolls forward.</summary>
 	public float Spin;
 
-	/// <summary>The longitudinal slip ratio: 0 when the tyre rolls with the ground, positive when it spins faster
-	/// (accelerating), negative when it turns slower (braking; -1 locked); 0 without contact.</summary>
+	/// <summary>The size of the longitudinal slip ratio: how much faster or slower the tyre's tread moves than the ground
+	/// goes by under it, as a share of the ground's speed. It is 0 when the tyre rolls with the ground and grows as the tyre
+	/// spins or slides, either way: 1 for a locked wheel, and large for a wheel that turns while the bike barely moves. It is
+	/// never negative, so it does not tell spinning from braking: compare <see cref="Spin"/> times the wheel's radius with
+	/// <see cref="VehicleComponent.ForwardSpeed"/> for that (faster when the tyre spins, slower when it brakes). 0 without
+	/// contact.</summary>
 	public float LongitudinalSlip;
 
-	/// <summary>The slip angle in degrees, between where the tyre points and where it moves over the ground; 0 without
-	/// contact.</summary>
+	/// <summary>The slip angle in degrees, between where the tyre points and where it moves over the ground: from 0 to 90,
+	/// whichever side the tyre slides to (never negative); 0 without contact or while the tyre barely moves.</summary>
 	public float LateralSlip;
 
 	/// <summary>The name of the surface under the wheel (its material's <see cref="PhysicsMaterial.Surface"/>, such as

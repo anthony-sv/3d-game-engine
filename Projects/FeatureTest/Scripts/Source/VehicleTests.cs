@@ -188,9 +188,12 @@ public sealed class VehicleTests : FeatureTestScript
 				Assert.AreApproximatelyEqual(0.0f, wheel.ContactPoint.Y, 0.05f, $"contact {wheel.ContactPoint}");
 				Assert.IsTrue(MathF.Abs(wheel.LateralSlip) < 10.0f && float.IsFinite(wheel.LongitudinalSlip), wheel.ToString());
 			}
-			// The engine drives the rear wheel: it turns forward, faster than the ground goes by.
+			// The engine drives the rear wheel: it turns forward, and under the throttle its tyre slips. A slip ratio is a
+			// size, never negative (it grows whether a tyre spins or brakes), so this shows a slip, not its direction; and at
+			// this pace the rear tyre's slip alternates from one step to the next between a large one and a small one, so
+			// the reading is only required above 0.
 			Assert.IsTrue(m_Rear.Spin > 1.0f, $"the rear wheel turns at {m_Rear.Spin} rad/s");
-			Assert.IsTrue(m_Rear.LongitudinalSlip > 0.0f, m_Rear.ToString());
+			Assert.IsTrue(m_Rear.LongitudinalSlip > 0.0f && m_Front.LongitudinalSlip >= 0.0f, $"rear {m_Rear}; front {m_Front}");
 		});
 		Check("a lean to the right leans the bike and turns it to its right", () =>
 		{

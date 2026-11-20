@@ -1354,10 +1354,10 @@ namespace Strada
 		                   "closed), shifting, forwardSpeed (m/s along the chassis's front), leanAngle and targetLeanAngle (degrees, "
 		                   "positive to the right), wheels: [{ index (0 front, 1 rear), name, contact ({ entity, name } or null), "
 		                   "surface (the physics material's reference or null), surfaceName, tyreGrip, rollingResistance, "
-		                   "suspensionLength (m), spin (rad/s), steerAngle (degrees), longitudinalSlip (ratio), lateralSlip "
-		                   "(degrees), contactPoint, contactNormal }] }] }. Read-only: not an undo step. InvalidOperation while "
-		                   "nothing plays and for an entity whose Vehicle makes no vehicle; EntityNotFound, ComponentNotFound (no "
-		                   "Vehicle); Unavailable without physics.",
+		                   "suspensionLength (m), spin (rad/s), steerAngle (degrees), longitudinalSlip (the ratio's size, never "
+		                   "negative), lateralSlip (degrees, 0 to 90), contactPoint, contactNormal }] }] }. Read-only: not an undo "
+		                   "step. InvalidOperation while nothing plays and for an entity whose Vehicle makes no vehicle; "
+		                   "EntityNotFound, ComponentNotFound (no Vehicle); Unavailable without physics.",
 		                   SchemaBuilder::Object()
 		                       .Property("entity", SchemaBuilder::String("Entity ID of one vehicle (default every vehicle)").MinLength(1))
 		                       .Build(),

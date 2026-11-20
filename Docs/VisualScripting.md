@@ -425,7 +425,9 @@ A motorcycle's `VehicleComponent` ([Scripting.md](Scripting.md#vehicles)) is rid
   positive to the right), and the inputs the step applied, `Throttle`, `FrontBrake`, `RearBrake` and `Lean`.
 - **Get Wheel State** (`Index` 0 the front, 1 the rear; pure) gives a `Strada.VehicleWheelState`. Break it (or split
   its pin) for `HasContact`, `Ground`, `Material`, `ContactPoint`, `ContactNormal`, `SuspensionLength`, `Spin`,
-  `LongitudinalSlip` and `LateralSlip`. Its `Surface` getter names the ground's surface, such as `Gravel`.
+  `LongitudinalSlip` and `LateralSlip` (both sizes, never negative: compare `Spin` times the wheel's radius with
+  `ForwardSpeed` to tell a spinning tyre from a braking one). Its `Surface` getter names the ground's surface, such as
+  `Gravel`.
 - The `Strada.Vehicle` asset its `Definition` names reads its gears (`GearCount`, **Get Gear Ratio**, `FinalDrive`), the
   engine's speeds (`MinRPM`, `MaxRPM`, `ShiftUpRPM`, `ShiftDownRPM`), `MaxTorque` and `MaxLeanAngle`.
 

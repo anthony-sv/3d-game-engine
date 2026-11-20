@@ -541,7 +541,8 @@ calls `ShiftUp()` and `ShiftDown()`, one gear per call; a Manual gearbox waits i
 `Gear`, `ForwardSpeed` (m/s), `LeanAngle` (degrees, positive to the right), the inputs the step applied (`Throttle`,
 `FrontBrake`, `RearBrake`, `Lean`) and `GetWheelState(0)` and `GetWheelState(1)`, the front and the rear wheel. Each wheel
 state gives what the wheel stands on (`HasContact`, `Ground`, `Material`, `Surface`), its suspension's length, its spin
-and its slips. The definition itself reads through the `Vehicle` asset class (`Definition`): its gears, ratios, engine
+and its slips, which are sizes (never negative, as the physics engine gives them): `Spin` times the wheel's radius against
+`ForwardSpeed` tells a spinning tyre from a braking one. The definition itself reads through the `Vehicle` asset class (`Definition`): its gears, ratios, engine
 speeds and lean limit, for a rev counter or a gear indicator.
 
 Set the inputs in `OnFixedUpdate`: each physics step applies the latest given before it, and a shift asked for in a step
