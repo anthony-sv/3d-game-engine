@@ -458,12 +458,14 @@ namespace Strada
 		// Empty when the fold is off, before the first step, and before PhysicsHashStep when that is set.
 		std::optional<uint64_t> GetFoldedPhysicsHash() const;
 		// Saves the running scene's simulation between frames (ScenePhysicsSnapshot): the physics world's state
-		// (PhysicsScene::SaveState), the fixed step count, the accumulator, the sequence of the UUIDs entities made while
-		// running take, what the scene exchanged with each body and character, and the steps each vehicle's wheels are drawn
-		// between. Physics component changes not applied yet are applied first. Fails when the scene runs no physics.
+		// (PhysicsScene::SaveState), the fixed step count, the accumulator, the fold of the steps' state hashes so far
+		// (GetFoldedPhysicsHash), the sequence of the UUIDs entities made while running take, what the scene exchanged with
+		// each body and character, and the steps each vehicle's wheels are drawn between. Physics component changes not
+		// applied yet are applied first. Fails when the scene runs no physics.
 		[[nodiscard]] Result<ScenePhysicsSnapshot> SavePhysicsState();
-		// Goes back to a snapshot of this run between frames: the physics world, the step count and accumulator, the UUID
-		// sequence (an ID still held by an entity made since is skipped), and the entities of bodies and characters where they
+		// Goes back to a snapshot of this run between frames: the physics world, the step count and accumulator, the fold of
+		// the steps' hashes, the UUID sequence (an ID still held by an entity made since is skipped), and the entities of
+		// bodies and characters where they
 		// were then, with the vehicles' wheels drawn as they were, so the steps that follow run as they did. Physics component
 		// changes not applied yet are applied first, as
 		// the next frame would. Then it fails, changing nothing more, when the scene runs no physics, the snapshot is of

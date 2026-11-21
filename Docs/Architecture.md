@@ -3094,7 +3094,8 @@ velocities, forces and sleep state, the contacts and the joints' warm starts), e
 (`CharacterVirtual::SaveState`, which the system does not save, with the engine's own velocities and ground
 displacement), the contacts the world has reported and the events not yet taken, each vehicle's state Jolt leaves out
 ("Vehicles" below), and the scene's step state: the step
-count, the accumulator, the state of the sequence entities made while running take their UUIDs from, the poses last
+count, the accumulator, the fold of the steps' hashes so far, the state of the sequence entities made while running
+take their UUIDs from, the poses last
 exchanged with the bodies, the local poses moving bodies are drawn between (and which parts of each are drawn, or
 whether it was moved since its step), the characters' step positions and ground, and the wheels' step values. Entities made after a restore so
 take the UUIDs entities made after the save took, except one an entity made since (and not destroyed) still holds,
@@ -6439,7 +6440,7 @@ graphs alone keeps its best lap and its settings screen, and none exposes a path
   entry each, defined once in `Tests/StradaEditorTests/Shards.cmake` as doctest source-file filters:
   `StradaEditorTests.AutomationFuzz`, `.Graph` (the graph and debug command tests and `GraphEditFuzzTests`),
   `.VisualScriptPanels` (the visual script editor's panels, panes, windows and canvases), `.VisualScriptModel` (the rest
-  of the visual script editor), `.Moto` (the Moto sample played in the editor, `MotoPlayTests.cpp` and `MotoAgentTests.cpp`) and `.Core` (every
+  of the visual script editor), `.Moto` (the Moto sample played in the editor, `MotoPlayTests.cpp`, `MotoAgentTests.cpp` and `MotoCopyTests.cpp`, a copy of it opened and played) and `.Core` (every
   other file). `StradaEditorTests.Partition` lists the test cases
   unfiltered and through each shard's filters and fails when one is in no shard or in two, or when a shard selects
   nothing; a shard that passes 450 s on CI's Windows MSVC Debug job that runs the suite is split again by source-file
@@ -6477,8 +6478,9 @@ graphs alone keeps its best lap and its settings screen, and none exposes a path
   shards defined in `Tests/StradaRuntimeTests/Shards.cmake`: `StradaRuntimeTests.Samples` (`SampleTests.cpp`: the
   sample projects, each played several times), `.Templates` (`TemplateTests.cpp`: a project made from each template),
   `.Ride` (`MotoRideTests.cpp`: Moto's ride, flow and lap test scenes), `.Ship` (`MotoShipTests.cpp`: Moto's test scene
-  at 1/30 and 1/144 s a frame and the first minute of its ride at three frame rates; `FoldedHashTests.cpp`: the
-  player's fold of every step's physics state hash) and `.Core` (every other file), with
+  at 1/30 and 1/144 s a frame, the first minute of its ride at three frame rates, and the exported game's test scene and
+  the player's data it keeps across two runs; `FoldedHashTests.cpp`: the player's fold of every step's physics state
+  hash) and `.Core` (every other file), with
   `StradaRuntimeTests.Partition`; the helpers they share are in
   `RuntimeTestUtilities.h`.
 - `StradaToolTests` (xUnit): the strada command line, instance files and editor discovery, the MCP server against a
@@ -6822,8 +6824,9 @@ graphs alone keeps its best lap and its settings screen, and none exposes a path
   trackside camera (it alone shows and hears, turned to the ghost within 2°), to the second, and back to the tour's
   camera; and sent `TogglePause` twice, the audio director blends the mix to the `Paused` snapshot
   (`Audio.CurrentSnapshot` reads it) and back. They wait in seconds of the game, with tolerances for a frame of the
-  slowest test run, so they pass at 1/60 and 1/30 s a frame; `StradaRuntimeTests` runs them twice at 1/60 s (the same
-  summary each time) and once at 1/30 s, and plays the main scene, refusing any line from a visual script. The scene
+  slowest test run, so they pass at 1/30, 1/60 and 1/144 s a frame; `SampleTests.cpp` (StradaRuntimeTests) runs them
+  twice at 1/60 s (the same summary each time) and plays the main scene, refusing any line from a visual script, and
+  `MotoShipTests.cpp` runs them at 1/30 and 1/144 s and in the exported game (Moto shipped, below). The scene
   turns the camera director's `Directs` and the audio director's `RideSounds` off, so that it plays as Moto did before
   the race and the ridden bike (the directors, below).
   `MotoSoundTests.cpp` (StradaRuntimeTests) hears the ghost pass the footbridge camera through the player's
