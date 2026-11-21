@@ -148,6 +148,7 @@ add_executable(StradaTests
     Source/Scene/SceneReverbZoneTests.cpp
     Source/Scene/SceneRuntimeTests.cpp
     Source/Scene/SceneSavesScriptingTests.cpp
+    Source/Scene/SceneScriptReadBackTests.cpp
     Source/Scene/SceneScriptingApiTests.cpp
     Source/Scene/SceneScriptingGuideTests.cpp
     Source/Scene/SceneScriptingHostTests.cpp

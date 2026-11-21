@@ -1177,6 +1177,12 @@ namespace Strada
 		// included. Without giveEdits nothing happens unless the program changed.
 		void UpdateVisualScriptVariables(entt::entity handle, VisualScriptInstanceState& state, VisualScriptComponent const& component,
 		                                 bool giveEdits);
+		// What RefreshScriptFields and RefreshVisualScriptVariables do, answering what the runtime answered: the values read
+		// across the boundary (merged into the component and the record by then) and the names of the others, which the
+		// component holds again as the record has them. ReadScriptFields and ReadVisualScriptVariables make their whole
+		// answer from it.
+		[[nodiscard]] Result<ScriptFieldChanges> RefreshScriptFieldChanges(Entity entity);
+		[[nodiscard]] Result<ScriptFieldChanges> RefreshVisualScriptVariableChanges(Entity entity);
 
 		// Whether this scene runs scripts (it is the ScriptEngine's scene context).
 		bool m_RunsScripts = false;

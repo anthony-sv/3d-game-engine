@@ -283,7 +283,10 @@ namespace Strada
 		// An array of plain values: a row of widgets per element with its grip (dragged onto another row's grip, a Move to
 		// that row's index; none in an array of a fixed order) and "-", then "+" (disabled at the field's MaxCount). Returns true and fills
 		// change when the user changed it: an element's value with its index in *element, or the list edit in change.ArrayEdit.
-		bool DrawArrayElements(FieldDescriptor const& field, Json const& value, FieldChange& change, std::optional<uint32_t>& element);
+		// With clip, the rows outside the window's view are left out (their space kept), but for the row whose widget is
+		// active, and an array of multiline texts is drawn whole; the rows are counted in the draw's statistics.
+		bool DrawArrayElements(FieldDescriptor const& field, Json const& value, FieldChange& change, std::optional<uint32_t>& element,
+		                       bool clip);
 		// DrawArrayElements for widgets drawn without a path (DrawInlineValue, DrawValuePopup): the whole new array.
 		bool DrawArray(FieldDescriptor const& field, Json const& value, FieldChange& change);
 		// An asset field: DrawAssetReference, "x" clearing the reference.
@@ -346,5 +349,18 @@ namespace Strada
 		};
 		ElementFolds m_ElementFolds;
 		int m_LastPruneFrame = -1;
+		// The element row of an array of plain values that held the active widget when it was last drawn (Array, the
+		// array's ID scope; ActiveId, ImGui's active ID then; both ImGuiIDs), drawn while that widget stays active, wherever
+		// it lies.
+		struct ActiveArrayRow
+		{
+			uint32_t Array = 0;
+			uint32_t ActiveId = 0;
+			uint32_t Row = 0;
+		};
+		ActiveArrayRow m_ActiveArrayRow;
+		FieldEditorDrawStatistics m_DrawStatistics;
+		// How deep Draw calls nest (a struct drawer's table inside the one being drawn): the statistics start at the outermost.
+		int m_DrawDepth = 0;
 	};
 }

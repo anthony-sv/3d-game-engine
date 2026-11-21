@@ -334,6 +334,20 @@ namespace Strada::ScriptFieldInspection
 			ScriptFieldInfo const* field = scriptClass.FindField(name);
 			return field != nullptr && !field->Hidden ? field : nullptr;
 		}
+
+		// A field's value as the editor edits it, from its stored value in the file form (null for none, or one of another
+		// type): the stored value when it reads as a value of the field's type, the class's default otherwise.
+		Json ToEditorValue(ScriptFieldInfo const& field, Json const* storedValue)
+		{
+			if (storedValue != nullptr)
+			{
+				if (Result<ScriptFieldValue> parsed = ScriptFieldValueFromJson(field.Type, *storedValue, DeserializationContext{}))
+				{
+					return ToEditorValue(field, parsed.GetValue());
+				}
+			}
+			return ToEditorValue(field, field.DefaultValue);
+		}
 	}
 
 	std::vector<FieldDescriptor> DescribeFields(ScriptClassInfo const& scriptClass)
@@ -393,23 +407,81 @@ namespace Strada::ScriptFieldInspection
 			{
 				continue;
 			}
-			ScriptFieldValue value = field.DefaultValue;
+			Json const* storedValue = nullptr;
 			if (storedFields.is_object())
 			{
 				auto const stored = storedFields.find(field.Name);
 				if (stored != storedFields.end() && stored->is_object() && stored->contains("Type") && stored->contains("Value") &&
 				    (*stored)["Type"] == ScriptFieldTypeToString(field.Type))
 				{
-					if (Result<ScriptFieldValue> parsed =
-					        ScriptFieldValueFromJson(field.Type, (*stored)["Value"], DeserializationContext{}))
-					{
-						value = parsed.TakeValue();
-					}
+					storedValue = &(*stored)["Value"];
 				}
 			}
-			values[field.Name] = ToEditorValue(field, value);
+			values[field.Name] = ToEditorValue(field, storedValue);
 		}
 		return values;
+	}
+
+	size_t EditorValueCache::Update(ScriptClassInfo const& scriptClass, ScriptFieldMap const& storedFields, Json& values)
+	{
+		// The shown fields, in order, are those converted last time, or the conversion starts over.
+		size_t shown = 0;
+		bool sameFields = values.is_object();
+		for (ScriptFieldInfo const& field : scriptClass.Fields)
+		{
+			if (field.Hidden)
+			{
+				continue;
+			}
+			sameFields = sameFields && shown < m_Fields.size() && m_Fields[shown].Name == field.Name;
+			shown++;
+		}
+		if (!sameFields || shown != m_Fields.size())
+		{
+			m_Fields.clear();
+			values = Json::object();
+		}
+
+		size_t converted = 0;
+		size_t index = 0;
+		for (ScriptFieldInfo const& field : scriptClass.Fields)
+		{
+			if (field.Hidden)
+			{
+				continue;
+			}
+			auto const stored = storedFields.find(field.Name);
+			bool const fromStored = stored != storedFields.end() && stored->second.GetType() == field.Type;
+			ScriptFieldValue const& source = fromStored ? stored->second : field.DefaultValue;
+			if (index < m_Fields.size())
+			{
+				ConvertedField const& last = m_Fields[index];
+				if (last.Type == field.Type && last.IsFlags == field.IsFlags && last.FromStored == fromStored && last.Source == source &&
+				    last.Enumerators == field.Enumerators)
+				{
+					index++;
+					continue;
+				}
+			}
+			else
+			{
+				m_Fields.emplace_back();
+			}
+			// Read in its file form, as ToEditorValues reads it, so that both show the same value whatever its reader makes of
+			// it.
+			Json const storedValue = fromStored ? ScriptFieldValueToJson(stored->second) : Json();
+			values[field.Name] = ToEditorValue(field, fromStored ? &storedValue : nullptr);
+			ConvertedField& record = m_Fields[index];
+			record.Name = field.Name;
+			record.Type = field.Type;
+			record.Enumerators = field.Enumerators;
+			record.IsFlags = field.IsFlags;
+			record.FromStored = fromStored;
+			record.Source = source;
+			converted++;
+			index++;
+		}
+		return converted;
 	}
 
 	Result<Json> SetEditorValue(ScriptClassInfo const& scriptClass, Json storedFields, std::string_view fieldName, Json const& value)

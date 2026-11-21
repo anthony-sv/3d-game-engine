@@ -86,3 +86,31 @@ public sealed class FieldLists : Script
 			$"{string.Join(",", Counts)}|{string.Join(",", CountList)}|{string.Join(",", Speeds)}|{string.Join(",", TitleList)}|{string.Join(",", Levels)}|{string.Join(",", LevelList)}|{string.Join(",", Targets.Select(target => target?.ID ?? 0))}|{string.Join(",", Shapes.Select(shape => shape?.Handle.ID ?? 0))}|{Missing?.Length ?? -1}|{Oversized.Length}");
 	}
 }
+
+// A long list the game changes while the inspector shows it (Docs/Architecture.md §11, "Long lists"): each update counts
+// itself in Updates and writes the count into one element of Samples, walking along the list; while Length is 0 or more,
+// Samples is first resized to it (elements added at its end are 0). Steady never changes.
+public sealed class ListWriter : Script
+{
+	public List<float> Samples = [];
+	public int Updates;
+	public int Length = -1;
+	public int Steady = 7;
+
+	protected override void OnUpdate(float deltaTime)
+	{
+		Updates++;
+		if (Length >= 0 && Samples.Count > Length)
+		{
+			Samples.RemoveRange(Length, Samples.Count - Length);
+		}
+		while (Length >= 0 && Samples.Count < Length)
+		{
+			Samples.Add(0.0f);
+		}
+		if (Samples.Count > 0)
+		{
+			Samples[Updates % Samples.Count] = Updates;
+		}
+	}
+}

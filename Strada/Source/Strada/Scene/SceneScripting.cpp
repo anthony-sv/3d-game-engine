@@ -198,6 +198,36 @@ namespace Strada
 
 	Result<ScriptFieldMap> Scene::ReadScriptFields(Entity entity)
 	{
+		Result<ScriptFieldChanges> changes = RefreshScriptFieldChanges(entity);
+		if (!changes)
+		{
+			return Error{changes.GetError()};
+		}
+		// Every field the runtime answered: what changed, and the others as the component holds them now.
+		ScriptFieldMap fields = std::move(changes.GetValue().Changed);
+		ScriptComponent const& script = entity.GetComponent<ScriptComponent>();
+		for (std::string& name : changes.GetValue().Unchanged)
+		{
+			if (auto const value = script.Fields.find(name); value != script.Fields.end())
+			{
+				fields.insert_or_assign(std::move(name), value->second);
+			}
+		}
+		return fields;
+	}
+
+	Result<size_t> Scene::RefreshScriptFields(Entity entity)
+	{
+		Result<ScriptFieldChanges> changes = RefreshScriptFieldChanges(entity);
+		if (!changes)
+		{
+			return Error{changes.GetError()};
+		}
+		return changes.GetValue().Changed.size();
+	}
+
+	Result<ScriptFieldChanges> Scene::RefreshScriptFieldChanges(Entity entity)
+	{
 		auto const state = entity && entity.GetScene() == this ? m_ScriptInstances.find(entity.GetHandle()) : m_ScriptInstances.end();
 		ScriptComponent* const script = entity && entity.GetScene() == this ? entity.TryGetComponent<ScriptComponent>() : nullptr;
 		if (!m_RunsScripts || state == m_ScriptInstances.end() || !state->second.HasInstance || script == nullptr ||
@@ -205,17 +235,26 @@ namespace Strada
 		{
 			return Error{"the entity runs no script"};
 		}
-		Result<ScriptFieldMap> fields = ScriptEngine::GetInstanceFields(state->second.Entity);
-		if (!fields)
+		Result<ScriptFieldChanges> changes = ScriptEngine::GetChangedInstanceFields(state->second.Entity);
+		if (!changes)
 		{
-			return fields;
+			return changes;
 		}
-		for (auto const& [name, value] : fields.GetValue())
+		for (auto const& [name, value] : changes.GetValue().Changed)
 		{
 			script->Fields[name] = value;
 			state->second.Fields[name] = value;
 		}
-		return fields;
+		// The runtime answers a field again only when it changes or is given a value: one a paste or component.set left out
+		// of the component's map (they replace it whole) comes back from the record, which holds the value last answered.
+		for (std::string const& name : changes.GetValue().Unchanged)
+		{
+			if (auto const recorded = state->second.Fields.find(name); recorded != state->second.Fields.end())
+			{
+				script->Fields.try_emplace(name, recorded->second);
+			}
+		}
+		return changes;
 	}
 
 	void Scene::ApplyScriptFieldChanges()

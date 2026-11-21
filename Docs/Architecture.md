@@ -249,8 +249,9 @@ Profiler panel, the `profiler.*` commands and `StradaRuntime --profile` read its
     runtime's trace), `GraphDebug.EndFrame` (the session's end of an editor frame), `GraphDebug.TakeFlow` (a window's
     flow) and `GraphDebug.ReadValues` (the live wire values); the Telemetry panel's `TelemetryPanel.Draw` (§4.5); the
     inspector's `InspectorPanel.ReadBack` (the selected entities' running C# fields and graph variables brought into
-    their components) and `InspectorPanel.ScriptValues` (their conversion into the field editor's values and their rows),
-    in the frames it shows them while a game plays (§11, "Long lists");
+    their components, in the frames it shows them while a game plays) and `InspectorPanel.ScriptValues` (the values of a
+    script's or graph's section converted into the field editor's values, and their rows, in the frames it shows them;
+    §11, "Long lists");
   - a game's saves (§13.1), never per frame but read from a ride's capture when a save makes a hitch: `Saves.ReadSlot`
     and `Saves.WriteSlot` around a slot's read and write and `Saves.WriteSettings` around the player's settings' save,
     with `SyncFile` (no subsystem of its own) around each of the durable write's waits for the device;
@@ -5226,44 +5227,56 @@ once. Without .NET a document still loads, saves and shows in the editor; analys
     entity's component up to its running instance, and only the fields and public variables whose values differ from
     what the last read-back of that instance answered cross the script boundary (`ScriptEngine::GetChangedInstanceFields`
     and `VisualScriptEngine::GetChangedInstanceVariables`, through the entry points `DescribeChangedInstanceFields` and
-    `VisualScriptDescribeChangedInstanceVariables`). The scripting runtime keeps, for each field and public variable of
-    each instance, a copy of the value it last answered (a list's elements copied in their own type) and compares the
-    running value with it without converting it to the stored form, so an unchanged list costs one comparison of its
-    elements, and a field or variable that changed is answered whole. The copy goes when the instance is made again (a
-    new class, a hot reload, a live edit that gives it another program) and when a value is given to that field or
-    variable (an edit, `SetInstanceFields`, `VisualScriptSetInstanceVariables`), so the next read-back answers it
-    whatever became of the value given (taken, or refused for its type). Two values are the same when they are equal
-    element by element bit for bit (a float by its bit pattern, so that a NaN that stays is unchanged and a change
-    between 0 and -0 is a change), and a value of another type or length differs. The copy is the instance's, not a
-    reader's, so **only the scene asks for it** (`Scene::RefreshScriptFields` and `RefreshVisualScriptVariables`, which
-    `ReadScriptFields`, `ReadVisualScriptVariables` and the inspector read through), and nothing writes running values
-    into a component but those two: every answer is merged into the component, and into the scene's record of what was
-    given or read, before the call returns. **The scene first puts back what the runtime will not answer again**: a
-    paste of values or a `component.set` while playing deserializes the component's map whole
-    (`SetComponentsCommand::Execute`, `ComponentCommands.cpp:196-198`), and a key it leaves out is given to no script
-    (`ApplyScriptFieldChanges` walks the component's keys, `SceneScripting.cpp:221-247`, as the variables' do), so its
-    copy stays and the runtime never answers it while the game leaves it unchanged. Each refresh therefore first copies
-    into the component, from the scene's record, every field or variable the record has and the component lacks: for a
-    key given no value since its last answer the record holds that answer, which the runtime's copy equals. So every
-    reader (the inspector, `EditorOperations::SetComponentFields`, `entity.get`, `component.get`) finds the component
-    holding every running value as of its call, and `ReadScriptFields` and `ReadVisualScriptVariables` answer every field
-    and variable as before.
+    `VisualScriptDescribeChangedInstanceVariables`, which answer `{ "Changed": <stored map>, "Unchanged": [<name>] }`:
+    the changed values in the stored form and the names of the others, `ScriptFieldChanges`). The scripting runtime
+    keeps, for each field and public variable of each instance, a copy of the running value it last answered
+    (`ReadBackCopy`: a list's elements copied in their own type, a quaternion as it runs, not as it is stored) and
+    compares the running value with it without converting it to the stored form, so an unchanged list costs one
+    comparison of its elements, and a field or variable that changed is answered whole. The copies are the instance's
+    (`ScriptRegistry` keeps a C# instance's beside it and drops them with it; a graph instance holds its own), so they go
+    when the instance is made again (a new class, a hot reload, a live edit that gives it another program); and a copy
+    goes when a value is given to its field or variable (an edit, `SetInstanceFields`, `VisualScriptSetInstanceVariables`),
+    so the next read-back answers it whatever became of the value given (taken, or refused for its type). Plain values
+    are the same when their bits are (a float by its bit pattern, so that a NaN that stays is unchanged and a change
+    between 0 and -0 is a change), references when what their stored form keeps is (a string's characters, an entity's
+    ID, an asset's handle), and a value of another type or length differs. A list longer than a list holds is in neither
+    part of the answer and keeps no copy, as the full read-back leaves it out. Since the copies are the instance's,
+    **only the scene asks for changes** (`Scene::RefreshScriptFields` and `RefreshVisualScriptVariables`, which
+    `ReadScriptFields`, `ReadVisualScriptVariables` and the inspector read through), and every answer is merged into the
+    component, and into the scene's record of what was given or read, before the call returns. **The scene then puts back
+    what the runtime will not answer again**: a paste of values or a `component.set` while playing deserializes the
+    component's map whole (`SetComponentsCommand::Execute`, `ComponentCommands.cpp:196-198`), and a key it leaves out is
+    given to no script (`ApplyScriptFieldChanges` walks the component's keys, `SceneScripting.cpp:260-293`, as the
+    variables' do), so its copy stays and the runtime never answers it while the game leaves it unchanged. So each refresh
+    copies into the component, from the scene's record, every unchanged field or variable the component lacks (after the
+    variables' names are normalized): for a key given no value since its last answer the record holds that answer, which
+    the runtime's copy equals. So every reader (the inspector, `EditorOperations::SetComponentFields`, `entity.get`,
+    `component.get`) finds the component holding every running value as of its call, and `ReadScriptFields` and
+    `ReadVisualScriptVariables` answer every field and variable as before: the changed values and, for the others, the
+    component's.
   - *Converted.* The inspector keeps, for the section it shows (the fields of the selection's C# script, or the
-    variables of its graph), each entity's stored values as it last converted them with their field editor values, and
-    at each draw converts again only the values that differ from those (compared by value), changing its field editor
-    values in place; the descriptors and the mixed fields are made again only when the class, the graph's document, the
-    enum lookup, the selection or a converted value changes. The component's JSON, which its generic rows draw
-    (`ClassName`, `Graph`), is made without the stored map, which no row draws; Copy Values serializes the whole
-    component when it is chosen.
-  - *Drawn.* An array of plain values draws only the element rows that lie in the window's view, one more on each side,
-    and the row whose widget is active (an edit or a grip's drag under way) wherever it is, and keeps the space of the
-    others: a row is a frame's height and the item spacing, since every plain value's widget is one frame high, but for
-    a multiline text (`FieldDisplay::MultilineText`, four lines high: the element takes the array's hints,
-    `MakeElementDescriptor`), whose array is drawn whole. `ImGuiListClipper` cannot clip inside the table's value cell,
-    since its `Begin` ends the table's row (`imgui.cpp:3410-3412` of the pinned ImGui), so the field editor clips by
-    hand. Tab moves through the rows drawn. Arrays of reflected structs (bounded by their `MaxCount`, which no script's
-    or graph's list is) are drawn whole.
-  - *An edit stays an edit of what the game holds.* An edit's patch is made from the component's values of the draw that
+    variables of its graph), each entity's field editor values with what it converted each from
+    (`ScriptFieldInspection::EditorValueCache`), and at each draw converts again only a field whose stored value, or what
+    the class says of it (its type, its enumerators and their kind, its default where no stored value has its type),
+    differs from what it last converted (compared by value), changing its field editor value in place; the mixed fields
+    are found again only when the selection changes or a value was converted. The comparison is with the component's
+    values, never with what a refresh counted, since every reader merges its answers into the component. The
+    descriptors (`ScriptFieldInspection::DescribeFields`, `DescribeVisualScriptVariables`) are made at each draw: they
+    cost what the class or the document holds, not what the running values hold. A graph's stored values are copied to
+    be normalized only while some are under a former name (`AreVisualScriptOverridesNormalized`). The component's JSON,
+    which its generic rows draw (`ClassName`, `Graph`), is made without the stored map, which no row draws; Copy Values
+    serializes the whole component when it is chosen, and an edit's components are serialized at the edit.
+  - *Drawn.* In a field table, an array of plain values draws only the element rows that lie in the window's view, one
+    more on each side, and the row whose widget is active (an edit or a grip's drag under way) wherever it is, and keeps
+    the space of the others with `ImGui::Dummy`: a row is a frame's height and the item spacing, since every plain value's
+    widget is one frame high, but for a multiline text (`FieldDisplay::MultilineText`, four lines high: the element takes
+    the array's hints, `MakeElementDescriptor`), whose array is drawn whole. The active row is the one that held the
+    active widget when it was last drawn (ImGui's `ActiveIdIsAlive` test, as `EndGroup` makes it for a group,
+    `imgui.cpp:12638`), drawn while that widget stays active. `ImGuiListClipper` cannot clip inside the table's value cell,
+    since its `Begin` ends the table's row (`imgui.cpp:3411-3412` of the pinned ImGui), so the field editor clips by hand.
+    Tab moves through the rows drawn. Arrays drawn without a table row (`DrawInlineValue`, `DrawValuePopup`) and arrays of reflected structs
+    (bounded by their `MaxCount`, which no script's or graph's list is) are drawn whole.
+  - *An edit stays an edit of what the game holds.* An edit's patch is made from the field editor values of the draw that
     took it, which hold the running values as that draw's read-back found them (nothing of the game runs between the
     read and the edit), and `SetComponentFields` reads back again before it applies: the whole list it writes is the
     running list with the edited element changed, never an older one, and undoing it gives back what the game held.
@@ -5271,9 +5284,10 @@ once. Without .NET a document still loads, saves and shows in the editor; analys
     in a frame in which the list changed, its read and its conversion. `InspectorPanel.ReadBack` and
     `InspectorPanel.ScriptValues` (§4.4) time the two halves, and `InspectorPanel::GetDrawStatistics` and
     `FieldEditor::GetDrawStatistics` count the values read back and converted and the rows drawn and clipped, which the
-    headless tests hold to the rows in view. The field editor counts one `Draw` (from zero at its start); the inspector,
-    which draws every section through one field editor, sums its sections' counts over its frame
-    (`InspectorPanel::GetFieldDrawStatistics`), so a list's rows drawn and clipped add up to its length.
+    headless tests hold to the rows in view. The field editor counts one `Draw` (from zero at its start; a struct drawer's
+    table inside it adds to it); the inspector, which draws every section through one field editor, sums its sections'
+    counts over its frame (`InspectorPanel::GetFieldDrawStatistics`), so a list's rows drawn and clipped add up to its
+    length.
 
   C# scripts and visual scripts dropped onto the inspector run on the selected entities. Without selected entities the
   inspector shows the

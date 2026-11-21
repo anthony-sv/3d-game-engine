@@ -57,6 +57,10 @@ internal static class ScriptRegistry
 	private static readonly List<Type> s_GameTypes = [];
 	// The fields ("<class>.<field>") whose too long lists DescribeInstanceFields has reported since the assembly loaded.
 	private static readonly HashSet<string> s_ReportedLongLists = new(StringComparer.Ordinal);
+	// What DescribeChangedInstanceFields last answered of each field of an instance (by the class's field index; null for a
+	// field to answer next time), with the instance they were taken from: they go with it (Docs/Architecture.md §11, "Long
+	// lists"), so that no copy of a game type outlives the assembly.
+	private static readonly Dictionary<ulong, (Script Instance, ReadBackCopy?[] Copies)> s_ReadBackCopies = [];
 
 	internal static void LoadGameAssembly(string path)
 	{
@@ -105,6 +109,7 @@ internal static class ScriptRegistry
 		EngineLibrary.Drop();
 		s_Instances.Clear();
 		s_Entities.Clear();
+		s_ReadBackCopies.Clear();
 		s_Classes.Clear();
 		s_GameTypes.Clear();
 		s_ReportedLongLists.Clear();
@@ -339,14 +344,18 @@ internal static class ScriptRegistry
 		instance.ID = entity;
 		if (!fieldsJson.IsEmpty)
 		{
-			ApplyFields(instance, className, scriptClass, fieldsJson);
+			ApplyFields(instance, className, scriptClass, fieldsJson, null);
 		}
 		s_Instances[entity] = instance;
 		s_Entities.Remove(entity);
+		s_ReadBackCopies.Remove(entity);
 		return Host.Success;
 	}
 
-	private static void ApplyFields(Script instance, string className, ScriptClass scriptClass, ReadOnlySpan<byte> fieldsJson)
+	// Every field a value is given for loses its read-back copy (copies; null when there are none), whatever becomes of the
+	// value, so that the next read-back answers what the field holds then.
+	private static void ApplyFields(Script instance, string className, ScriptClass scriptClass, ReadOnlySpan<byte> fieldsJson,
+		ReadBackCopy?[]? copies)
 	{
 		using JsonDocument document = JsonDocument.Parse(fieldsJson.ToArray());
 		if (document.RootElement.ValueKind != JsonValueKind.Object)
@@ -356,10 +365,15 @@ internal static class ScriptRegistry
 		}
 		foreach (JsonProperty stored in document.RootElement.EnumerateObject())
 		{
-			ScriptField? field = scriptClass.Fields.Find(candidate => candidate.Field.Name == stored.Name);
-			if (field == null)
+			int index = scriptClass.Fields.FindIndex(candidate => candidate.Field.Name == stored.Name);
+			if (index < 0)
 			{
 				continue;
+			}
+			ScriptField field = scriptClass.Fields[index];
+			if (copies != null)
+			{
+				copies[index] = null;
 			}
 			if (stored.Value.ValueKind != JsonValueKind.Object || !stored.Value.TryGetProperty("Type", out JsonElement type)
 				|| !stored.Value.TryGetProperty("Value", out JsonElement value))
@@ -394,7 +408,7 @@ internal static class ScriptRegistry
 		}
 		if (!fieldsJson.IsEmpty)
 		{
-			ApplyFields(instance, className, scriptClass, fieldsJson);
+			ApplyFields(instance, className, scriptClass, fieldsJson, FindReadBackCopies(entity, instance));
 		}
 		return Host.Success;
 	}
@@ -418,11 +432,7 @@ internal static class ScriptRegistry
 				object? stored = ScriptFieldCodec.NormalizeQuaternions(ScriptFieldCodec.ToStored(field.Field.GetValue(instance), field.Type));
 				if (stored is List<object?> { Count: > ScriptFieldCodec.MaxListElements } elements)
 				{
-					if (s_ReportedLongLists.Add($"{className}.{field.Field.Name}"))
-					{
-						Log.Warn(FormattableString.Invariant(
-							$"{className}.{field.Field.Name}: holds {elements.Count} elements, more than a list's {ScriptFieldCodec.MaxListElements}: its value is not read back"));
-					}
+					ReportLongList(className, field, elements.Count);
 					continue;
 				}
 				writer.WriteStartObject(field.Field.Name);
@@ -436,6 +446,80 @@ internal static class ScriptRegistry
 		return buffer.WrittenSpan.ToArray();
 	}
 
+	// The serialized fields of the entity's instance whose values differ from what the last call answered of them (every
+	// field at the instance's first call, and a field given a value since), compared with a copy of each answer
+	// (ReadBackCopy) without converting the running value to the stored form: { "Changed": { "Name": { "Type", "Value" } },
+	// "Unchanged": [ "Name" ] }, the unchanged fields by name in the class's order. A list holding more elements than a list
+	// can is in neither, as DescribeInstanceFields leaves it out. Null when the entity has no instance. Only the engine's
+	// read-back of a running scene calls it (Scene::RefreshScriptFields), since the copies are the instance's.
+	internal static byte[]? DescribeChangedInstanceFields(ulong entity)
+	{
+		if (!s_Instances.TryGetValue(entity, out Script? instance) || !TryGetClass(instance, out string className, out ScriptClass? scriptClass))
+		{
+			return null;
+		}
+		ReadBackCopy?[] copies = FindReadBackCopies(entity, instance) ?? new ReadBackCopy?[scriptClass.Fields.Count];
+		s_ReadBackCopies[entity] = (instance, copies);
+		List<string> unchanged = [];
+		ArrayBufferWriter<byte> buffer = new();
+		using (Utf8JsonWriter writer = new(buffer))
+		{
+			writer.WriteStartObject();
+			writer.WriteStartObject("Changed");
+			for (int index = 0; index < scriptClass.Fields.Count; index++)
+			{
+				ScriptField field = scriptClass.Fields[index];
+				object? value = field.Field.GetValue(instance);
+				if (copies[index] is { } copy && copy.Matches(value))
+				{
+					unchanged.Add(field.Field.Name);
+					continue;
+				}
+				int count = ReadBackCopy.CountOf(value);
+				if (count > ScriptFieldCodec.MaxListElements)
+				{
+					ReportLongList(className, field, count);
+					copies[index] = null;
+					continue;
+				}
+				writer.WriteStartObject(field.Field.Name);
+				writer.WriteString("Type", ScriptFieldCodec.GetTypeName(field.Type));
+				writer.WritePropertyName("Value");
+				ScriptFieldCodec.WriteValue(writer, field.Type, ScriptFieldCodec.NormalizeQuaternions(ScriptFieldCodec.ToStored(value, field.Type)));
+				writer.WriteEndObject();
+				ReadBackCopy taken = copies[index] ?? ReadBackCopy.Create(field.Field.FieldType);
+				taken.Take(value);
+				copies[index] = taken;
+			}
+			writer.WriteEndObject();
+			writer.WriteStartArray("Unchanged");
+			foreach (string name in unchanged)
+			{
+				writer.WriteStringValue(name);
+			}
+			writer.WriteEndArray();
+			writer.WriteEndObject();
+		}
+		return buffer.WrittenSpan.ToArray();
+	}
+
+	// The read-back copies taken of this instance of the entity; null when there are none (none was taken yet, or they were of
+	// an instance the entity had before).
+	private static ReadBackCopy?[]? FindReadBackCopies(ulong entity, Script instance) =>
+		s_ReadBackCopies.TryGetValue(entity, out (Script Instance, ReadBackCopy?[] Copies) taken) && ReferenceEquals(taken.Instance, instance)
+			? taken.Copies
+			: null;
+
+	// A list too long to read back is reported once per field while the assembly is loaded.
+	private static void ReportLongList(string className, ScriptField field, int count)
+	{
+		if (s_ReportedLongLists.Add($"{className}.{field.Field.Name}"))
+		{
+			Log.Warn(FormattableString.Invariant(
+				$"{className}.{field.Field.Name}: holds {count} elements, more than a list's {ScriptFieldCodec.MaxListElements}: its value is not read back"));
+		}
+	}
+
 	// The registered class of an instance, which is named after its type.
 	private static bool TryGetClass(Script instance, out string className, [NotNullWhen(true)] out ScriptClass? scriptClass)
 	{
@@ -447,12 +531,17 @@ internal static class ScriptRegistry
 
 	internal static Script? GetInstance(ulong entity) => s_Instances.GetValueOrDefault(entity);
 
-	internal static bool DestroyInstance(ulong entity) => s_Instances.Remove(entity);
+	internal static bool DestroyInstance(ulong entity)
+	{
+		s_ReadBackCopies.Remove(entity);
+		return s_Instances.Remove(entity);
+	}
 
 	internal static void DestroyAllInstances()
 	{
 		s_Instances.Clear();
 		s_Entities.Clear();
+		s_ReadBackCopies.Clear();
 	}
 
 	// Runs a lifecycle method of the entity's instance (Destroy also removes the instance); script exceptions are
@@ -482,6 +571,7 @@ internal static class ScriptRegistry
 					break;
 				case ScriptEvent.Destroy:
 					s_Instances.Remove(entity);
+					s_ReadBackCopies.Remove(entity);
 					instance.InvokeOnDestroy();
 					break;
 				case ScriptEvent.CollisionEnter:

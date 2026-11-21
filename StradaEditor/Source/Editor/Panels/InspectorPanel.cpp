@@ -20,8 +20,10 @@
 #include "Strada/Asset/TextureAsset.h"
 #include "Strada/Asset/VisualScriptAsset.h"
 #include "Strada/Core/FileSystem.h"
+#include "Strada/Core/Profiler.h"
 #include "Strada/ImGui/ImGuiRenderer.h"
 #include "Strada/Renderer/Renderer.h"
+#include "Strada/Scene/ComponentSerialization.h"
 #include "Strada/Scene/Entity.h"
 #include "Strada/Scene/Scene.h"
 #include "Strada/Script/ScriptEngine.h"
@@ -357,8 +359,52 @@ namespace Strada
 		}
 	}
 
+	InspectorDrawStatistics const& InspectorPanel::GetDrawStatistics() const
+	{
+		return m_DrawStatistics;
+	}
+
+	FieldEditorDrawStatistics const& InspectorPanel::GetFieldDrawStatistics() const
+	{
+		return m_FieldDrawStatistics;
+	}
+
+	std::optional<FieldChange> InspectorPanel::DrawFields(std::span<FieldDescriptor const> fields, Json const& values,
+	                                                      std::span<std::string const> mixedFields, Scene* scene)
+	{
+		std::optional<FieldChange> change = m_FieldEditor.Draw(fields, values, mixedFields, scene);
+		FieldEditorDrawStatistics const& drawn = m_FieldEditor.GetDrawStatistics();
+		m_FieldDrawStatistics.ArrayRowsDrawn += drawn.ArrayRowsDrawn;
+		m_FieldDrawStatistics.ArrayRowsClipped += drawn.ArrayRowsClipped;
+		return change;
+	}
+
+	void InspectorPanel::UpdateScriptValues(ScriptValueSection& section, std::vector<UUID> const& entities,
+	                                        ScriptClassInfo const& scriptClass, std::span<ScriptFieldMap const* const> stored)
+	{
+		bool const otherEntities = section.Entities != entities;
+		if (otherEntities)
+		{
+			section.Entities = entities;
+			section.Caches.assign(entities.size(), ScriptFieldInspection::EditorValueCache());
+			section.Values.assign(entities.size(), Json::object());
+		}
+		size_t converted = 0;
+		for (size_t i = 0; i < entities.size(); i++)
+		{
+			converted += section.Caches[i].Update(scriptClass, *stored[i], section.Values[i]);
+		}
+		if (converted > 0 || otherEntities)
+		{
+			section.Mixed = ComponentInspection::FindMixedFields(section.Values);
+		}
+		m_DrawStatistics.ValuesConverted += converted;
+	}
+
 	void InspectorPanel::OnImGuiRender(EditorOperations& operations, bool& open)
 	{
+		m_DrawStatistics = {};
+		m_FieldDrawStatistics = {};
 		// A request to show the Add Component menu applies to this frame only (nothing opens without selected entities).
 		std::optional<AddComponentMenuRequest> const menuRequest = std::exchange(m_AddComponentMenuRequest, std::nullopt);
 		if (menuRequest && menuRequest->Open)
@@ -488,20 +534,37 @@ namespace Strada
 		values.reserve(entities.size());
 		bool const scripts = component.Name == ComponentTraits<ScriptComponent>::Name;
 		bool const visualScripts = component.Name == ComponentTraits<VisualScriptComponent>::Name;
+		if (scripts || visualScripts)
+		{
+			// While playing, script fields show the values the running scripts hold, and the variables section of visual
+			// scripts the values their running graphs hold: what changed since the last read-back of each instance is brought
+			// into its component (Scene::RefreshScriptFields, Scene::RefreshVisualScriptVariables). Entities that run nothing
+			// keep their stored values.
+			ST_PROFILE_SCOPE("InspectorPanel.ReadBack");
+			for (UUID const id : entities)
+			{
+				Entity const entity = scene.GetEntityByUUID(id);
+				Result<size_t> const read = scripts ? scene.RefreshScriptFields(entity) : scene.RefreshVisualScriptVariables(entity);
+				m_DrawStatistics.ValuesReadBack += read ? read.GetValue() : 0;
+			}
+		}
 		for (UUID const id : entities)
 		{
 			Entity const entity = scene.GetEntityByUUID(id);
-			// While playing, script fields show the values the running scripts hold (Scene::ReadScriptFields), and the variables
-			// section of visual scripts the values their running graphs hold (Scene::ReadVisualScriptVariables).
+			// No row draws a script's stored fields or a graph's stored values (their sections read them from the
+			// components), so the components are serialized without them.
 			if (scripts)
 			{
-				(void)scene.ReadScriptFields(entity);
+				values.push_back(SerializeComponent(ScriptComponent{entity.GetComponent<ScriptComponent>().ClassName, {}}));
 			}
 			else if (visualScripts)
 			{
-				(void)scene.ReadVisualScriptVariables(entity);
+				values.push_back(SerializeComponent(VisualScriptComponent{entity.GetComponent<VisualScriptComponent>().Graph, {}}));
 			}
-			values.push_back(component.Serialize(scene.GetRegistry(), entity.GetHandle()));
+			else
+			{
+				values.push_back(component.Serialize(scene.GetRegistry(), entity.GetHandle()));
+			}
 		}
 
 		// The UIRect of UI elements places them: their Transform is not used, so it starts folded and cannot be edited.
@@ -543,7 +606,7 @@ namespace Strada
 		{
 			ImGui::OpenPopup("##componentMenu");
 		}
-		DrawComponentMenu(operations, component, entities, values.front());
+		DrawComponentMenu(operations, component, entities);
 
 		if (open && component.Name == ComponentTraits<ScriptComponent>::Name)
 		{
@@ -555,14 +618,14 @@ namespace Strada
 			ImGui::TextDisabled("%s", PlacedByRectNote);
 			// Shown read-only: disabled fields report no changes.
 			ImGui::BeginDisabled();
-			m_FieldEditor.Draw(component.Fields, values.front(), ComponentInspection::FindMixedFields(values), &scene);
+			DrawFields(component.Fields, values.front(), ComponentInspection::FindMixedFields(values), &scene);
 			ImGui::EndDisabled();
 			ImGui::Spacing();
 		}
 		else if (open)
 		{
 			std::vector<std::string> const mixed = ComponentInspection::FindMixedFields(values);
-			if (std::optional<FieldChange> const change = m_FieldEditor.Draw(component.Fields, values.front(), mixed, &scene))
+			if (std::optional<FieldChange> const change = DrawFields(component.Fields, values.front(), mixed, &scene))
 			{
 				std::vector<ComponentEdit> edits;
 				edits.reserve(entities.size());
@@ -667,25 +730,38 @@ namespace Strada
 		ImGui::SeparatorText("Variables");
 		if (!description.Editable.Fields.empty())
 		{
+			ST_PROFILE_SCOPE("InspectorPanel.ScriptValues");
 			// Each entity's values under the variables' current names (values set under a former name apply to the renamed
-			// variable): what is shown, and the map an edit writes back whole.
-			std::vector<Json> components;
-			std::vector<Json> editorValues;
-			components.reserve(entities.size());
-			editorValues.reserve(entities.size());
-			for (UUID const id : entities)
+			// variable): what is shown, and the map an edit writes back whole. Only values stored under a former name are
+			// copied to be renamed.
+			std::vector<std::optional<ScriptFieldMap>> normalized(entities.size());
+			std::vector<ScriptFieldMap const*> stored(entities.size(), nullptr);
+			for (size_t i = 0; i < entities.size(); i++)
 			{
-				Entity const entity = scene.GetEntityByUUID(id);
-				VisualScriptComponent const& component = entity.GetComponent<VisualScriptComponent>();
-				Json stored = JsonTraits<ScriptFieldMap>::ToJson(NormalizeVisualScriptOverrides(document, component.Variables));
-				editorValues.push_back(ScriptFieldInspection::ToEditorValues(description.Editable, stored));
-				components.push_back(Json::object({{VisualScriptVariablesKey, std::move(stored)}}));
+				Entity const entity = scene.GetEntityByUUID(entities[i]);
+				ScriptFieldMap const& variables = entity.GetComponent<VisualScriptComponent>().Variables;
+				if (AreVisualScriptOverridesNormalized(document, variables))
+				{
+					stored[i] = &variables;
+				}
+				else
+				{
+					stored[i] = &normalized[i].emplace(NormalizeVisualScriptOverrides(document, variables));
+				}
 			}
+			UpdateScriptValues(m_VisualScriptVariables, entities, description.Editable, stored);
 			std::vector<FieldDescriptor> const fields = ScriptFieldInspection::DescribeFields(description.Editable);
-			std::vector<std::string> const mixed = ComponentInspection::FindMixedFields(editorValues);
-			std::optional<FieldChange> const change = m_FieldEditor.Draw(fields, editorValues.front(), mixed, &scene);
+			std::vector<Json> const& editorValues = m_VisualScriptVariables.Values;
+			std::optional<FieldChange> const change = DrawFields(fields, editorValues.front(), m_VisualScriptVariables.Mixed, &scene);
 			if (change && !change->Path.empty())
 			{
+				// The maps the edit writes back whole, made at the edit from the values this draw shows.
+				std::vector<Json> components;
+				components.reserve(entities.size());
+				for (ScriptFieldMap const* variables : stored)
+				{
+					components.push_back(Json::object({{VisualScriptVariablesKey, JsonTraits<ScriptFieldMap>::ToJson(*variables)}}));
+				}
 				Result<std::vector<ComponentEdit>> edits =
 					ScriptFieldInspection::MakeEdits(description.Editable, entities, components, editorValues, *change,
 				                                     ComponentTraits<VisualScriptComponent>::Name, VisualScriptVariablesKey);
@@ -845,26 +921,32 @@ namespace Strada
 			ImGui::TextDisabled("The script has no fields to edit.");
 			return;
 		}
-		auto const getStoredFields = [](Json const& value)
+		ST_PROFILE_SCOPE("InspectorPanel.ScriptValues");
+		Scene& scene = operations.GetContext().GetScene();
+		std::vector<ScriptFieldMap const*> stored;
+		stored.reserve(entities.size());
+		for (UUID const id : entities)
 		{
-			auto const stored = value.find("Fields");
-			return stored != value.end() ? *stored : Json::object();
-		};
-		std::vector<Json> editorValues;
-		editorValues.reserve(values.size());
-		for (Json const& value : values)
-		{
-			editorValues.push_back(ScriptFieldInspection::ToEditorValues(*scriptClass, getStoredFields(value)));
+			Entity const entity = scene.GetEntityByUUID(id);
+			stored.push_back(&entity.GetComponent<ScriptComponent>().Fields);
 		}
-		std::vector<std::string> const mixed = ComponentInspection::FindMixedFields(editorValues);
-		std::optional<FieldChange> const change =
-			m_FieldEditor.Draw(fields, editorValues.front(), mixed, &operations.GetContext().GetScene());
+		UpdateScriptValues(m_ScriptFields, entities, *scriptClass, stored);
+		std::vector<Json> const& editorValues = m_ScriptFields.Values;
+		std::optional<FieldChange> const change = DrawFields(fields, editorValues.front(), m_ScriptFields.Mixed, &scene);
 		if (!change || change->Path.empty())
 		{
 			return;
 		}
 
-		Result<std::vector<ComponentEdit>> edits = ScriptFieldInspection::MakeEdits(*scriptClass, entities, values, editorValues, *change);
+		// The components the edit writes the stored fields of, made at the edit: they hold the values this draw shows.
+		std::vector<Json> components;
+		components.reserve(entities.size());
+		for (UUID const id : entities)
+		{
+			components.push_back(component.Serialize(scene.GetRegistry(), scene.GetEntityByUUID(id).GetHandle()));
+		}
+		Result<std::vector<ComponentEdit>> edits =
+			ScriptFieldInspection::MakeEdits(*scriptClass, entities, components, editorValues, *change);
 		if (!edits)
 		{
 			UI::ReportFailure(edits, "Editing the script's fields");
@@ -873,8 +955,7 @@ namespace Strada
 		UI::ReportFailure(operations.SetComponentFields(edits.TakeValue(), m_EditSession.GetMergeKey()), "Editing the script's fields");
 	}
 
-	void InspectorPanel::DrawComponentMenu(EditorOperations& operations, ComponentInfo const& component, std::vector<UUID> const& entities,
-	                                       Json const& primaryValues)
+	void InspectorPanel::DrawComponentMenu(EditorOperations& operations, ComponentInfo const& component, std::vector<UUID> const& entities)
 	{
 		if (!ImGui::BeginPopup("##componentMenu"))
 		{
@@ -886,7 +967,9 @@ namespace Strada
 		}
 		if (ImGui::MenuItem("Copy Values"))
 		{
-			ImGui::SetClipboardText(DumpJson(primaryValues).c_str());
+			Scene& scene = operations.GetContext().GetScene();
+			Entity const primary = scene.GetEntityByUUID(entities.front());
+			ImGui::SetClipboardText(DumpJson(component.Serialize(scene.GetRegistry(), primary.GetHandle())).c_str());
 		}
 		// The menu is drawn every frame and the clipboard may hold anything (megabytes of other text): it is only parsed when
 		// the values are pasted.
@@ -1223,7 +1306,7 @@ namespace Strada
 		bool const editable = MaterialSlots::IsEditable(material);
 		Json const values = SerializeFields<StructTraits<MaterialData>>(loaded->GetData());
 		ImGui::BeginDisabled(!editable);
-		std::optional<FieldChange> const change = m_FieldEditor.Draw(m_MaterialFields, values);
+		std::optional<FieldChange> const change = DrawFields(m_MaterialFields, values, {}, nullptr);
 		ImGui::EndDisabled();
 		if (change && editable)
 		{

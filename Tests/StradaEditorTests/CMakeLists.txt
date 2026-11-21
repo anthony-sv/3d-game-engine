@@ -36,6 +36,7 @@ add_executable(StradaEditorTests
     Source/HeadlessImGuiTests.cpp
     Source/HierarchyOperationsTests.cpp
     Source/InputActionsPanelTests.cpp
+    Source/InspectorLongListTests.cpp
     Source/JsonRpcTests.cpp
     Source/JsonSchemaTests.cpp
     Source/Main.cpp

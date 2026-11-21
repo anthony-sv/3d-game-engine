@@ -1,6 +1,7 @@
 #pragma once
 
 #include "Editor/EditorOperations.h"
+#include "Editor/ScriptFieldInspection.h"
 #include "Editor/UI/DataAssetEditor.h"
 #include "Editor/UI/EditorUI.h"
 #include "Editor/UI/FieldEditor.h"
@@ -13,6 +14,7 @@
 #include <cstddef>
 #include <functional>
 #include <optional>
+#include <span>
 #include <string>
 #include <utility>
 #include <vector>
@@ -94,9 +96,10 @@ namespace Strada
 		void DrawContents(EditorOperations& operations, std::optional<AddComponentMenuRequest> const& menuRequest);
 		void DrawHeader(EditorOperations& operations, std::vector<UUID> const& entities);
 		void DrawComponent(EditorOperations& operations, ComponentInfo const& component, std::vector<UUID> const& entities);
-		void DrawComponentMenu(EditorOperations& operations, ComponentInfo const& component, std::vector<UUID> const& entities,
-		                       Json const& primaryValues);
-		// The class picker and the fields of the script class (from the loaded game assembly).
+		// Copy Values serializes the first entity's whole component when it is chosen.
+		void DrawComponentMenu(EditorOperations& operations, ComponentInfo const& component, std::vector<UUID> const& entities);
+		// The class picker and the fields of the script class (from the loaded game assembly). values are the components
+		// without their stored fields (ScriptFieldInspection reads those from the components themselves).
 		void DrawScriptComponent(EditorOperations& operations, ComponentInfo const& component, std::vector<UUID> const& entities,
 		                         std::vector<Json> const& values);
 		// The Add Component button and its menu: a search field above submenus per category; typing lists the matches, and
@@ -136,7 +139,31 @@ namespace Strada
 		void DrawMaterialFields(EditorOperations& operations, AssetHandle material);
 		void DrawMesh(EditorOperations& operations, AssetHandle asset);
 
+		// The field editor values of the section of script values the inspector shows (the fields of the selection's C#
+		// script, or the public variables of its graph), kept from one draw to the next for the entities it showed them for,
+		// so that a draw converts again only the values that changed, and finds the mixed fields again only then
+		// (Docs/Architecture.md §11, "Long lists").
+		struct ScriptValueSection
+		{
+			std::vector<UUID> Entities;
+			std::vector<ScriptFieldInspection::EditorValueCache> Caches;
+			// Each entity's field editor values (ScriptFieldInspection::ToEditorValues'), in the order of Entities.
+			std::vector<Json> Values;
+			std::vector<std::string> Mixed;
+		};
+		// Brings the section to the entities' stored values (stored[i] the i-th entity's), counting the values it converted
+		// in the frame's statistics.
+		void UpdateScriptValues(ScriptValueSection& section, std::vector<UUID> const& entities, ScriptClassInfo const& scriptClass,
+		                        std::span<ScriptFieldMap const* const> stored);
+		// m_FieldEditor.Draw, adding what it drew to the frame's statistics.
+		std::optional<FieldChange> DrawFields(std::span<FieldDescriptor const> fields, Json const& values,
+		                                      std::span<std::string const> mixedFields, Scene* scene);
+
 		FieldEditor m_FieldEditor;
+		ScriptValueSection m_ScriptFields;
+		ScriptValueSection m_VisualScriptVariables;
+		InspectorDrawStatistics m_DrawStatistics;
+		FieldEditorDrawStatistics m_FieldDrawStatistics;
 		std::vector<FieldDescriptor> m_MaterialFields;
 		DataAssetEditor m_DataAssetEditor;
 		AssetThumbnails* m_Thumbnails = nullptr;

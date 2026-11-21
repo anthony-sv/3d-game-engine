@@ -1274,23 +1274,33 @@ namespace Strada
 	                                             std::span<std::string const> mixedFields, Scene* scene)
 	{
 		PruneEulerStates();
-		// A struct drawer may draw a table of its own with this editor: the outer table's scene stays.
+		// A struct drawer may draw a table of its own with this editor: the outer table's scene stays, and so do the
+		// statistics the outermost Draw counts.
+		if (m_DrawDepth == 0)
+		{
+			m_DrawStatistics = {};
+		}
+		m_DrawDepth++;
 		Scene* const outerScene = m_Scene;
 		m_Scene = scene;
 		std::optional<FieldChange> change;
 		float const nameShare = GetNameColumnShare(fields, ImGui::GetContentRegionAvail().x);
-		if (!ImGui::BeginTable("##fields", 2, ImGuiTableFlags_Resizable | ImGuiTableFlags_NoSavedSettings))
+		if (ImGui::BeginTable("##fields", 2, ImGuiTableFlags_Resizable | ImGuiTableFlags_NoSavedSettings))
 		{
-			m_Scene = outerScene;
-			return change;
+			ImGui::TableSetupColumn("Name", ImGuiTableColumnFlags_WidthStretch, nameShare);
+			ImGui::TableSetupColumn("Value", ImGuiTableColumnFlags_WidthStretch, 1.0f - nameShare);
+			std::vector<FieldPathStep> path;
+			DrawRows(fields, values, mixedFields, false, 0, path, change);
+			ImGui::EndTable();
 		}
-		ImGui::TableSetupColumn("Name", ImGuiTableColumnFlags_WidthStretch, nameShare);
-		ImGui::TableSetupColumn("Value", ImGuiTableColumnFlags_WidthStretch, 1.0f - nameShare);
-		std::vector<FieldPathStep> path;
-		DrawRows(fields, values, mixedFields, false, 0, path, change);
-		ImGui::EndTable();
 		m_Scene = outerScene;
+		m_DrawDepth--;
 		return change;
+	}
+
+	FieldEditorDrawStatistics const& FieldEditor::GetDrawStatistics() const
+	{
+		return m_DrawStatistics;
 	}
 
 	void FieldEditor::DrawRows(std::span<FieldDescriptor const> fields, Json const& values, std::span<std::string const> mixedFields,
@@ -1441,7 +1451,7 @@ namespace Strada
 					}
 					else if (field.Kind == FieldKind::Array)
 					{
-						changed = DrawArrayElements(field, value, fieldChange, element);
+						changed = DrawArrayElements(field, value, fieldChange, element, true);
 					}
 					else
 					{
@@ -1846,7 +1856,7 @@ namespace Strada
 	}
 
 	bool FieldEditor::DrawArrayElements(FieldDescriptor const& field, Json const& value, FieldChange& change,
-	                                    std::optional<uint32_t>& element)
+	                                    std::optional<uint32_t>& element, bool clip)
 	{
 		size_t const count = value.is_array() ? value.size() : 0;
 		FieldDescriptor const descriptor = MakeElementDescriptor(field);
@@ -1857,8 +1867,52 @@ namespace Strada
 		ImGuiID const array = ImGui::GetID("##elements");
 		bool const movable = !field.Hints.FixedOrder;
 		float const buttonsWidth = (movable ? 2.0f : 1.0f) * (buttonWidth + spacing);
-		for (size_t i = 0; i < count; i++)
+
+		// The rows in the window's view, one more on each side: every plain value's widget is one frame high, so a row is a
+		// frame and the item spacing below it. A multiline text's rows are taller: its array is drawn whole.
+		// ImGuiListClipper cannot do this inside the table's value cell, since its Begin ends the table's row
+		// (imgui.cpp:3411-3412 of the pinned ImGui).
+		ImGuiContext& context = *ImGui::GetCurrentContext();
+		float const rowHeight = ImGui::GetFrameHeightWithSpacing();
+		size_t first = 0;
+		size_t last = count;
+		if (clip && descriptor.Hints.Display != FieldDisplay::MultilineText && count > 0)
 		{
+			ImRect const& view = ImGui::GetCurrentWindowRead()->ClipRect;
+			float const top = ImGui::GetCursorScreenPos().y;
+			float const firstInView = std::floor((view.Min.y - top) / rowHeight) - 1.0f;
+			float const endOfView = std::ceil((view.Max.y - top) / rowHeight) + 1.0f;
+			auto const toRow = [count](float row)
+			{
+				return static_cast<size_t>(std::clamp(row, 0.0f, static_cast<float>(count)));
+			};
+			first = toRow(firstInView);
+			last = std::max(first, toRow(endOfView));
+		}
+		// The row whose widget is active (an edit or a grip's drag under way) is drawn wherever it lies, so the interaction
+		// goes on while it is scrolled out of view.
+		std::optional<size_t> activeRow;
+		if (m_ActiveArrayRow.Array == array && m_ActiveArrayRow.ActiveId != 0 && m_ActiveArrayRow.ActiveId == context.ActiveId &&
+		    m_ActiveArrayRow.Row < count && (m_ActiveArrayRow.Row < first || m_ActiveArrayRow.Row >= last))
+		{
+			activeRow = m_ActiveArrayRow.Row;
+		}
+
+		// Rows left out keep their space, so the rows drawn and "+" are where they are with every row drawn.
+		size_t cursorRow = 0;
+		auto const skipTo = [&cursorRow, rowHeight](size_t row)
+		{
+			if (row > cursorRow)
+			{
+				ImGui::Dummy(ImVec2(0.0f, static_cast<float>(row - cursorRow) * rowHeight - ImGui::GetStyle().ItemSpacing.y));
+				cursorRow = row;
+			}
+		};
+		size_t rowsDrawn = 0;
+		auto const drawRow = [&](size_t i)
+		{
+			skipTo(i);
+			ImGuiID const aliveBefore = context.ActiveIdIsAlive;
 			ImGui::PushID(static_cast<int>(i));
 			ImGui::PushItemWidth(-buttonsWidth);
 			FieldChange elementChange;
@@ -1918,7 +1972,33 @@ namespace Strada
 				change.ArrayEdit = FieldArrayEdit{FieldArrayEditKind::Remove, static_cast<uint32_t>(i), 0};
 				changed = true;
 			}
+			// A widget of this row became or stays the active one (as ImGui's EndGroup tells a group's, imgui.cpp:12638).
+			if (context.ActiveId != 0 && aliveBefore != context.ActiveId && context.ActiveIdIsAlive == context.ActiveId)
+			{
+				m_ActiveArrayRow = ActiveArrayRow{array, context.ActiveId, static_cast<uint32_t>(i)};
+			}
+			cursorRow = i + 1;
+			rowsDrawn++;
+		};
+		if (activeRow && *activeRow < first)
+		{
+			drawRow(*activeRow);
 		}
+		for (size_t row = first; row < last; row++)
+		{
+			drawRow(row);
+		}
+		if (activeRow && *activeRow >= last)
+		{
+			drawRow(*activeRow);
+		}
+		skipTo(count);
+		if (clip)
+		{
+			m_DrawStatistics.ArrayRowsDrawn += rowsDrawn;
+			m_DrawStatistics.ArrayRowsClipped += count - rowsDrawn;
+		}
+
 		bool const full = IsFull(field, count);
 		ImGui::BeginDisabled(full);
 		if (ImGui::Button(count == 0 ? "Add Element" : "+", ImVec2(count == 0 ? ImGui::CalcItemWidth() : buttonWidth, 0.0f)) && !changed)
@@ -1940,7 +2020,7 @@ namespace Strada
 	{
 		FieldChange edit;
 		std::optional<uint32_t> element;
-		if (!DrawArrayElements(field, value, edit, element))
+		if (!DrawArrayElements(field, value, edit, element, false))
 		{
 			return false;
 		}

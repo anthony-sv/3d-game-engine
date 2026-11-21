@@ -3,6 +3,7 @@
 
 #include "Strada/Script/ScriptEngine.h"
 #include "Strada/Script/ScriptField.h"
+#include "Strada/Script/ScriptFieldSerialization.h"
 
 #include <doctest/doctest.h>
 #include <glm/glm.hpp>
@@ -136,6 +137,46 @@ TEST_CASE("ScriptFieldInspection: stored values are shown while their type still
 	stored["Level"]["Value"] = 3;
 	CHECK(ScriptFieldInspection::ToEditorValues(info, stored)["Level"] == "3");
 	CHECK(ScriptFieldInspection::ToEditorValues(info, Json())["Speed"] == 2.5);
+}
+
+TEST_CASE("ScriptFieldInspection: kept editor values are converted again only where a stored value or its field changed")
+{
+	ScriptClassInfo info = MakeClass();
+	ScriptFieldMap stored = {{"Speed", ScriptFieldValue::FromFloat(7.5f)},
+	                         {"Lives", ScriptFieldValue::FromString("three")},
+	                         {"Level", ScriptFieldValue::FromInt32(1)},
+	                         {"Secret", ScriptFieldValue::FromInt32(9)}};
+	auto const expected = [&info, &stored]
+	{
+		return ScriptFieldInspection::ToEditorValues(info, JsonTraits<ScriptFieldMap>::ToJson(stored));
+	};
+	ScriptFieldInspection::EditorValueCache cache;
+	Json values;
+	// The first update converts every shown field (the hidden one is not shown), as ToEditorValues does.
+	CHECK(cache.Update(info, stored, values) == 11);
+	CHECK(values == expected());
+	CHECK(cache.Update(info, stored, values) == 0);
+
+	// A stored value changed, added or of another type: that field alone.
+	stored["Speed"] = ScriptFieldValue::FromFloat(1.0f);
+	CHECK(cache.Update(info, stored, values) == 1);
+	stored["Lives"] = ScriptFieldValue::FromInt32(9);
+	CHECK(cache.Update(info, stored, values) == 1);
+	stored.erase("Lives");
+	CHECK(cache.Update(info, stored, values) == 1);
+	CHECK(values == expected());
+	// What the class says of a field: its enumerators, its default where nothing stored has its type.
+	info.Fields[9].Enumerators[1].Name = "Medium";
+	CHECK(cache.Update(info, stored, values) == 1);
+	CHECK(values["Level"] == "Medium");
+	info.Fields[1].DefaultValue = ScriptFieldValue::FromInt32(4);
+	CHECK(cache.Update(info, stored, values) == 1);
+	CHECK(values == expected());
+	// Another set of shown fields starts over.
+	info.Fields.erase(info.Fields.begin());
+	CHECK(cache.Update(info, stored, values) == 10);
+	CHECK(values == expected());
+	CHECK_FALSE(values.contains("Speed"));
 }
 
 TEST_CASE("ScriptFieldInspection: edited values are stored in the scene format")
