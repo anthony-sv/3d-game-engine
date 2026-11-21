@@ -3226,8 +3226,8 @@ wheel all of its torque).
   applied lean impulse at 0 (`MotorcycleController.h:110-116`); the applied inputs at 0 until the next step applies the
   latest. **The latest inputs stay**, as a vehicle made again keeps them: the next step applies what a script last gave,
   before or after the reset, so a reset and the inputs given in the same fixed step (with no physics step between them)
-  make the same step whichever order the scripts and graphs run in. **The chassis's linear and angular velocities are set to zero** once it is made
-  again, as `SetLinearVelocity` and `SetAngularVelocity` set them (which wakes the chassis); its position, rotation, sleep
+  make the same step whichever order the scripts and graphs run in. **The chassis's linear and angular velocities are
+  set to zero** once it is made again, as `SetLinearVelocity` and `SetAngularVelocity` set them (which wakes the chassis); its position, rotation, sleep
   test and contacts with other bodies stay. Then the world takes every vehicle's constraint and every joint out of Jolt's
   list and adds them again in UUID order, as after any change (above), so the vehicle's constraint takes the place it
   had. **Nothing else changes**: every other body, vehicle, joint and character, the vehicle's values (the definition's,
@@ -3235,10 +3235,11 @@ wheel all of its torque).
   values in the same places of Jolt's list: a snapshot taken before a reset restores after it (bringing back the ride as
   it was then), and one taken after it restores too. The hash and the snapshot gain nothing: a reset vehicle is hashed and
   saved as any vehicle is. **When it applies**: at the call, on the main thread, between steps (no script runs inside
-  one), so from `OnFixedUpdate` it is in place for the step that follows and from `OnUpdate` for the next frame's first.
-  A reset touches its own vehicle alone and the constraints go back into UUID order after each, so several resets in one
-  fixed step (with no physics step between them) leave the same world in whatever order they come: the one trace of their order is the order in
-  which they wake sleeping chassis, and Jolt's list of active bodies has no order a simulation depends on (it is filled
+  one), so from `OnFixedUpdate` it is in place for the step that follows and from `OnUpdate` for the first step of the
+  same frame (scripts' `OnUpdate` runs before the frame's steps, `Scene::OnUpdateRuntime`). A reset touches its own
+  vehicle alone and the constraints go back into UUID order after each, so several resets in one fixed step (with no
+  physics step between them) leave the same world in whatever order they come: the one trace of their order is the order
+  in which they wake sleeping chassis, and Jolt's list of active bodies has no order a simulation depends on (it is filled
   from several threads, Jolt's `Docs/Architecture.md:811`; what decides an update is the binary state before it, `:852`),
   which a case shows with two sleeping vehicles reset in both orders. A sleeping vehicle that is reset wakes, rides on as
   one made there does, and falls asleep again. **With `Teleport`**: `RigidBodyComponent.Teleport`
@@ -3263,8 +3264,8 @@ wheel all of its torque).
   at once, before the next physics step, and keeps where the body stands: to put the vehicle somewhere else as well,
   Teleport its RigidBodyComponent in the same fixed step (both from OnFixedUpdate, or a graph's Event.FixedUpdate), before
   or after; a physics step between the two rides the vehicle at its old speed from the new place, or as new from the old
-  one. Without a simulated vehicle it is logged and does nothing."), a method and so an impure node, **Reset Vehicle** (`Call:Strada.VehicleComponent.ResetVehicle()`), beside
-  Shift Up and Shift Down; its binding (`VehicleComponent_ResetVehicle`) calls `Scene::ResetVehicle` after the check the
+  one. Without a simulated vehicle it is logged and does nothing."), a method and so an impure node, **Reset Vehicle**
+  (`Call:Strada.VehicleComponent.ResetVehicle()`), beside Shift Up and Shift Down; its binding (`VehicleComponent_ResetVehicle`) calls `Scene::ResetVehicle` after the check the
   inputs' binding makes.
 - **The threads.** `PhysicsSystem::Update` locks every body and constraint (`PhysicsSystem.cpp:241-246`) and in each
   collision step runs the step listeners first, as jobs on which gravity and the active constraints wait (`:401-412`);
@@ -5286,9 +5287,11 @@ once. Without .NET a document still loads, saves and shows in the editor; analys
     `imgui.cpp:12638`), drawn while that widget stays active. So is the row a popup was opened from (ImGui records the ID
     scope a popup was opened in, `OpenParentId`, `imgui.cpp:13148`), drawn while that popup stays open at the array's
     level of the popup stack: a popup that only its row submits, as an element's asset picker is, stays open and shown while
-    the list scrolls its row out of view. A combo's popup (an enum element's) is submitted only by a combo ImGui does not
-    clip (`BeginCombo` returns at `ItemAdd`, `imgui_widgets.cpp:1969`), so it hides while its row is out of view and shows
-    again with it, as in any window ImGui scrolls. `ImGuiListClipper` cannot clip inside the table's value cell,
+    the list scrolls its row out of view. A popup no row submits is closed by ImGui: at the next frame its window, not
+    shown, loses the focus (`imgui.cpp:6029-6030`), and focusing another window closes the popups over it (`:13908`). So
+    a combo's popup (an enum element's), which only a combo ImGui does not clip submits (`BeginCombo` returns at
+    `ItemAdd`, `imgui_widgets.cpp:1969`), closes once its row scrolls out of view, as in any window ImGui scrolls.
+    `ImGuiListClipper` cannot clip inside the table's value cell,
     since its `Begin` ends the table's row (`imgui.cpp:3411-3412` of the pinned ImGui), so the field editor clips by hand.
     Tab moves through the rows drawn. Arrays drawn without a table row (`DrawInlineValue`, `DrawValuePopup`) and arrays of reflected structs
     (bounded by their `MaxCount`, which no script's or graph's list is) are drawn whole.
@@ -5300,8 +5303,8 @@ once. Without .NET a document still loads, saves and shows in the editor; analys
     in a frame in which the list changed, its read and its conversion. `InspectorPanel.ReadBack` and
     `InspectorPanel.ScriptValues` (§4.4) time the two halves, and `InspectorPanel::GetDrawStatistics` and
     `FieldEditor::GetDrawStatistics` count the values read back, converted and shown mixed and the rows drawn and
-    clipped, which the headless tests hold to the rows in view. The field editor counts one `Draw` (from zero at its start; a struct drawer's
-    table inside it adds to it); the inspector, which draws every section through one field editor, sums its sections'
+    clipped, which the headless tests hold to the rows in view. The field editor counts one `Draw` (from zero at its
+    start; a struct drawer's table inside it adds to it); the inspector, which draws every section through one field editor, sums its sections'
     counts over its frame (`InspectorPanel::GetFieldDrawStatistics`), so a list's rows drawn and clipped add up to its
     length.
 
