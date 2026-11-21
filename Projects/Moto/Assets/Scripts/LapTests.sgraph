@@ -3905,7 +3905,7 @@
 								0.0
 							],
 							"Settings": {
-								"Formula": "ready && k2 == min(a, c) && abs(n2 - (int((k2 + 0.000001) / 0.1) + 1)) <= 1 && abs(d2 - (c - a)) <= 0.1"
+								"Formula": "ready && k2 == min(a, c) && abs(n2 - (int((k2 + 0.000001) / 0.1) + 1)) <= 1 && abs(d2 - (c - a)) <= 0.0333"
 							}
 						},
 						{
@@ -3916,7 +3916,7 @@
 								240.0
 							],
 							"Settings": {
-								"Format": "after laps of {A} and {C} s the ghost kept {K} s of {N} samples; its Delta at the second's end {D} s (within 0.1 of their difference)"
+								"Format": "after laps of {A} and {C} s the ghost kept {K} s of {N} samples; its Delta at the second's end {D} s (within 0.0333 of their difference)"
 							}
 						},
 						{

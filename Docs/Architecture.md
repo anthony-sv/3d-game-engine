@@ -6978,8 +6978,11 @@ graphs alone keeps its best lap and its settings screen, and none exposes a path
   best. While a lap is recorded and a best lap is held, each fixed step sets `Delta`, the lap's time so far less the best
   lap's time at the same place, negative when ahead: the place is the bike's foot on the polyline of the best lap's
   positions, the segment from the sample nearest it (followed on from the last, up to three samples a step) or the one
-  before it when the bike has not reached that sample yet, and its time the samples' between. So the samples need no
-  distance along the lap. A game that keeps the best lap (the race's save slot) writes the four arrays and `BestLapTime`
+  before it when the bike has not reached that sample yet, and its time the samples' between. A lap's last stretch, from
+  its last sample to its end, is shorter than a sample period and holds no sample: past the last sample the foot lies on
+  the last segment run on at its own speed for what is left of `BestLapTime`, so that `Delta` at a lap's end is the laps'
+  difference (stopping at the last sample read the stretch too slow, by up to 0.1 s). So the samples need no distance
+  along the lap, and a lap need not end where it began. A game that keeps the best lap (the race's save slot) writes the four arrays and `BestLapTime`
   back and sends the ghost `BestLapLoaded`: it rides them from their start when they hold one lap (as many values in each,
   2 to 4,096, and a time their count fits: from 1.5 samples' time short of the last sample to a sample's time past the
   next) and otherwise clears them and rides the line; a scene that starts with them set is ridden the same way. A slot
@@ -7023,8 +7026,8 @@ graphs alone keeps its best lap and its settings screen, and none exposes a path
   490 m from the nearest stand, it lies 17 dB under the ghost riding by (a probe of the sound test's captures read the
   crowd at -62.7 dBFS against the ghost's -45.5 at its quietest window; with a near distance of 30 m it read -45.8 and
   the sound test's autocorrelation fell under its bound). The voices mixed are the ghost's sixteen, the bike's sixteen and
-  its three loops, and the crowd's four: 39, with one or two more while blips ring, below the engine's 64, so every voice
-  mixes, silent ones included. The audio director reads no action: the game's pause is the race director's, which sends
+  its three loops, and the crowd's four: 39, with one or two more while blips ring (the blip's source plays two at once),
+  below the engine's 64, so every voice mixes, silent ones included. The audio director reads no action: the game's pause is the race director's, which sends
   it `TogglePause`. **The checks** join `Ride.sscene` as a module
   (`Tools/RideChecks.py`, after the bike's seven; the test runner's one `Event.FixedUpdate` calls each module's ride in
   turn, `Checks.Suite.steps`): from the bike's ride's end, the assists on, (8) the throttle alone puts it in first gear
@@ -7041,53 +7044,62 @@ graphs alone keeps its best lap and its settings screen, and none exposes a path
   gains, so the ride covers less, or a little more, never much more; read 638.5 and 430.6), never more than 3 m off the
   line (read 1.9 and 1.9), with no step of a wheel on gravel or grass, never leaned past the line's 52° (read 31.2° and
   32.5°), and through Turns 1 and 2 leaned 24.9° at least, 80 % of the weaker of the Debug and the Release readings (31.4°
-  and 31.2°; the bike as drawn read 9.2°), so that a bike that takes Turn 1 upright again fails on every platform. Then the ride stops the autopilot,
-  puts the riding graph back on its test driver with the assists off and the bike on the grid, brakes it to rest into
-  neutral and enters `Done`. The ride logs every reading in one line ("Moto's assists and autopilot: ..."), which
+  and 31.2°; the bike as drawn read 9.2°), so that a bike that takes Turn 1 upright again fails on every platform. Then the
+  ride stops the autopilot, puts the riding graph on its test driver with the assists still on and the bike on the main
+  straight at 20 m/s in the gear the autopilot left, and stops it on the front lever alone; (15) let go, every input 0,
+  for 120 steps, the bike waits in first gear (the automatic shifts took it down as it slowed and never into neutral) under
+  0.1 m/s and at most 5 cm from where it stopped (read first gear, 1e-5 m/s and 17 mm): an engine idling in gear that
+  pushed it, as Jolt's held at its idle speed does with the clutch closed, would move it meters. Then the ride turns the
+  assists off, puts the bike on the grid, brakes it to rest into neutral and enters `Done`. The ride logs every reading in one line ("Moto's assists and autopilot: ..."), which
   `MotoRideTests.cpp` requires the same at 1/60 and 1/30 s a frame (and at 1/144 behind `STRADA_LONG_RIDES=1`). **The
   directors' checks** (`Tools/DirectorChecks.py`, a module of the ride scene after these) ride nothing: the runner
   graph's one `Event.Update` (`Checks.Suite.frames`, beside the fixed steps' `steps`) reads every frame what the directors
   set while both rides go on, from the scene's start to `AssistPhase` `Done`, and stands in for the race director,
   broadcasting `AttractStarted` at 0.5 s of the game and `RaceStarted` at 40 s. The readings are of frames, so no line
   compared across frame rates holds them, and where a reading compares what a director set with what the bike reads it
-  takes the nearer of the bike's reading in the frame and in the last (graphs update in no stated order). (15) In the
+  takes the nearer of the bike's reading in the frame and in the last (graphs update in no stated order). (16) In the
   attract mode the camera that shows is in every frame the one `plan()` gives for the ghost's time on its lap within
-  0.6 s either side, and the director cuts exactly as often as the plan (5 times: the first cut and four changes); (16)
+  0.6 s either side, and the director cuts exactly as often as the plan (5 times: the first cut and four changes); (17)
   in the race the chase camera shows in every frame, within 0.02 m of its place and 0.5° of its aim, and at most 15°
-  round from straight behind the bike (read 3e-5 m, 0.03° and 6.9°); (17) in every frame of both the camera that shows is
-  the one camera whose listener hears, as `Active` names it; (18) the bike's engine voices are fed the vehicle's engine
+  round from straight behind the bike (read 3e-5 m, 0.03° and 7.5° to 8.0° at 1/30, 1/60 and 1/144 s a frame); (18) in every frame of both the camera that shows is
+  the one camera whose listener hears, as `Active` names it; (19) the bike's engine voices are fed the vehicle's engine
   speed and throttle (exactly, within the frame), all sixteen play on `Engine`, their powers balance within 0.02 (read
   0.0002), and through the launch in first gear, from its 90th step to its end, the engine speed is the rear wheel's
-  turning through the gearbox within 3 % (read 1.7 %); (19) the squeal sounds at 0.7 of its level or more while the front
+  turning through the gearbox within 3 % (read 1.1 % to 1.3 %); (20) the squeal sounds at 0.7 of its level or more while the front
   wheel slides locked above 8 m/s (read 0.8, its level) and at 0.02 of it at most while the bike rolls on the asphalt
-  (read 9e-7); (20) the director plays a blip on every change of gear, at least the bike's ride's nine (read 18 changes,
-  18 blips); (21) the crunch sounds at 0.6 of its level or more after 15 steps rolling in the gravel trap (read 0.73) and
-  not on the asphalt (0); (22) `Audio.ActiveVoiceCount` is 39 or more in every frame and never more than 64 (read 40 to
-  41 at 1/60 and 1/30 s a frame and 39 to 41 at 1/144); (23) the wind at 23.7 m/s against 15 m/s is the speeds' ratio squared within 10 %, and the four crowd voices play
+  (read 9e-7); (21) the director plays a blip on every change of gear, at least the bike's ride's nine (read 18 changes,
+  18 blips); (22) the crunch sounds at 0.6 of its level or more after 15 steps rolling in the gravel trap (read 0.73) and
+  not on the asphalt (0); (23) `Audio.ActiveVoiceCount` is 39 or more in every frame and never more than 41, those and the
+  blip's two (`Sound.most_voices()`), so that a voice that never ends fails it. A blip lasts its clip's 0.42 s of the
+  mix's time, which a test run's null device advances in real time, so how many frames one spans depends on how fast the
+  frames run, and the count between 39 and 41 with it (test runs read 39 to 41 or 40 to 41, a run paced at 60 frames a
+  second 39 to 41); (24) the wind at 23.7 m/s against 15 m/s is the speeds' ratio squared within 10 %, and the four crowd voices play
   at their level. A line "Moto's directors: ..." logs the readings. **The best lap's checks** (`Tools/GhostChecks.py`, a
   module of the ride scene after the directors') stand in for the race director's `LapStarted` and `LapFinished`, sent from
   the fixed step a lap starts or ends, `Best` when the lap is shorter than all before it. Their laps are short stretches
   (whole laps stay behind `STRADA_LONG_RIDES=1`, below): each begins as the assists' ride ends, the riding graph on its test
   driver and the bike placed on the grid, braked into neutral at rest, then starts the autopilot and `LapStarted` in one
   step and ends 660 m along the lap, past Turn 1, its time the steps since. Laps 1, 2 and 3 ride at a `Pace` of 0.8, 1 and
-  0.9, then lap 4, of 180 steps, rides while the ghost's `MaxSamples` is 20. (24) Lap 4, the race's best, is longer than
-  the ghost keeps: timed, not kept, the ghost's best lap cleared and the racing line ridden. (25) The ghost keeps lap 1, then
-  lap 2 in its place, and not lap 3 (read 24.50, 21.05 and 22.58 s), its `BestLapTime` the kept lap's, lap 2's samples
+  0.9, then lap 4, of 180 steps, rides while the ghost's `MaxSamples` is 20. (25) Lap 4, the race's best, is longer than
+  the ghost keeps: timed, not kept, the ghost's best lap cleared and the racing line ridden. (26) The ghost keeps lap 1, then
+  lap 2 in its place, and not lap 3 (read 24.65, 21.03 and 22.57 s), its `BestLapTime` the kept lap's, lap 2's samples
   within one of its time's count, each the bike's position at its step within 10 µm: the ghost's first sample is in its
   first fixed step at or after `LapStarted`, the step the lap starts in or the next as the scene orders the graphs within a
   step, so the module takes the bike's samples from both and compares the ghost's with the grid they lie on (read
-  from the start step, 0 m apart). (26) `Delta` at the end of each lap, read in its last step before
-  `LapFinished`: 0 while no best lap is held (lap 1), and within 0.1 s of the laps' difference, negative for lap 2 and
-  positive for lap 3 (read −3.367 against −3.450 and 1.567 against 1.533). (27) In every frame of lap 3 from its fourth step on
+  from the start step, 0 m apart). (27) `Delta` at the end of each lap, read in its last step before
+  `LapFinished`: 0 while no best lap is held (lap 1), and within two fixed steps (0.033 s) of the laps' difference,
+  negative for lap 2 and positive for lap 3 (read −3.615 against −3.617 and 1.538 against 1.533; −3.611 and 1.535 in
+  Debug): `Delta` is a step old when the module reads it before the ghost's graph runs in the step, and the bike ends a
+  lap up to a step's ride past where the best lap ended. (28) In every frame of lap 3 from its fourth step on
   the ghost stands, at its own `LapTime`, where lap 2's samples of the bike put it (between the two round that time, at
   the share the time gives) within 1 cm, and its `LapTime` is the race's lap clock within 0.04 s (the ghost's time runs by
-  frames, the race's by fixed steps; over 300 frames at least). (28) The samples written back
+  frames, the race's by fixed steps; over 300 frames at least). (29) The samples written back
   with their time and `BestLapLoaded` sent are ridden; with the rotations emptied, `BestLapLoaded` is refused and the ghost
   rides the line. Then the ride stands the bike on the grid in neutral, as the assists' ride left it, and
   enters `Done` (`GhostPhase`). Their readings of the fixed steps are logged in one line ("Moto's ghost: ..."), which
   `MotoRideTests.cpp` requires the same at 1/60 and 1/30 s a frame (and at 1/144 behind `STRADA_LONG_RIDES=1`). The scene
-  holds 28 checks in about 9,100 frames, within its timeout of 200 s (in `Checks.SCENES` and `MotoRideTests.cpp`, whose two
-  runs have a process timeout of 5 minutes of their own: a slow runner's Debug run of 9,100 frames passes the two minutes
+  holds 29 checks in about 9,500 frames, within its timeout of 200 s (in `Checks.SCENES` and `MotoRideTests.cpp`, whose two
+  runs have a process timeout of 5 minutes of their own: a slow runner's Debug run of 9,500 frames passes the two minutes
   `RunProgram` gives). `PlayModeTests` reads the recorded `Ride.Distance` and `Ride.Speed` against the bike's own distance
   and speed. Every authoring run plays the raw vehicle's launch and stops with the assists off.
   **Whole laps** (`Tools/LapChecks.py`, the lap test scene `Scenes/Lap.sscene`, a line of `Checks.SCENES`: the main scene
@@ -7096,7 +7108,8 @@ graphs alone keeps its best lap and its settings screen, and none exposes a path
   bike's `Distance` crosses the start and finish line, each lap's time its steps since the crossing that began it. Its
   four checks: each lap within 1 to 1.25 times the racing line's 71.1 s (read 82.53 and 79.28 s; 82.57 and 79.28 in Debug); never more than 3 m off
   the line, no step of a wheel on gravel or grass, never leaned past 52° (read 2.26 m, 0 steps, 39.1°); the ghost
-  keeping the faster lap, with its `Delta` at the second's end within 0.1 s of the laps' difference (read −3.233 s against −3.250);
+  keeping the faster lap, with its `Delta` at the second's end within 0.033 s of the laps' difference (read −3.253 s against
+  −3.250; −3.290 against −3.283 in Debug);
   and the bike leaning into its corners: ten times a second the lean that balances the turn, atan(v × the heading's rate
   since the last sample / g), and where that passes 10° the bike's lean over it; the samples' mean at least 0.57, 85 % of
   the weaker of the Debug and the Release readings (0.671 and 0.676 over about 1,110 samples; the bike as drawn read 0.07). A line

@@ -29,7 +29,9 @@ public bound, MAX_SAMPLES by default) is timed but not kept: a best lap the ghos
 nothing compares the race with a lap that is not its best, and the ghost rides the racing line again. While a lap is
 recorded and a best lap is held, each fixed step sets Delta: the lap's time so far less the best lap's time at the same
 place (the bike's foot on the polyline of the best lap's positions, followed from the sample nearest it, up to TRACK_SAMPLES
-samples on a step), negative when ahead. A game that keeps the best lap (GF's save slot) writes the four arrays and
+samples on a step), negative when ahead; past the last sample (a lap's last stretch, under a sample period, holds none)
+the foot is on the last segment run on at its own speed until the best lap's time, so that Delta at a lap's end is the laps'
+difference. A game that keeps the best lap (GF's save slot) writes the four arrays and
 BestLapTime back and sends BestLapLoaded: the ghost rides them when they hold one lap (as many values in each, two to
 MAX_SAMPLES, and a time their count fits), and otherwise clears them and rides the line. A scene that starts with them set
 is ridden the same way.
@@ -58,9 +60,10 @@ VECTOR = "Strada.Vector3"
 
 # --- The best lap -----------------------------------------------------------------------------------------------------------
 
-# The samples' rate (a second) and the most a list holds (FR-R54.7): a lap of up to (MAX_SAMPLES - 1) / SAMPLE_RATE seconds
-# is kept. The graph takes a sample every SAMPLE_STEPS fixed steps, the steps nearest SAMPLE_RATE a second (6 at Moto's
-# fixed step of 1/60 s, Moto.sproj), and its period is those steps' time.
+# The samples' rate (a second) and the most a list holds: ten a second, so that a lap of up to (MAX_SAMPLES - 1) /
+# SAMPLE_RATE seconds, 409.5 s, fits one list of 4,096 and is kept. The graph takes a sample every SAMPLE_STEPS fixed
+# steps, the steps nearest SAMPLE_RATE a second (6 at Moto's fixed step of 1/60 s, Moto.sproj), and its period is those
+# steps' time.
 SAMPLE_RATE = 10.0
 MAX_SAMPLES = 4096
 FIXED_STEP = 1.0 / 60.0
@@ -75,7 +78,7 @@ BEST_LAP = (("BestLapPositions", "Strada.Vector3[]", "positions in the world"),
             ("BestLapEngineSpeeds", "float[]", "engine speeds (revolutions a minute)"),
             ("BestLapLoads", "float[]", "loads (the applied throttle, 0 to 1)"))
 RECORDING = (("Positions", "Strada.Vector3[]"), ("Rotations", "Strada.Quaternion[]"), ("EngineSpeeds", "float[]"), ("Loads", "float[]"))
-# The race director's broadcasts the ghost handles (slice 4's spec section 12) and the event a game sends it.
+# The race director's broadcasts the ghost handles and the event a game sends it.
 LAP_STARTED = ("LapStarted", (("Lap", "int"),))
 LAP_FINISHED = ("LapFinished", (("Lap", "int"), ("Time", "float"), ("Best", "bool")))
 LOADED = ("BestLapLoaded", ())
@@ -256,7 +259,11 @@ def write_clear(b):
 def write_measure(b):
     """Measure: the best lap's sample nearest the bike, followed on from the last (up to TRACK_SAMPLES a step), the bike's
     foot on the best lap's positions there (the segment from that sample, or to it when the bike is still before it), and
-    Delta: the lap's time so far less the best lap's time at that foot."""
+    Delta: the lap's time so far less the best lap's time at that foot. A lap's last stretch, from its last sample to its
+    end, is shorter than a sample period and holds no sample: past the last sample the foot lies on the last segment run on
+    at its own speed (the tail) for the rest of the best lap's time, so that it ends at BestLapTime, not at the last
+    sample's time. The tail's end is where the best lap ended, a fraction of a sample period's travel ahead, whether the
+    lap came round to where it started (a lap of the race) or stopped elsewhere (the test scenes' stretches)."""
     each = b.add("Flow.ForLoop", First=1, Last=TRACK_SAMPLES)
     nearest = b.var("Nearest")
     following = b.expr("min(nearest + 1, count - 1)", nearest=nearest, count=count(b))
@@ -268,15 +275,29 @@ def write_measure(b):
     b.flow(each["Body"], nearer)
     b.flow(nearer["True"], b.set("Nearest", following))
     # After the loop: the segment the foot lies on, and the time there.
+    n = count(b)
+    best = b.var("BestLapTime")
+    final = element(b, BEST_LAP[0][0], b.expr("n - 1", n=n))
+    before_final = element(b, BEST_LAP[0][0], b.expr("max(n - 2, 0)", n=n))
+    tail = b.expr("l + (l - k) * (max(best - float(n - 1) * period, 0) / period)", l=final, k=before_final, best=best, n=n,
+                  period=period(b), comment="Where the best lap ended: its last segment run on at its speed to BestLapTime")
+
+    def after(index):
+        """The place that follows a sample: the next sample, or the tail's end after the last."""
+        return b.expr("index + 1 < n ? following : tail", index=index, n=n, tail=tail,
+                      following=element(b, BEST_LAP[0][0], b.expr("min(index + 1, n - 1)", index=index, n=n)))
+
     last = b.var("Nearest")
     at = element(b, BEST_LAP[0][0], last)
-    after = element(b, BEST_LAP[0][0], b.expr("min(index + 1, count - 1)", index=last, count=count(b)))
-    base = b.expr("index > 0 && dot(p - a, c - a) < 0 ? index - 1 : index", index=last, p=bike_at(b), a=at, c=after)
+    base = b.expr("index > 0 && dot(p - a, c - a) < 0 ? index - 1 : index", index=last, p=bike_at(b), a=at, c=after(last))
     start = element(b, BEST_LAP[0][0], base)
-    end = element(b, BEST_LAP[0][0], b.expr("min(base + 1, count - 1)", base=base, count=count(b)))
+    end = after(base)
     along = b.expr("clamp(dot(p - a, c - a) / max(dot(c - a, c - a), 0.000001), 0, 1)", p=bike_at(b), a=start, c=end)
-    delta = b.set("Delta", b.expr("float(steps) * dt - (float(base) + along) * period", steps=b.var("LapSteps"),
-                                  dt=b.pure("Get:Strada.Time.FixedDeltaTime", "Value"), base=base, along=along, period=period(b)),
+    timed = b.expr("base + 1 < n ? (float(base) + along) * period : float(base) * period + along * max(best - float(base) * period, 0)",
+                   base=base, n=n, along=along, period=period(b), best=best,
+                   comment="The best lap's time at the foot: a sample period a segment, the tail what the lap had left")
+    delta = b.set("Delta", b.expr("float(steps) * dt - timed", steps=b.var("LapSteps"),
+                                  dt=b.pure("Get:Strada.Time.FixedDeltaTime", "Value"), timed=timed),
                   comment="Negative when ahead of the best lap")
     b.chain(each["Completed"], delta, b.ret)
 

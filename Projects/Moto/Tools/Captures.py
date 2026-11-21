@@ -224,7 +224,7 @@ def closest_pass(position):
 
 
 def trackside_camera(entities, name):
-    """A trackside camera: its number for the director's StartCamera (1 to 4, its place among the director's children)
+    """A trackside camera: its number for the director's StartCamera (1 to 7, its place among the director's children)
     and where it stands (the director stands at the origin unturned)."""
     director = find(entities, Trackside.ROOT)
     camera = find(entities, name, director["ID"])

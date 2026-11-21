@@ -79,10 +79,13 @@ PHASES = (
 
 # --- The bands -------------------------------------------------------------------------------------------------------------
 
-# Delta at a lap's end against the difference of the two laps' times (seconds): the bike at the end of the lap stands up to
-# a step past where the best lap's samples put the same distance, and its foot is taken on segments between samples 0.1 s
-# apart.
-DELTA_TOLERANCE = 0.1
+# Delta at a lap's end against the difference of the two laps' times (seconds): two fixed steps. The ghost's Delta is a
+# step old when this module's graph runs before the ghost's within the step it reads it in, and the bike at a lap's end
+# stands up to a step's ride past the place the best lap ended at (each lap ends in the first step past LAP_DISTANCE). The
+# samples' spacing adds nothing: the foot lies on the segments between them and, past the last, on the last run on to the
+# best lap's end (Ghost.py's Measure), where it once stopped at the last sample and read a lap's last stretch, up to a
+# sample period, too slow (lap 2 read 0.083 s off).
+DELTA_TOLERANCE = round(2.0 * BikeChecks.STEP, 4)
 # The ghost's place in a frame against where the samples put it at its time (meters), and its lap clock against the race's
 # (seconds: the ghost's time runs by frames, the race's by fixed steps, a frame's time apart at most at 1/30 s a frame).
 REPLAY_TOLERANCE = 0.01

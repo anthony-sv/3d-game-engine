@@ -21,12 +21,12 @@ using namespace Strada::RuntimeTesting;
 // stops on one brake each, a coast on the asphalt and one in the gravel trap outside Turn 6, the shifts and a lean to the
 // left; its checks are bands drawn from the figures the bike's definition gives (Tools/Vehicle.py). Then, with the rider
 // assists on (Tools/RideChecks.py), the throttle alone shifts it out of neutral, the front lever with the linked brakes stops
-// it, a lean request turns it, and the autopilot (Scripts/Ride.sgraph) rides it from the grid through the corners after
-// Turn 2; the rider's pose is read as the bike rides. So the ride is the same ride at every frame rate, step for step: its
-// readings, which the graph logs in two lines, and the physics state at a step of it are compared exactly between the rates.
-// Meanwhile the directors' checks (Tools/DirectorChecks.py) read every frame what the camera and audio directors set: the
-// attract mode's cuts by the camera director's rule and the race's chase view (the test stands in for the race director's
-// AttractStarted and RaceStarted), the listener on the camera that shows, and the ridden bike's engine voices, squeal, shift
+// it, a lean request turns it, the autopilot (Scripts/Ride.sgraph) rides it from the grid through the corners after Turn 2,
+// and braked to a stop on the assists it waits in first gear where it stopped; the rider's pose is read as the bike rides. So the ride is
+// the same ride at every frame rate, step for step: its readings, which the graph logs in two lines, and the physics state at a step of it
+// are compared exactly between the rates. Meanwhile the directors' checks (Tools/DirectorChecks.py) read every frame what the camera and
+// audio directors set: the attract mode's cuts by the camera director's rule and the race's chase view (the test stands in for the race
+// director's AttractStarted and RaceStarted), the listener on the camera that shows, and the ridden bike's engine voices, squeal, shift
 // blips, gravel crunch and wind, the crowd and the voices mixed; those readings are of frames, so no line compared here holds
 // them, and their checks pass at every rate. Then the best lap's checks (Tools/GhostChecks.py) stand in for the race
 // director's LapStarted and LapFinished: the autopilot rides short laps from the grid, the ghost (Scripts/Ghost.sgraph) keeps
@@ -38,13 +38,13 @@ using namespace Strada::RuntimeTesting;
 
 namespace
 {
-	// The ride test scene's checks: the bike's seven (Tools/BikeChecks.py), the assists' and the autopilot's seven, the
-	// directors' nine, then the best lap's five.
-	constexpr std::string_view RideChecks = "Tests passed: 28 checks";
+	// The ride test scene's checks: the bike's seven (Tools/BikeChecks.py), the assists', the autopilot's and the rest in
+	// gear's eight, the directors' nine, then the best lap's five.
+	constexpr std::string_view RideChecks = "Tests passed: 29 checks";
 	// The lap test scene's checks (Tools/LapChecks.py): the laps' times, the line, the ghost, the lean.
 	constexpr std::string_view LapChecks = "Tests passed: 4 checks";
-	// The ride test scene's test timeout (seconds of the game, Tools/Checks.py's SCENES): the rides take about 151 s. A Debug
-	// run of its 9,100 frames on a slow runner can pass RunTimeout's two minutes, so it has a process timeout of its own.
+	// The ride test scene's test timeout (seconds of the game, Tools/Checks.py's SCENES): the rides take about 158 s. A Debug
+	// run of its 9,500 frames on a slow runner can pass RunTimeout's two minutes, so it has a process timeout of its own.
 	constexpr std::string_view RideTimeout = "200";
 	constexpr std::chrono::seconds RideRunTimeout = std::chrono::minutes(5);
 	// A fixed step of the ride after it was teleported into the gravel trap and back (by about step 1,650) and before it ends

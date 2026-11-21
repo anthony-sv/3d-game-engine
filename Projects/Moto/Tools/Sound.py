@@ -152,6 +152,8 @@ SQUEAL_LEVEL = 0.8
 CRUNCH_LEVEL = 0.9
 WIND_LEVEL = 0.6
 BLIP_LEVEL = 0.9
+# How many sounds the bike's one-shot source (the blip) plays at once: a blip that starts while two play stops the older.
+ONE_SHOT_VOICES = 2
 CROWD_LEVEL = 0.8
 # The squeal: a wheel's slip ratio (a size: 0 rolling, 1 locked) and its slip angle (degrees) where the slide starts and
 # where it is full, and the bike's speeds (m/s) between which a slide comes to sound in full (a smoothstep). Moto's bike
@@ -202,7 +204,8 @@ def crowd_sites(props=None):
 def bike_voice(clip_reference, bus, near, far, loops):
     """One of the bike's sounds: a loop playing from the start, silent until the director sounds it, or a one-shot."""
     return {"Clip": clip_reference, "Loop": loops, "PlayOnStart": loops, "Volume": 0.0 if loops else 1.0, "Spatial": True,
-            "MinDistance": near, "MaxDistance": far, "Bus": bus, "Priority": BIKE_PRIORITY, "MaxVoices": 1 if loops else 2}
+            "MinDistance": near, "MaxDistance": far, "Bus": bus, "Priority": BIKE_PRIORITY,
+            "MaxVoices": 1 if loops else ONE_SHOT_VOICES}
 
 
 def crowd_voice():
@@ -216,6 +219,13 @@ def voice_count(sites=None):
     and the crowd's."""
     loops = sum(1 for *_, loops in BIKE_VOICES if loops)
     return 2 * len(EngineSound.VOICES) + loops + len(sites if sites is not None else crowd_sites())
+
+
+def most_voices(sites=None):
+    """The most voices that mix while the scene plays: voice_count()'s and as many blips as their source plays at once. A
+    blip lasts its clip's length in the mix's time, which the null device of a test run advances in real time, so how many
+    frames one spans depends on how fast the frames run; between voice_count() and this it may read anything."""
+    return voice_count(sites) + sum(ONE_SHOT_VOICES for *_, loops in BIKE_VOICES if not loops)
 
 
 # --- The audio director ------------------------------------------------------------------------------------------------

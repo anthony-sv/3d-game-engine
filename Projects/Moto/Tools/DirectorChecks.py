@@ -35,7 +35,10 @@ seconds of the game and RaceStarted at ATTRACT_TO, as the race director broadcas
 - The crunch: rolling in the gravel trap (the Gravel phase, after GRAVEL_SETTLE steps) at CRUNCH_SHARE of its level or more;
   on the asphalt (the Coast phase) silent.
 - The voices: Audio.ActiveVoiceCount is Sound.voice_count() or more in every frame (every voice mixes, silent ones
-  included) and never more than the engine's 64.
+  included) and never more than Sound.most_voices(), those and the blips their source plays at once: a voice that does not
+  end, or one more than the scene plays, fails it. A blip is the one voice between the two: its clip runs on the mix's
+  time, which a test run's null device advances in real time, so the frames it spans depend on how fast they run: test
+  runs read 39 to 41 or 40 to 41 voices, a run paced at 60 frames a second 39 to 41.
 - The wind and the crowd: the wind's volume at speed against its volume at a lower speed is the speeds' ratio squared
   within WIND_ROOM, and every crowd voice plays at its level.
 """
@@ -71,7 +74,8 @@ PLAN_MARGIN = 0.6
 # The chase view: how far the camera may stand from its place behind and above the bike (meters), how far it may look
 # from the point above the bike (degrees), and how far round from straight behind the bike it may stand on the level
 # (degrees: its heading follows the bike's at Trackside.CHASE_TURN a second, so it lags in a corner by about the bike's
-# turn rate over that: 6.9 degrees at most on the autopilot's line at 1/60, 1/30 and 1/144 s a frame).
+# turn rate over that: 7.5 to 8.1 degrees at most on the autopilot's line at 1/30, 1/60 and 1/144 s a frame, in Debug and
+# Release).
 CHASE_TOLERANCE = 0.02
 AIM_TOLERANCE = 0.5
 BEHIND_TOLERANCE = 15.0
@@ -95,8 +99,6 @@ SILENT = 0.001
 # asphalt (both steady); the room of their ratio against the speeds' ratio squared.
 WIND_STEP = 30
 WIND_ROOM = 0.1
-# The engine's limit of voices mixed at once.
-MAX_VOICES = 64
 # The frames at the scene's start a reading of the engine's voices leaves out: until the engine sound's graph has set
 # them from what the director fed it.
 SETTLE_FRAMES = 5
@@ -511,11 +513,11 @@ def check_gravel_crunch(b, name):
 
 
 def check_voices(b, name):
-    least = Sound.voice_count()
+    least, most = Sound.voice_count(), Sound.most_voices()
     ready = b.var("EarDone")
-    passed = b.expr(f"low >= {least} && high <= {MAX_VOICES}", low=b.var("EarVoicesLeast"), high=b.var("EarVoicesMost"))
+    passed = b.expr(f"low >= {least} && high <= {most}", low=b.var("EarVoicesLeast"), high=b.var("EarVoicesMost"))
     text = b.fmt(f"the engine mixed {{Least}} to {{Most}} voices (at least {least}, the ghost's, the bike's and the crowd's; at most "
-                 f"{MAX_VOICES})", Least=b.var("EarVoicesLeast"), Most=b.var("EarVoicesMost"))
+                 f"{most}, those and the blips)", Least=b.var("EarVoicesLeast"), Most=b.var("EarVoicesMost"))
     run(b, Checks.check(b, name, ready, WAIT, text, b.both(ready, passed)))
 
 

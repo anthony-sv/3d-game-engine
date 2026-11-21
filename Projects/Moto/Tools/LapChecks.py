@@ -24,6 +24,7 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import Checks  # noqa: E402  (the test scenes, reporting and waiting)
 import Circuit  # noqa: E402  (the lap's length)
 import Ghost  # noqa: E402  (the ghost and its best lap)
+import GhostChecks  # noqa: E402  (the ghost's Delta tolerance)
 import RacingLine  # noqa: E402  (the line's lap time and lean limit)
 import Ride  # noqa: E402  (the Ride graph: the autopilot and the bike's place on the lap)
 import RideChecks  # noqa: E402  (the autopilot's bands on the line)
@@ -46,7 +47,7 @@ LAP_BAND = (1.0, 1.25)
 MOST_OFFSET = RideChecks.MOST_OFFSET
 MOST_LEAN = RideChecks.MOST_LEAN
 # Delta at the second lap's end against the laps' difference (seconds), as the ghost's checks of the ride test scene.
-DELTA_TOLERANCE = 0.1
+DELTA_TOLERANCE = GhostChecks.DELTA_TOLERANCE
 # The lean over the lean that balances the turn: every LEAN_EVERY steps of the laps (ten times a second) the turn's rate is
 # the heading's change since the last sample, the balancing lean atan(v x rate / g), and where that passes LEAN_FROM degrees
 # the bike's lean over it is a sample; the laps' reading is the samples' mean. The bike as drawn (its contacts as wide as its
