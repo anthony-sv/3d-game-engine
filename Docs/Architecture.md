@@ -3650,8 +3650,8 @@ wheel all of its torque).
   at 0 the lean controller holds it upright) is made, or its values change, with a wheel wider than 0.1 m (above, "The
   wheels' cast"), the scene warns that it leans less than its turns balance, naming the entity, the wheel and its width
   and the width up to which a wheel's cast is round. It warns once for each wheel and width: not again for an edit that
-  leaves the wheel as it was, for a body made again or for a reset (which leaves the scene's record of the vehicle as it
-  was), and again when that wheel takes another width above the bound,
+  leaves the wheel as it was, for a body made again or for a reset (which keeps the widths warned of), and again when
+  that wheel takes another width above the bound,
   comes back above it, or the vehicle is made again after it was none. It changes no value and runs only when the
   vehicle changes, never in a step. FeatureTest's bike (wheels 0.12 and 0.18 m wide) is warned of; Moto's casts 24 and
   40 mm.
