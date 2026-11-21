@@ -1,0 +1,557 @@
+{
+	"Strada": {
+		"Version": 3,
+		"Type": "VisualScript"
+	},
+	"VisualScript": {
+		"Kind": "Library",
+		"Description": "Moto's library: the rider assist's mapping, the lean a curvature takes, the linked brakes' easing by the lean, a point's distance along the lap and units. Tools/MotoLib.py writes it.",
+		"Variables": [],
+		"Functions": [
+			{
+				"ID": 1,
+				"Name": "AssistSteer",
+				"Pure": true,
+				"Inputs": [
+					{
+						"Name": "Request",
+						"Type": "float"
+					},
+					{
+						"Name": "Speed",
+						"Type": "float"
+					}
+				],
+				"Outputs": [
+					{
+						"Name": "Steer",
+						"Type": "float"
+					}
+				],
+				"Locals": [],
+				"Graph": {
+					"Nodes": [
+						{
+							"ID": 2,
+							"Type": "Function.Entry",
+							"Position": [
+								0.0,
+								0.0
+							]
+						},
+						{
+							"ID": 3,
+							"Type": "Function.Return",
+							"Position": [
+								400.0,
+								0.0
+							]
+						},
+						{
+							"ID": 16,
+							"Type": "Expression",
+							"Position": [
+								192.0,
+								0.0
+							],
+							"Settings": {
+								"Formula": "clamp(degrees(asin(clamp(16.143018 * tan(radians(request * 50.2)) / pow(max(speed, 4.0), 2), -1, 1))) / 28.0, -1, 1)"
+							}
+						}
+					],
+					"Links": [
+						{
+							"From": [
+								2,
+								"Request"
+							],
+							"To": [
+								16,
+								"request"
+							]
+						},
+						{
+							"From": [
+								2,
+								"Speed"
+							],
+							"To": [
+								16,
+								"speed"
+							]
+						},
+						{
+							"From": [
+								16,
+								"Result"
+							],
+							"To": [
+								3,
+								"Steer"
+							]
+						}
+					],
+					"Comments": [
+						{
+							"ID": 17,
+							"Text": "Assist steer: the steering that holds a lean request at the speed",
+							"Position": [
+								-32.0,
+								-72.0
+							],
+							"Size": [
+								584.0,
+								210.0
+							],
+							"Color": [
+								0.949999988079071,
+								0.550000011920929,
+								0.15000000596046448,
+								0.2199999988079071
+							]
+						}
+					]
+				}
+			},
+			{
+				"ID": 4,
+				"Name": "CurvatureLean",
+				"Pure": true,
+				"Inputs": [
+					{
+						"Name": "Curvature",
+						"Type": "float"
+					},
+					{
+						"Name": "Speed",
+						"Type": "float"
+					}
+				],
+				"Outputs": [
+					{
+						"Name": "Request",
+						"Type": "float"
+					}
+				],
+				"Locals": [],
+				"Graph": {
+					"Nodes": [
+						{
+							"ID": 5,
+							"Type": "Function.Entry",
+							"Position": [
+								0.0,
+								0.0
+							]
+						},
+						{
+							"ID": 6,
+							"Type": "Function.Return",
+							"Position": [
+								416.0,
+								0.0
+							]
+						},
+						{
+							"ID": 18,
+							"Type": "Expression",
+							"Position": [
+								192.0,
+								0.0
+							],
+							"Settings": {
+								"Formula": "clamp(degrees(atan(pow(max(speed, 4.0), 2) * curvature / 9.81)) / 50.2, -1, 1)"
+							}
+						}
+					],
+					"Links": [
+						{
+							"From": [
+								5,
+								"Speed"
+							],
+							"To": [
+								18,
+								"speed"
+							]
+						},
+						{
+							"From": [
+								5,
+								"Curvature"
+							],
+							"To": [
+								18,
+								"curvature"
+							]
+						},
+						{
+							"From": [
+								18,
+								"Result"
+							],
+							"To": [
+								6,
+								"Request"
+							]
+						}
+					],
+					"Comments": [
+						{
+							"ID": 19,
+							"Text": "Curvature lean: the lean request that turns on a curvature",
+							"Position": [
+								-32.0,
+								-72.0
+							],
+							"Size": [
+								600.0,
+								210.0
+							],
+							"Color": [
+								0.949999988079071,
+								0.550000011920929,
+								0.15000000596046448,
+								0.2199999988079071
+							]
+						}
+					]
+				}
+			},
+			{
+				"ID": 7,
+				"Name": "BrakeEase",
+				"Pure": true,
+				"Inputs": [
+					{
+						"Name": "Lean",
+						"Type": "float"
+					}
+				],
+				"Outputs": [
+					{
+						"Name": "Share",
+						"Type": "float"
+					}
+				],
+				"Locals": [],
+				"Graph": {
+					"Nodes": [
+						{
+							"ID": 8,
+							"Type": "Function.Entry",
+							"Position": [
+								0.0,
+								0.0
+							]
+						},
+						{
+							"ID": 9,
+							"Type": "Function.Return",
+							"Position": [
+								384.0,
+								0.0
+							]
+						},
+						{
+							"ID": 20,
+							"Type": "Expression",
+							"Position": [
+								192.0,
+								0.0
+							],
+							"Settings": {
+								"Formula": "pow(1 - abs(sin(radians(lean))), 2)"
+							}
+						}
+					],
+					"Links": [
+						{
+							"From": [
+								8,
+								"Lean"
+							],
+							"To": [
+								20,
+								"lean"
+							]
+						},
+						{
+							"From": [
+								20,
+								"Result"
+							],
+							"To": [
+								9,
+								"Share"
+							]
+						}
+					],
+					"Comments": [
+						{
+							"ID": 21,
+							"Text": "Brake ease: the linked brakes' share of a lever at a lean",
+							"Position": [
+								-32.0,
+								-72.0
+							],
+							"Size": [
+								568.0,
+								186.0
+							],
+							"Color": [
+								0.949999988079071,
+								0.550000011920929,
+								0.15000000596046448,
+								0.2199999988079071
+							]
+						}
+					]
+				}
+			},
+			{
+				"ID": 10,
+				"Name": "LineDistance",
+				"Pure": true,
+				"Inputs": [
+					{
+						"Name": "Position",
+						"Type": "Strada.Vector3"
+					},
+					{
+						"Name": "From",
+						"Type": "Strada.Vector3"
+					},
+					{
+						"Name": "To",
+						"Type": "Strada.Vector3"
+					},
+					{
+						"Name": "FromDistance",
+						"Type": "float"
+					},
+					{
+						"Name": "ToDistance",
+						"Type": "float"
+					}
+				],
+				"Outputs": [
+					{
+						"Name": "Distance",
+						"Type": "float"
+					}
+				],
+				"Locals": [],
+				"Graph": {
+					"Nodes": [
+						{
+							"ID": 11,
+							"Type": "Function.Entry",
+							"Position": [
+								0.0,
+								0.0
+							]
+						},
+						{
+							"ID": 12,
+							"Type": "Function.Return",
+							"Position": [
+								384.0,
+								0.0
+							]
+						},
+						{
+							"ID": 22,
+							"Type": "Expression",
+							"Position": [
+								192.0,
+								0.0
+							],
+							"Settings": {
+								"Formula": "start + (end - start) * clamp(dot(vec2(p.X - a.X, p.Z - a.Z), vec2(c.X - a.X, c.Z - a.Z)) / max(dot(vec2(c.X - a.X, c.Z - a.Z), vec2(c.X - a.X, c.Z - a.Z)), 0.000001), 0, 1)"
+							}
+						}
+					],
+					"Links": [
+						{
+							"From": [
+								11,
+								"FromDistance"
+							],
+							"To": [
+								22,
+								"start"
+							]
+						},
+						{
+							"From": [
+								11,
+								"ToDistance"
+							],
+							"To": [
+								22,
+								"end"
+							]
+						},
+						{
+							"From": [
+								11,
+								"Position"
+							],
+							"To": [
+								22,
+								"p"
+							]
+						},
+						{
+							"From": [
+								11,
+								"From"
+							],
+							"To": [
+								22,
+								"a"
+							]
+						},
+						{
+							"From": [
+								11,
+								"To"
+							],
+							"To": [
+								22,
+								"c"
+							]
+						},
+						{
+							"From": [
+								22,
+								"Result"
+							],
+							"To": [
+								12,
+								"Distance"
+							]
+						}
+					],
+					"Comments": [
+						{
+							"ID": 23,
+							"Text": "Line distance: a point's foot on a stretch of the line, along the lap",
+							"Position": [
+								-32.0,
+								-72.0
+							],
+							"Size": [
+								568.0,
+								282.0
+							],
+							"Color": [
+								0.949999988079071,
+								0.550000011920929,
+								0.15000000596046448,
+								0.2199999988079071
+							]
+						}
+					]
+				}
+			},
+			{
+				"ID": 13,
+				"Name": "Kmh",
+				"Pure": true,
+				"Inputs": [
+					{
+						"Name": "Speed",
+						"Type": "float"
+					}
+				],
+				"Outputs": [
+					{
+						"Name": "Kmh",
+						"Type": "float"
+					}
+				],
+				"Locals": [],
+				"Graph": {
+					"Nodes": [
+						{
+							"ID": 14,
+							"Type": "Function.Entry",
+							"Position": [
+								0.0,
+								0.0
+							]
+						},
+						{
+							"ID": 15,
+							"Type": "Function.Return",
+							"Position": [
+								400.0,
+								0.0
+							]
+						},
+						{
+							"ID": 24,
+							"Type": "Expression",
+							"Position": [
+								192.0,
+								0.0
+							],
+							"Settings": {
+								"Formula": "speed * 3.6"
+							}
+						}
+					],
+					"Links": [
+						{
+							"From": [
+								14,
+								"Speed"
+							],
+							"To": [
+								24,
+								"speed"
+							]
+						},
+						{
+							"From": [
+								24,
+								"Result"
+							],
+							"To": [
+								15,
+								"Kmh"
+							]
+						}
+					],
+					"Comments": [
+						{
+							"ID": 25,
+							"Text": "Kmh: meters a second in kilometers an hour",
+							"Position": [
+								-32.0,
+								-72.0
+							],
+							"Size": [
+								584.0,
+								186.0
+							],
+							"Color": [
+								0.949999988079071,
+								0.550000011920929,
+								0.15000000596046448,
+								0.2199999988079071
+							]
+						}
+					]
+				}
+			}
+		],
+		"Graph": {
+			"Nodes": [],
+			"Links": [],
+			"Comments": []
+		}
+	}
+}

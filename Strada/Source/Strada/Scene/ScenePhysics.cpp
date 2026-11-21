@@ -1108,11 +1108,13 @@ namespace Strada
 				}
 			}
 			CheckVehicleLeanSpring(entity, state);
+			CheckVehicleWheelWidths(entity, state);
 		}
 		else
 		{
-			// Made again later, a vehicle whose lean spring cannot settle it is warned of again.
+			// Made again later, a vehicle whose lean spring cannot settle it, or that leans on a wide wheel, is warned of again.
 			state.LeanSpringWarned = false;
+			state.WideWheelWarned = {};
 		}
 		std::string said = problem;
 		for (std::string const& note : notes)
@@ -1168,6 +1170,29 @@ namespace Strada
 			             entity.GetName(), *inertia, damping, collisionStep, *inertia / collisionStep);
 		}
 		state.LeanSpringWarned = unsettled;
+	}
+
+	void Scene::CheckVehicleWheelWidths(Entity entity, VehicleSyncState& state)
+	{
+		// A wheel's cast rounds its edges by half its width, but by Jolt's largest convex radius at most (VehicleWorld.cpp's
+		// tester), so a wheel wider than twice that rides on a flat bottom: its contact lies off the wheel's plane, the ground's
+		// force misses the center of mass at the lean the controller aims for, and the bike leans less than its turns balance.
+		// A vehicle whose largest lean is 0 is held upright and leans in no turn.
+		bool const leans = state.Desc.MaxLeanAngle > 0.0f;
+		for (size_t index = 0; index < VehicleWheelCount; index++)
+		{
+			float const width = state.Desc.Wheels[index].Width;
+			float const wide = leans && width > MaxRoundVehicleWheelWidth ? width : 0.0f;
+			if (wide != 0.0f && wide != state.WideWheelWarned[index])
+			{
+				ST_CORE_WARN("Physics: the Vehicle of '{}' leans less than its turns balance: its wheel '{}' is {:.4g} m wide, and a "
+				             "wheel's cast against the ground is round only up to {:.4g} m wide, so a wider one rides on a flat "
+				             "bottom whose contact lies off the wheel's plane; a narrower Width leans it further (the tyre drawn "
+				             "may be wider than the wheel's cast)",
+				             entity.GetName(), state.WheelNames[index], width, MaxRoundVehicleWheelWidth);
+			}
+			state.WideWheelWarned[index] = wide;
+		}
 	}
 
 	void Scene::RecordVehicleWheelSteps(float step)

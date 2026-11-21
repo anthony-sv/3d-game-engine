@@ -4,7 +4,7 @@
 		"Type": "VisualScript"
 	},
 	"VisualScript": {
-		"Description": "Drives the HUD's and the pause's checks in the ride test scene: pauses the game in the ridden bike's launch through the Pause action, reads the HUD and the pause against the vehicle, then resumes.",
+		"Description": "Drives the HUD's and the pause's checks in the flow test scene: pauses the game in the ridden bike's launch through the Pause action, reads the HUD and the pause against the vehicle, then resumes.",
 		"Variables": [
 			{
 				"ID": 1,
@@ -36,10 +36,10 @@
 			},
 			{
 				"ID": 5,
-				"Name": "StandIn",
+				"Name": "Ghost",
 				"Type": "Strada.Entity",
 				"Public": true,
-				"Tooltip": "The stand-in ghost"
+				"Tooltip": "The scene's ghost, the director's"
 			},
 			{
 				"ID": 6,

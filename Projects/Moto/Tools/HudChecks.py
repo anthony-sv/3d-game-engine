@@ -1,4 +1,4 @@
-"""The HUD's and the pause's checks, a module of Checks.MODULES: they join the ride test scene (Scenes/Ride.sscene) after
+"""The HUD's and the pause's checks, a module of Checks.MODULES: they join the flow test scene (Scenes/Flow.sscene) after
 the race's. Two things drive what they read:
 
 - the Hud Tests entity, whose graph (Scripts/HudTests.sgraph) pauses the game in the ridden bike's launch from the grid
@@ -12,7 +12,8 @@ the race's. Two things drive what they read:
   value changes, and the speed has not), and the game goes on two frames later. The pause inserts frames without fixed steps, so the ride and the race read what they read
   without it, step for step;
 - three checks of the runner graph, after the race's: a fourth race started and its lap 1 begun by a crossing of the line
-  sent the director as its gates send them, against the stand-in ghost, given a best lap and a Delta, then given none
+  sent the director as its gates send them, against the scene's ghost (Scripts/Ghost.sgraph, which records no lap
+  there: RaceChecks clears its Bike), given a best lap and a Delta, then given none
   and a crossing of the first sector gate, whose split the HUD compares with the best lap's (the second scripted race's,
   RaceChecks.SCRIPT) when the lap began; then the race is abandoned, and a fifth race's countdown shows neither the
   fourth's delta nor its sectors, and is abandoned too.
@@ -29,6 +30,7 @@ import sys
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import Checks  # noqa: E402  (the test scenes, reporting and waiting)
+import Ghost  # noqa: E402  (the scene's ghost, whose Delta the HUD shows)
 import Graphs  # noqa: E402  (writing graphs)
 import Hud  # noqa: E402  (the screen and its formats)
 import Menu  # noqa: E402  (the menus, whose pause screen the pause shows)
@@ -61,7 +63,7 @@ PLACE_TOLERANCE = 0.01
 # --- The deltas ------------------------------------------------------------------------------------------------------------
 
 # The fourth race's crossings: the line LINE_STEP steps after the start signal begins lap 1, the first sector gate
-# SPLIT_STEPS later. The stand-in ghost's best lap and the two Deltas it gives while it has one.
+# SPLIT_STEPS later. The ghost's best lap and the two Deltas it is given while it has one.
 LINE_STEP = 100
 GHOST_BEST = 90.0
 AHEAD = -1.25
@@ -135,13 +137,13 @@ ENTITY_VARIABLES = (
     ("Bike", "The ridden bike"),
     ("Hud", "The screen, which runs the HUD"),
     ("Menus", "The screen's menus, whose pause screen the pause shows"),
-    ("StandIn", "The stand-in ghost"),
+    ("Ghost", "The scene's ghost, the director's"),
 )
 PHASES = ("Wait", "Press", "Paused", "Release", "Resumed")
 
 
 def declare_graphs(author):
-    author.declare(HUD_TESTS, "Drives the HUD's and the pause's checks in the ride test scene: pauses the game in the ridden "
+    author.declare(HUD_TESTS, "Drives the HUD's and the pause's checks in the flow test scene: pauses the game in the ridden "
                    "bike's launch through the Pause action, reads the HUD and the pause against the vehicle, then resumes.",
                    variables=(
         tuple(public(name, ENTITY, None, tooltip) for name, tooltip in ENTITY_VARIABLES) +
@@ -369,8 +371,8 @@ def race(b):
     return b.once("race", lambda: driver(b, "Race"))
 
 
-def stand_in(b):
-    return b.once("stand-in", lambda: driver(b, "StandIn"))
+def ghost(b):
+    return b.once("ghost", lambda: driver(b, "Ghost"))
 
 
 def delta_text(b):
@@ -378,7 +380,7 @@ def delta_text(b):
 
 
 def ghost_set(b, name, value):
-    return b.set(name, value, graph=Race.GHOST_GRAPH, target=stand_in(b))
+    return b.set(name, value, graph=Race.GHOST_GRAPH, target=ghost(b))
 
 
 def crossing(b, gate, steps):
@@ -391,7 +393,7 @@ def frames(b):
 
 
 def write_live_delta(b, name):
-    started = b.send("StartRace", race(b), graph=Race.DIRECTOR, comment="A fourth race, against the stand-in ghost")
+    started = b.send("StartRace", race(b), graph=Race.DIRECTOR, comment="A fourth race, against the scene's ghost")
     racing = Checks.wait_until(b, b.equal(b.get("State", Race.DIRECTOR, race(b)), b.lit("string", "Racing")), START_WAIT)
     line = crossing(b, 0, LINE_STEP)
     ahead = [ghost_set(b, "BestLapTime", GHOST_BEST), ghost_set(b, "Delta", AHEAD)]
@@ -479,11 +481,11 @@ def make(create, handles):
 
 
 def prepare(session, found):
-    """The driver knows the director, the bike, the screen and the stand-in ghost."""
+    """The driver knows the director, the bike, the screen and the scene's ghost."""
     Checks.set_variables(session, found[DRIVER], {
         "Race": Checks.entity_value(found[Race.ROOT]), "Bike": Checks.entity_value(found["Bike"]),
         "Hud": Checks.entity_value(found[Hud.ROOT]), "Menus": Checks.entity_value(found[Menu.ROOT]),
-        "StandIn": Checks.entity_value(found[RaceChecks.STAND_IN_ENTITY])})
+        "Ghost": Checks.entity_value(found[Ghost.ENTITY])})
 
 
 SUITE = Suite(checks, write_check, ENTITIES, VARIABLES, own=(DRIVER,), make=make, prepare=prepare)

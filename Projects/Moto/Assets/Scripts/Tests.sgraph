@@ -6123,7 +6123,7 @@
 							"Type": "Get:Strada.AudioSourceComponent.IsPlaying",
 							"Position": [
 								1520.0,
-								512.0
+								544.0
 							]
 						},
 						{
@@ -6145,7 +6145,7 @@
 								368.0
 							],
 							"Settings": {
-								"Formula": "power + volume * volume"
+								"Formula": "power + volume * volume / (index < 8 ? 1.0 : 0.251188)"
 							}
 						},
 						{
@@ -6279,7 +6279,7 @@
 								0.0
 							],
 							"Settings": {
-								"Format": "{Playing} of 16 voices play, their volumes squared summing to {Power}, {Strays} out of their band or off the Engine bus, at {Speed} rpm"
+								"Format": "{Playing} of 16 voices play, their volumes squared summing to {Power} (the off-load voices' over 0.251188), {Strays} out of their band or off the Engine bus, at {Speed} rpm"
 							}
 						},
 						{
@@ -6439,6 +6439,16 @@
 							"To": [
 								305,
 								"volume"
+							]
+						},
+						{
+							"From": [
+								297,
+								"Index"
+							],
+							"To": [
+								305,
+								"index"
 							]
 						},
 						{
@@ -6859,7 +6869,7 @@
 								64.0
 							],
 							"Settings": {
-								"Variable": 4,
+								"Variable": 5,
 								"Graph": "6519852673991122007"
 							}
 						},

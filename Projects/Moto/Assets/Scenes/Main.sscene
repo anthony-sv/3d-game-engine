@@ -391573,7 +391573,12 @@
 				},
 				"VisualScript": {
 					"Graph": "10119309049923292088",
-					"Variables": {}
+					"Variables": {
+						"Bike": {
+							"Type": "Entity",
+							"Value": "1233048084916068541"
+						}
+					}
 				}
 			}
 		},
@@ -392619,11 +392624,1221 @@
 				},
 				"Relationship": {
 					"Parent": "0",
-					"Children": []
+					"Children": [
+						"3070469934800924916",
+						"3301123806451199061"
+					]
 				},
 				"VisualScript": {
 					"Graph": "15368667258106452273",
+					"Variables": {
+						"Bike": {
+							"Type": "Entity",
+							"Value": "1233048084916068541"
+						}
+					}
+				}
+			}
+		},
+		{
+			"ID": "3070469934800924916",
+			"Components": {
+				"Tag": {
+					"Tag": "Bike Sounds"
+				},
+				"Transform": {
+					"Translation": [
+						66.00826263427734,
+						0.14499999582767487,
+						-223.99378967285156
+					],
+					"Rotation": [
+						-0.0,
+						0.8226891756057739,
+						-0.0,
+						-0.5684914588928223
+					],
+					"Scale": [
+						1.0,
+						1.0,
+						1.0
+					]
+				},
+				"Relationship": {
+					"Parent": "13183832973743946470",
+					"Children": [
+						"14965671223363793022",
+						"12424053602711674614",
+						"1433273374544915476",
+						"14349386898679376047",
+						"11378952771422875158"
+					]
+				}
+			}
+		},
+		{
+			"ID": "14965671223363793022",
+			"Components": {
+				"Tag": {
+					"Tag": "Bike Engine"
+				},
+				"Transform": {
+					"Translation": [
+						0.0,
+						0.5,
+						0.0
+					],
+					"Rotation": [
+						0.0,
+						0.0,
+						0.0,
+						1.0
+					],
+					"Scale": [
+						1.0,
+						1.0,
+						1.0
+					]
+				},
+				"Relationship": {
+					"Parent": "3070469934800924916",
+					"Children": [
+						"9328785641360636371",
+						"1219727087862921031",
+						"9509400809291755454",
+						"18171649057946768630",
+						"11581070291244741544",
+						"9396176328431166756",
+						"3159182024016951605",
+						"1762830488627738496",
+						"1679131314899581339",
+						"7022570045771643186",
+						"11734696447117839143",
+						"1448378289669171690",
+						"10134656457018569481",
+						"16101482530860229401",
+						"1369951183082272658",
+						"2533904387168706003"
+					]
+				},
+				"VisualScript": {
+					"Graph": "18355618336197444524",
 					"Variables": {}
+				}
+			}
+		},
+		{
+			"ID": "9328785641360636371",
+			"Components": {
+				"Tag": {
+					"Tag": "On 1"
+				},
+				"Transform": {
+					"Translation": [
+						0.0,
+						0.0,
+						0.0
+					],
+					"Rotation": [
+						0.0,
+						0.0,
+						0.0,
+						1.0
+					],
+					"Scale": [
+						1.0,
+						1.0,
+						1.0
+					]
+				},
+				"Relationship": {
+					"Parent": "14965671223363793022",
+					"Children": []
+				},
+				"AudioSource": {
+					"Clip": "7921413717635758035",
+					"Stream": false,
+					"Volume": 0.0,
+					"Pitch": 1.0,
+					"Loop": true,
+					"PlayOnStart": true,
+					"Spatial": true,
+					"MinDistance": 6.0,
+					"MaxDistance": 600.0,
+					"Bus": "Engine",
+					"Priority": 220,
+					"MaxVoices": 1,
+					"DopplerLevel": 1.0
+				}
+			}
+		},
+		{
+			"ID": "1219727087862921031",
+			"Components": {
+				"Tag": {
+					"Tag": "On 2"
+				},
+				"Transform": {
+					"Translation": [
+						0.0,
+						0.0,
+						0.0
+					],
+					"Rotation": [
+						0.0,
+						0.0,
+						0.0,
+						1.0
+					],
+					"Scale": [
+						1.0,
+						1.0,
+						1.0
+					]
+				},
+				"Relationship": {
+					"Parent": "14965671223363793022",
+					"Children": []
+				},
+				"AudioSource": {
+					"Clip": "13904905335613237551",
+					"Stream": false,
+					"Volume": 0.0,
+					"Pitch": 1.0,
+					"Loop": true,
+					"PlayOnStart": true,
+					"Spatial": true,
+					"MinDistance": 6.0,
+					"MaxDistance": 600.0,
+					"Bus": "Engine",
+					"Priority": 220,
+					"MaxVoices": 1,
+					"DopplerLevel": 1.0
+				}
+			}
+		},
+		{
+			"ID": "9509400809291755454",
+			"Components": {
+				"Tag": {
+					"Tag": "On 3"
+				},
+				"Transform": {
+					"Translation": [
+						0.0,
+						0.0,
+						0.0
+					],
+					"Rotation": [
+						0.0,
+						0.0,
+						0.0,
+						1.0
+					],
+					"Scale": [
+						1.0,
+						1.0,
+						1.0
+					]
+				},
+				"Relationship": {
+					"Parent": "14965671223363793022",
+					"Children": []
+				},
+				"AudioSource": {
+					"Clip": "6137069414110706683",
+					"Stream": false,
+					"Volume": 0.0,
+					"Pitch": 1.0,
+					"Loop": true,
+					"PlayOnStart": true,
+					"Spatial": true,
+					"MinDistance": 6.0,
+					"MaxDistance": 600.0,
+					"Bus": "Engine",
+					"Priority": 220,
+					"MaxVoices": 1,
+					"DopplerLevel": 1.0
+				}
+			}
+		},
+		{
+			"ID": "18171649057946768630",
+			"Components": {
+				"Tag": {
+					"Tag": "On 4"
+				},
+				"Transform": {
+					"Translation": [
+						0.0,
+						0.0,
+						0.0
+					],
+					"Rotation": [
+						0.0,
+						0.0,
+						0.0,
+						1.0
+					],
+					"Scale": [
+						1.0,
+						1.0,
+						1.0
+					]
+				},
+				"Relationship": {
+					"Parent": "14965671223363793022",
+					"Children": []
+				},
+				"AudioSource": {
+					"Clip": "17704194001081059877",
+					"Stream": false,
+					"Volume": 0.0,
+					"Pitch": 1.0,
+					"Loop": true,
+					"PlayOnStart": true,
+					"Spatial": true,
+					"MinDistance": 6.0,
+					"MaxDistance": 600.0,
+					"Bus": "Engine",
+					"Priority": 220,
+					"MaxVoices": 1,
+					"DopplerLevel": 1.0
+				}
+			}
+		},
+		{
+			"ID": "11581070291244741544",
+			"Components": {
+				"Tag": {
+					"Tag": "On 5"
+				},
+				"Transform": {
+					"Translation": [
+						0.0,
+						0.0,
+						0.0
+					],
+					"Rotation": [
+						0.0,
+						0.0,
+						0.0,
+						1.0
+					],
+					"Scale": [
+						1.0,
+						1.0,
+						1.0
+					]
+				},
+				"Relationship": {
+					"Parent": "14965671223363793022",
+					"Children": []
+				},
+				"AudioSource": {
+					"Clip": "7031801106368864788",
+					"Stream": false,
+					"Volume": 0.0,
+					"Pitch": 1.0,
+					"Loop": true,
+					"PlayOnStart": true,
+					"Spatial": true,
+					"MinDistance": 6.0,
+					"MaxDistance": 600.0,
+					"Bus": "Engine",
+					"Priority": 220,
+					"MaxVoices": 1,
+					"DopplerLevel": 1.0
+				}
+			}
+		},
+		{
+			"ID": "9396176328431166756",
+			"Components": {
+				"Tag": {
+					"Tag": "On 6"
+				},
+				"Transform": {
+					"Translation": [
+						0.0,
+						0.0,
+						0.0
+					],
+					"Rotation": [
+						0.0,
+						0.0,
+						0.0,
+						1.0
+					],
+					"Scale": [
+						1.0,
+						1.0,
+						1.0
+					]
+				},
+				"Relationship": {
+					"Parent": "14965671223363793022",
+					"Children": []
+				},
+				"AudioSource": {
+					"Clip": "379061891840396889",
+					"Stream": false,
+					"Volume": 0.0,
+					"Pitch": 1.0,
+					"Loop": true,
+					"PlayOnStart": true,
+					"Spatial": true,
+					"MinDistance": 6.0,
+					"MaxDistance": 600.0,
+					"Bus": "Engine",
+					"Priority": 220,
+					"MaxVoices": 1,
+					"DopplerLevel": 1.0
+				}
+			}
+		},
+		{
+			"ID": "3159182024016951605",
+			"Components": {
+				"Tag": {
+					"Tag": "On 7"
+				},
+				"Transform": {
+					"Translation": [
+						0.0,
+						0.0,
+						0.0
+					],
+					"Rotation": [
+						0.0,
+						0.0,
+						0.0,
+						1.0
+					],
+					"Scale": [
+						1.0,
+						1.0,
+						1.0
+					]
+				},
+				"Relationship": {
+					"Parent": "14965671223363793022",
+					"Children": []
+				},
+				"AudioSource": {
+					"Clip": "17440079429498135798",
+					"Stream": false,
+					"Volume": 0.0,
+					"Pitch": 1.0,
+					"Loop": true,
+					"PlayOnStart": true,
+					"Spatial": true,
+					"MinDistance": 6.0,
+					"MaxDistance": 600.0,
+					"Bus": "Engine",
+					"Priority": 220,
+					"MaxVoices": 1,
+					"DopplerLevel": 1.0
+				}
+			}
+		},
+		{
+			"ID": "1762830488627738496",
+			"Components": {
+				"Tag": {
+					"Tag": "On 8"
+				},
+				"Transform": {
+					"Translation": [
+						0.0,
+						0.0,
+						0.0
+					],
+					"Rotation": [
+						0.0,
+						0.0,
+						0.0,
+						1.0
+					],
+					"Scale": [
+						1.0,
+						1.0,
+						1.0
+					]
+				},
+				"Relationship": {
+					"Parent": "14965671223363793022",
+					"Children": []
+				},
+				"AudioSource": {
+					"Clip": "6498517839979917322",
+					"Stream": false,
+					"Volume": 0.0,
+					"Pitch": 1.0,
+					"Loop": true,
+					"PlayOnStart": true,
+					"Spatial": true,
+					"MinDistance": 6.0,
+					"MaxDistance": 600.0,
+					"Bus": "Engine",
+					"Priority": 220,
+					"MaxVoices": 1,
+					"DopplerLevel": 1.0
+				}
+			}
+		},
+		{
+			"ID": "1679131314899581339",
+			"Components": {
+				"Tag": {
+					"Tag": "Off 1"
+				},
+				"Transform": {
+					"Translation": [
+						0.0,
+						0.0,
+						0.0
+					],
+					"Rotation": [
+						0.0,
+						0.0,
+						0.0,
+						1.0
+					],
+					"Scale": [
+						1.0,
+						1.0,
+						1.0
+					]
+				},
+				"Relationship": {
+					"Parent": "14965671223363793022",
+					"Children": []
+				},
+				"AudioSource": {
+					"Clip": "16775207887944971445",
+					"Stream": false,
+					"Volume": 0.0,
+					"Pitch": 1.0,
+					"Loop": true,
+					"PlayOnStart": true,
+					"Spatial": true,
+					"MinDistance": 6.0,
+					"MaxDistance": 600.0,
+					"Bus": "Engine",
+					"Priority": 220,
+					"MaxVoices": 1,
+					"DopplerLevel": 1.0
+				}
+			}
+		},
+		{
+			"ID": "7022570045771643186",
+			"Components": {
+				"Tag": {
+					"Tag": "Off 2"
+				},
+				"Transform": {
+					"Translation": [
+						0.0,
+						0.0,
+						0.0
+					],
+					"Rotation": [
+						0.0,
+						0.0,
+						0.0,
+						1.0
+					],
+					"Scale": [
+						1.0,
+						1.0,
+						1.0
+					]
+				},
+				"Relationship": {
+					"Parent": "14965671223363793022",
+					"Children": []
+				},
+				"AudioSource": {
+					"Clip": "5695866175981364344",
+					"Stream": false,
+					"Volume": 0.0,
+					"Pitch": 1.0,
+					"Loop": true,
+					"PlayOnStart": true,
+					"Spatial": true,
+					"MinDistance": 6.0,
+					"MaxDistance": 600.0,
+					"Bus": "Engine",
+					"Priority": 220,
+					"MaxVoices": 1,
+					"DopplerLevel": 1.0
+				}
+			}
+		},
+		{
+			"ID": "11734696447117839143",
+			"Components": {
+				"Tag": {
+					"Tag": "Off 3"
+				},
+				"Transform": {
+					"Translation": [
+						0.0,
+						0.0,
+						0.0
+					],
+					"Rotation": [
+						0.0,
+						0.0,
+						0.0,
+						1.0
+					],
+					"Scale": [
+						1.0,
+						1.0,
+						1.0
+					]
+				},
+				"Relationship": {
+					"Parent": "14965671223363793022",
+					"Children": []
+				},
+				"AudioSource": {
+					"Clip": "4396963956586787972",
+					"Stream": false,
+					"Volume": 0.0,
+					"Pitch": 1.0,
+					"Loop": true,
+					"PlayOnStart": true,
+					"Spatial": true,
+					"MinDistance": 6.0,
+					"MaxDistance": 600.0,
+					"Bus": "Engine",
+					"Priority": 220,
+					"MaxVoices": 1,
+					"DopplerLevel": 1.0
+				}
+			}
+		},
+		{
+			"ID": "1448378289669171690",
+			"Components": {
+				"Tag": {
+					"Tag": "Off 4"
+				},
+				"Transform": {
+					"Translation": [
+						0.0,
+						0.0,
+						0.0
+					],
+					"Rotation": [
+						0.0,
+						0.0,
+						0.0,
+						1.0
+					],
+					"Scale": [
+						1.0,
+						1.0,
+						1.0
+					]
+				},
+				"Relationship": {
+					"Parent": "14965671223363793022",
+					"Children": []
+				},
+				"AudioSource": {
+					"Clip": "8149029902755975715",
+					"Stream": false,
+					"Volume": 0.0,
+					"Pitch": 1.0,
+					"Loop": true,
+					"PlayOnStart": true,
+					"Spatial": true,
+					"MinDistance": 6.0,
+					"MaxDistance": 600.0,
+					"Bus": "Engine",
+					"Priority": 220,
+					"MaxVoices": 1,
+					"DopplerLevel": 1.0
+				}
+			}
+		},
+		{
+			"ID": "10134656457018569481",
+			"Components": {
+				"Tag": {
+					"Tag": "Off 5"
+				},
+				"Transform": {
+					"Translation": [
+						0.0,
+						0.0,
+						0.0
+					],
+					"Rotation": [
+						0.0,
+						0.0,
+						0.0,
+						1.0
+					],
+					"Scale": [
+						1.0,
+						1.0,
+						1.0
+					]
+				},
+				"Relationship": {
+					"Parent": "14965671223363793022",
+					"Children": []
+				},
+				"AudioSource": {
+					"Clip": "2619398586129802378",
+					"Stream": false,
+					"Volume": 0.0,
+					"Pitch": 1.0,
+					"Loop": true,
+					"PlayOnStart": true,
+					"Spatial": true,
+					"MinDistance": 6.0,
+					"MaxDistance": 600.0,
+					"Bus": "Engine",
+					"Priority": 220,
+					"MaxVoices": 1,
+					"DopplerLevel": 1.0
+				}
+			}
+		},
+		{
+			"ID": "16101482530860229401",
+			"Components": {
+				"Tag": {
+					"Tag": "Off 6"
+				},
+				"Transform": {
+					"Translation": [
+						0.0,
+						0.0,
+						0.0
+					],
+					"Rotation": [
+						0.0,
+						0.0,
+						0.0,
+						1.0
+					],
+					"Scale": [
+						1.0,
+						1.0,
+						1.0
+					]
+				},
+				"Relationship": {
+					"Parent": "14965671223363793022",
+					"Children": []
+				},
+				"AudioSource": {
+					"Clip": "8681143167758392069",
+					"Stream": false,
+					"Volume": 0.0,
+					"Pitch": 1.0,
+					"Loop": true,
+					"PlayOnStart": true,
+					"Spatial": true,
+					"MinDistance": 6.0,
+					"MaxDistance": 600.0,
+					"Bus": "Engine",
+					"Priority": 220,
+					"MaxVoices": 1,
+					"DopplerLevel": 1.0
+				}
+			}
+		},
+		{
+			"ID": "1369951183082272658",
+			"Components": {
+				"Tag": {
+					"Tag": "Off 7"
+				},
+				"Transform": {
+					"Translation": [
+						0.0,
+						0.0,
+						0.0
+					],
+					"Rotation": [
+						0.0,
+						0.0,
+						0.0,
+						1.0
+					],
+					"Scale": [
+						1.0,
+						1.0,
+						1.0
+					]
+				},
+				"Relationship": {
+					"Parent": "14965671223363793022",
+					"Children": []
+				},
+				"AudioSource": {
+					"Clip": "8064165286108201672",
+					"Stream": false,
+					"Volume": 0.0,
+					"Pitch": 1.0,
+					"Loop": true,
+					"PlayOnStart": true,
+					"Spatial": true,
+					"MinDistance": 6.0,
+					"MaxDistance": 600.0,
+					"Bus": "Engine",
+					"Priority": 220,
+					"MaxVoices": 1,
+					"DopplerLevel": 1.0
+				}
+			}
+		},
+		{
+			"ID": "2533904387168706003",
+			"Components": {
+				"Tag": {
+					"Tag": "Off 8"
+				},
+				"Transform": {
+					"Translation": [
+						0.0,
+						0.0,
+						0.0
+					],
+					"Rotation": [
+						0.0,
+						0.0,
+						0.0,
+						1.0
+					],
+					"Scale": [
+						1.0,
+						1.0,
+						1.0
+					]
+				},
+				"Relationship": {
+					"Parent": "14965671223363793022",
+					"Children": []
+				},
+				"AudioSource": {
+					"Clip": "8947149122574558393",
+					"Stream": false,
+					"Volume": 0.0,
+					"Pitch": 1.0,
+					"Loop": true,
+					"PlayOnStart": true,
+					"Spatial": true,
+					"MinDistance": 6.0,
+					"MaxDistance": 600.0,
+					"Bus": "Engine",
+					"Priority": 220,
+					"MaxVoices": 1,
+					"DopplerLevel": 1.0
+				}
+			}
+		},
+		{
+			"ID": "12424053602711674614",
+			"Components": {
+				"Tag": {
+					"Tag": "Tyre Squeal"
+				},
+				"Transform": {
+					"Translation": [
+						0.0,
+						0.30000001192092896,
+						0.0
+					],
+					"Rotation": [
+						0.0,
+						0.0,
+						0.0,
+						1.0
+					],
+					"Scale": [
+						1.0,
+						1.0,
+						1.0
+					]
+				},
+				"Relationship": {
+					"Parent": "3070469934800924916",
+					"Children": []
+				},
+				"AudioSource": {
+					"Clip": "14838743391013920626",
+					"Stream": false,
+					"Volume": 0.0,
+					"Pitch": 1.0,
+					"Loop": true,
+					"PlayOnStart": true,
+					"Spatial": true,
+					"MinDistance": 5.0,
+					"MaxDistance": 400.0,
+					"Bus": "Tyres",
+					"Priority": 180,
+					"MaxVoices": 1,
+					"DopplerLevel": 1.0
+				}
+			}
+		},
+		{
+			"ID": "1433273374544915476",
+			"Components": {
+				"Tag": {
+					"Tag": "Gravel Crunch"
+				},
+				"Transform": {
+					"Translation": [
+						0.0,
+						0.15000000596046448,
+						0.0
+					],
+					"Rotation": [
+						0.0,
+						0.0,
+						0.0,
+						1.0
+					],
+					"Scale": [
+						1.0,
+						1.0,
+						1.0
+					]
+				},
+				"Relationship": {
+					"Parent": "3070469934800924916",
+					"Children": []
+				},
+				"AudioSource": {
+					"Clip": "14480744749171279876",
+					"Stream": false,
+					"Volume": 0.0,
+					"Pitch": 1.0,
+					"Loop": true,
+					"PlayOnStart": true,
+					"Spatial": true,
+					"MinDistance": 4.0,
+					"MaxDistance": 250.0,
+					"Bus": "Tyres",
+					"Priority": 180,
+					"MaxVoices": 1,
+					"DopplerLevel": 1.0
+				}
+			}
+		},
+		{
+			"ID": "14349386898679376047",
+			"Components": {
+				"Tag": {
+					"Tag": "Wind"
+				},
+				"Transform": {
+					"Translation": [
+						0.0,
+						1.2999999523162842,
+						0.20000000298023224
+					],
+					"Rotation": [
+						0.0,
+						0.0,
+						0.0,
+						1.0
+					],
+					"Scale": [
+						1.0,
+						1.0,
+						1.0
+					]
+				},
+				"Relationship": {
+					"Parent": "3070469934800924916",
+					"Children": []
+				},
+				"AudioSource": {
+					"Clip": "6543511114734156246",
+					"Stream": false,
+					"Volume": 0.0,
+					"Pitch": 1.0,
+					"Loop": true,
+					"PlayOnStart": true,
+					"Spatial": true,
+					"MinDistance": 2.0,
+					"MaxDistance": 60.0,
+					"Bus": "Ambience",
+					"Priority": 180,
+					"MaxVoices": 1,
+					"DopplerLevel": 1.0
+				}
+			}
+		},
+		{
+			"ID": "11378952771422875158",
+			"Components": {
+				"Tag": {
+					"Tag": "Shift Blip"
+				},
+				"Transform": {
+					"Translation": [
+						0.0,
+						0.5,
+						0.0
+					],
+					"Rotation": [
+						0.0,
+						0.0,
+						0.0,
+						1.0
+					],
+					"Scale": [
+						1.0,
+						1.0,
+						1.0
+					]
+				},
+				"Relationship": {
+					"Parent": "3070469934800924916",
+					"Children": []
+				},
+				"AudioSource": {
+					"Clip": "7696652054141987567",
+					"Stream": false,
+					"Volume": 1.0,
+					"Pitch": 1.0,
+					"Loop": false,
+					"PlayOnStart": false,
+					"Spatial": true,
+					"MinDistance": 6.0,
+					"MaxDistance": 600.0,
+					"Bus": "Engine",
+					"Priority": 180,
+					"MaxVoices": 2,
+					"DopplerLevel": 1.0
+				}
+			}
+		},
+		{
+			"ID": "3301123806451199061",
+			"Components": {
+				"Tag": {
+					"Tag": "Crowd"
+				},
+				"Transform": {
+					"Translation": [
+						0.0,
+						0.0,
+						0.0
+					],
+					"Rotation": [
+						0.0,
+						0.0,
+						0.0,
+						1.0
+					],
+					"Scale": [
+						1.0,
+						1.0,
+						1.0
+					]
+				},
+				"Relationship": {
+					"Parent": "13183832973743946470",
+					"Children": [
+						"8043930646341243557",
+						"10436611659274065013",
+						"6986289521938669214",
+						"4429427672077352811"
+					]
+				}
+			}
+		},
+		{
+			"ID": "8043930646341243557",
+			"Components": {
+				"Tag": {
+					"Tag": "Crowd 1"
+				},
+				"Transform": {
+					"Translation": [
+						-28.659000396728516,
+						4.0,
+						-235.51600646972656
+					],
+					"Rotation": [
+						0.0,
+						0.0,
+						0.0,
+						1.0
+					],
+					"Scale": [
+						1.0,
+						1.0,
+						1.0
+					]
+				},
+				"Relationship": {
+					"Parent": "3301123806451199061",
+					"Children": []
+				},
+				"AudioSource": {
+					"Clip": "14046300926306855744",
+					"Stream": false,
+					"Volume": 0.0,
+					"Pitch": 1.0,
+					"Loop": true,
+					"PlayOnStart": true,
+					"Spatial": true,
+					"MinDistance": 5.0,
+					"MaxDistance": 2000.0,
+					"Bus": "Ambience",
+					"Priority": 100,
+					"MaxVoices": 1,
+					"DopplerLevel": 1.0
+				}
+			}
+		},
+		{
+			"ID": "10436611659274065013",
+			"Components": {
+				"Tag": {
+					"Tag": "Crowd 2"
+				},
+				"Transform": {
+					"Translation": [
+						130.3560028076172,
+						4.0,
+						-175.3979949951172
+					],
+					"Rotation": [
+						0.0,
+						0.0,
+						0.0,
+						1.0
+					],
+					"Scale": [
+						1.0,
+						1.0,
+						1.0
+					]
+				},
+				"Relationship": {
+					"Parent": "3301123806451199061",
+					"Children": []
+				},
+				"AudioSource": {
+					"Clip": "14046300926306855744",
+					"Stream": false,
+					"Volume": 0.0,
+					"Pitch": 1.0,
+					"Loop": true,
+					"PlayOnStart": true,
+					"Spatial": true,
+					"MinDistance": 5.0,
+					"MaxDistance": 2000.0,
+					"Bus": "Ambience",
+					"Priority": 100,
+					"MaxVoices": 1,
+					"DopplerLevel": 1.0
+				}
+			}
+		},
+		{
+			"ID": "6986289521938669214",
+			"Components": {
+				"Tag": {
+					"Tag": "Crowd 3"
+				},
+				"Transform": {
+					"Translation": [
+						651.9290161132813,
+						4.0,
+						-1.3739999532699585
+					],
+					"Rotation": [
+						0.0,
+						0.0,
+						0.0,
+						1.0
+					],
+					"Scale": [
+						1.0,
+						1.0,
+						1.0
+					]
+				},
+				"Relationship": {
+					"Parent": "3301123806451199061",
+					"Children": []
+				},
+				"AudioSource": {
+					"Clip": "14046300926306855744",
+					"Stream": false,
+					"Volume": 0.0,
+					"Pitch": 1.0,
+					"Loop": true,
+					"PlayOnStart": true,
+					"Spatial": true,
+					"MinDistance": 5.0,
+					"MaxDistance": 2000.0,
+					"Bus": "Ambience",
+					"Priority": 100,
+					"MaxVoices": 1,
+					"DopplerLevel": 1.0
+				}
+			}
+		},
+		{
+			"ID": "4429427672077352811",
+			"Components": {
+				"Tag": {
+					"Tag": "Crowd 4"
+				},
+				"Transform": {
+					"Translation": [
+						-117.5739974975586,
+						4.0,
+						378.0719909667969
+					],
+					"Rotation": [
+						0.0,
+						0.0,
+						0.0,
+						1.0
+					],
+					"Scale": [
+						1.0,
+						1.0,
+						1.0
+					]
+				},
+				"Relationship": {
+					"Parent": "3301123806451199061",
+					"Children": []
+				},
+				"AudioSource": {
+					"Clip": "14046300926306855744",
+					"Stream": false,
+					"Volume": 0.0,
+					"Pitch": 1.0,
+					"Loop": true,
+					"PlayOnStart": true,
+					"Spatial": true,
+					"MinDistance": 5.0,
+					"MaxDistance": 2000.0,
+					"Bus": "Ambience",
+					"Priority": 100,
+					"MaxVoices": 1,
+					"DopplerLevel": 1.0
 				}
 			}
 		},
@@ -392656,13 +393871,21 @@
 					"Children": [
 						"6064095049143210550",
 						"6822810544077451418",
+						"9756213137694912666",
 						"1157838272884743393",
-						"7362070017896634882"
+						"7362070017896634882",
+						"1622701814982893983",
+						"5564627345909552126",
+						"9808731083076640832"
 					]
 				},
 				"VisualScript": {
 					"Graph": "6519852673991122007",
 					"Variables": {
+						"Bike": {
+							"Type": "Entity",
+							"Value": "1233048084916068541"
+						},
 						"Subject": {
 							"Type": "Entity",
 							"Value": "17295390229139772322"
@@ -392731,6 +393954,51 @@
 						606.8350219726563,
 						5.0,
 						7.4770002365112305
+					],
+					"Rotation": [
+						0.0,
+						0.0,
+						0.0,
+						1.0
+					],
+					"Scale": [
+						1.0,
+						1.0,
+						1.0
+					]
+				},
+				"Relationship": {
+					"Parent": "11919140304553884536",
+					"Children": []
+				},
+				"Camera": {
+					"Projection": "Perspective",
+					"PerspectiveFOV": 35.0,
+					"PerspectiveNear": 0.10000000149011612,
+					"PerspectiveFar": 5000.0,
+					"OrthographicSize": 10.0,
+					"OrthographicNear": -100.0,
+					"OrthographicFar": 100.0,
+					"Primary": false,
+					"FixedAspectRatio": false,
+					"AspectRatio": 1.7777777910232544
+				},
+				"AudioListener": {
+					"Active": false
+				}
+			}
+		},
+		{
+			"ID": "9756213137694912666",
+			"Components": {
+				"Tag": {
+					"Tag": "Turn 3 Camera"
+				},
+				"Transform": {
+					"Translation": [
+						493.70098876953125,
+						5.0,
+						324.4800109863281
 					],
 					"Rotation": [
 						0.0,
@@ -392841,6 +394109,141 @@
 				"Camera": {
 					"Projection": "Perspective",
 					"PerspectiveFOV": 35.0,
+					"PerspectiveNear": 0.10000000149011612,
+					"PerspectiveFar": 5000.0,
+					"OrthographicSize": 10.0,
+					"OrthographicNear": -100.0,
+					"OrthographicFar": 100.0,
+					"Primary": false,
+					"FixedAspectRatio": false,
+					"AspectRatio": 1.7777777910232544
+				},
+				"AudioListener": {
+					"Active": false
+				}
+			}
+		},
+		{
+			"ID": "1622701814982893983",
+			"Components": {
+				"Tag": {
+					"Tag": "Turn 7 Camera"
+				},
+				"Transform": {
+					"Translation": [
+						-213.8090057373047,
+						5.0,
+						88.35199737548828
+					],
+					"Rotation": [
+						0.0,
+						0.0,
+						0.0,
+						1.0
+					],
+					"Scale": [
+						1.0,
+						1.0,
+						1.0
+					]
+				},
+				"Relationship": {
+					"Parent": "11919140304553884536",
+					"Children": []
+				},
+				"Camera": {
+					"Projection": "Perspective",
+					"PerspectiveFOV": 35.0,
+					"PerspectiveNear": 0.10000000149011612,
+					"PerspectiveFar": 5000.0,
+					"OrthographicSize": 10.0,
+					"OrthographicNear": -100.0,
+					"OrthographicFar": 100.0,
+					"Primary": false,
+					"FixedAspectRatio": false,
+					"AspectRatio": 1.7777777910232544
+				},
+				"AudioListener": {
+					"Active": false
+				}
+			}
+		},
+		{
+			"ID": "5564627345909552126",
+			"Components": {
+				"Tag": {
+					"Tag": "Turn 9 Camera"
+				},
+				"Transform": {
+					"Translation": [
+						-216.94200134277344,
+						5.0,
+						-187.46499633789063
+					],
+					"Rotation": [
+						0.0,
+						0.0,
+						0.0,
+						1.0
+					],
+					"Scale": [
+						1.0,
+						1.0,
+						1.0
+					]
+				},
+				"Relationship": {
+					"Parent": "11919140304553884536",
+					"Children": []
+				},
+				"Camera": {
+					"Projection": "Perspective",
+					"PerspectiveFOV": 35.0,
+					"PerspectiveNear": 0.10000000149011612,
+					"PerspectiveFar": 5000.0,
+					"OrthographicSize": 10.0,
+					"OrthographicNear": -100.0,
+					"OrthographicFar": 100.0,
+					"Primary": false,
+					"FixedAspectRatio": false,
+					"AspectRatio": 1.7777777910232544
+				},
+				"AudioListener": {
+					"Active": false
+				}
+			}
+		},
+		{
+			"ID": "9808731083076640832",
+			"Components": {
+				"Tag": {
+					"Tag": "Chase Camera"
+				},
+				"Transform": {
+					"Translation": [
+						59.92829895019531,
+						2.3450000286102295,
+						-226.2924041748047
+					],
+					"Rotation": [
+						-0.05181978642940521,
+						-0.8192641735076904,
+						-0.07499069720506668,
+						0.5661248564720154
+					],
+					"Scale": [
+						1.0,
+						1.0,
+						1.0
+					]
+				},
+				"Relationship": {
+					"Parent": "11919140304553884536",
+					"Children": []
+				},
+				"Camera": {
+					"Projection": "Perspective",
+					"PerspectiveFOV": 60.0,
 					"PerspectiveNear": 0.10000000149011612,
 					"PerspectiveFar": 5000.0,
 					"OrthographicSize": 10.0,
@@ -406162,6 +407565,45 @@
 					"VerticalAlignment": "Middle",
 					"Wrap": false,
 					"LineSpacing": 1.0
+				}
+			}
+		},
+		{
+			"ID": "6843581190396829970",
+			"Components": {
+				"Tag": {
+					"Tag": "Ride"
+				},
+				"Transform": {
+					"Translation": [
+						0.0,
+						0.0,
+						0.0
+					],
+					"Rotation": [
+						0.0,
+						0.0,
+						0.0,
+						1.0
+					],
+					"Scale": [
+						1.0,
+						1.0,
+						1.0
+					]
+				},
+				"Relationship": {
+					"Parent": "0",
+					"Children": []
+				},
+				"VisualScript": {
+					"Graph": "5784894381786492430",
+					"Variables": {
+						"Bike": {
+							"Type": "Entity",
+							"Value": "1233048084916068541"
+						}
+					}
 				}
 			}
 		}

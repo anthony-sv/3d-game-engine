@@ -482,6 +482,104 @@ TEST_CASE("ScenePhysics: a vehicle whose lean spring cannot settle its chassis i
 	scene.OnRuntimeStop();
 }
 
+TEST_CASE("ScenePhysics: a vehicle that leans on a wheel wider than its round cast is warned of once for each wheel and width: made, "
+          "its values edited or made again, never for a wheel of 0.1 m or a bike held upright")
+{
+	Testing::AssetManagerScope const assets;
+	Testing::PhysicsSystemScope const physics;
+	// Docs/Architecture.md §8, "The wheels' cast": a wheel's cast is round up to 0.1 m wide, and a wider one rides on a flat
+	// bottom. Bike 200 rides on wheels of exactly 0.1 m, Bike 300 on a rear wheel of 0.2 m, Bike 400 on the same rear wheel
+	// with a largest lean of 0, which holds it upright.
+	Vehicle roundValues;
+	for (VehicleWheelDefinition& wheel : roundValues.Wheels)
+	{
+		wheel.Width = MaxRoundVehicleWheelWidth;
+	}
+	Vehicle wideValues;
+	wideValues.Wheels[1].Width = 0.2f;
+	Vehicle uprightValues = wideValues;
+	uprightValues.Lean.MaxLeanAngle = 0.0f;
+	AssetHandle const roundDefinition = AddDataAsset(roundValues, "Round.svehicle");
+	AssetHandle const wideDefinition = AddDataAsset(wideValues, "Wide.svehicle");
+	AssetHandle const uprightDefinition = AddDataAsset(uprightValues, "Upright.svehicle");
+	Scene scene("Wheel Widths");
+	MakeGround(scene);
+	MakeBike(scene, 200, 0.0f, roundDefinition);
+	Entity wide = MakeBike(scene, 300, 5.0f, wideDefinition);
+	MakeBike(scene, 400, 10.0f, uprightDefinition);
+	uint64_t const logStart = Log::GetNextEntryIndex();
+	scene.OnRuntimeStart(PhysicsOnly());
+	PhysicsScene& world = *scene.GetPhysicsScene();
+	REQUIRE(world.GetVehicleCount() == 3);
+
+	std::string_view const leansLess = "leans less than its turns balance";
+	auto const warnings = [logStart, leansLess](std::string_view bike)
+	{
+		return CountLogged(logStart, {bike, leansLess});
+	};
+	// Made: the wide rear wheel is warned of, naming the wheel, its width and the round cast's bound; a wheel of 0.1 m and a
+	// bike that never leans are not.
+	CHECK(warnings("'Bike 300'") == 1);
+	CHECK(CountLogged(logStart, {"Physics: the Vehicle of 'Bike 300' leans less than its turns balance: its wheel 'Rear' is 0.2 m "
+	                             "wide, and a wheel's cast against the ground is round only up to 0.1 m wide"}) == 1);
+	CHECK(warnings("'Bike 200'") == 0);
+	CHECK(warnings("'Bike 400'") == 0);
+	Run(scene, 30);
+	CHECK(warnings("'Bike 300'") == 1);
+
+	// An edit that leaves the wheel as it was, and its chassis's body made again, say nothing new.
+	wideValues.Wheels[0].FrontBrakeTorque = 400.0f;
+	Edit(wideDefinition, wideValues);
+	Run(scene, 5);
+	BoxColliderComponent wider = wide.GetComponent<BoxColliderComponent>();
+	wider.HalfExtents.x = 0.3f;
+	wide.AddOrReplaceComponent<BoxColliderComponent>(wider);
+	Run(scene, 5);
+	REQUIRE(world.HasVehicle(UUID(300)));
+	CHECK(warnings("'Bike 300'") == 1);
+
+	// Another width above the bound is a new cause; back at the bound, nothing; above it again, warned again.
+	wideValues.Wheels[1].Width = 0.25f;
+	Edit(wideDefinition, wideValues);
+	Run(scene, 5);
+	CHECK(warnings("'Bike 300'") == 2);
+	CHECK(CountLogged(logStart, {"'Bike 300'", leansLess, "'Rear' is 0.25 m wide"}) == 1);
+	wideValues.Wheels[1].Width = MaxRoundVehicleWheelWidth;
+	Edit(wideDefinition, wideValues);
+	Run(scene, 5);
+	CHECK(warnings("'Bike 300'") == 2);
+	wideValues.Wheels[1].Width = 0.25f;
+	Edit(wideDefinition, wideValues);
+	Run(scene, 5);
+	CHECK(warnings("'Bike 300'") == 3);
+	// The other wheel is a cause of its own.
+	wideValues.Wheels[0].Width = 0.15f;
+	Edit(wideDefinition, wideValues);
+	Run(scene, 5);
+	CHECK(warnings("'Bike 300'") == 4);
+	CHECK(CountLogged(logStart, {"'Bike 300'", leansLess, "'Front' is 0.15 m wide"}) == 1);
+
+	// No vehicle for a while (its definition unset), then made again: warned again, once for each wide wheel.
+	wide.AddOrReplaceComponent<VehicleComponent>(VehicleComponent{});
+	Run(scene, 2);
+	REQUIRE_FALSE(world.HasVehicle(UUID(300)));
+	wide.AddOrReplaceComponent<VehicleComponent>(VehicleComponent{wideDefinition});
+	Run(scene, 2);
+	REQUIRE(world.HasVehicle(UUID(300)));
+	CHECK(warnings("'Bike 300'") == 6);
+
+	// The upright bike allowed to lean: its wide wheel is warned of.
+	uprightValues.Lean.MaxLeanAngle = 30.0f;
+	Edit(uprightDefinition, uprightValues);
+	Run(scene, 5);
+	CHECK(warnings("'Bike 400'") == 1);
+	CHECK(warnings("'Bike 200'") == 0);
+	// No value of the author's changed.
+	CHECK(AssetManager::GetAsset<TypedDataAsset<Vehicle>>(wideDefinition)->GetData().Wheels[1].Width == 0.25f);
+	CHECK(world.GetVehicleState(UUID(300)).has_value());
+	scene.OnRuntimeStop();
+}
+
 TEST_CASE("SceneTelemetry: each vehicle records its sixteen channels at every fixed step while a recording runs, named by its UUID, "
           "with the values its step left, and recording leaves the state hashes as they are")
 {

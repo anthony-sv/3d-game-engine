@@ -4,7 +4,7 @@
 		"Type": "VisualScript"
 	},
 	"VisualScript": {
-		"Description": "The audio director: the Pause action (or a TogglePause event any graph sends) blends the mix to the Paused snapshot and back.",
+		"Description": "The audio director: a TogglePause event (the race director's pause, or any graph's) blends the mix to the Paused snapshot and back; it plays the ridden bike's engine, tyres, gravel, wind and shifts from the vehicle, and the crowd at the grandstands. Tools/Sound.py says how.",
 		"Variables": [
 			{
 				"ID": 1,
@@ -33,51 +33,2106 @@
 				"Value": false,
 				"Public": true,
 				"Tooltip": "Whether the mix starts muffled, blending to the Paused snapshot when the scene starts (a game that opens paused)"
+			},
+			{
+				"ID": 4,
+				"Name": "RideSounds",
+				"Type": "bool",
+				"Value": true,
+				"Public": true,
+				"Tooltip": "Whether the director plays the ridden bike's sounds and the crowd; off, they stay silent, as Moto sounded before the bike was ridden (the test scene)"
+			},
+			{
+				"ID": 5,
+				"Name": "Bike",
+				"Type": "Strada.Entity",
+				"Public": true,
+				"Tooltip": "The ridden bike, whose engine, tyres, gravel, wind and shifts the director plays"
+			},
+			{
+				"ID": 6,
+				"Name": "Blips",
+				"Type": "int",
+				"Value": 0,
+				"Public": true,
+				"Tooltip": "How many shift blips the director has played (a read-out)"
+			},
+			{
+				"ID": 7,
+				"Name": "Sounds",
+				"Type": "Strada.Entity"
+			},
+			{
+				"ID": 8,
+				"Name": "Engine",
+				"Type": "Strada.Entity"
+			},
+			{
+				"ID": 9,
+				"Name": "Squeal",
+				"Type": "Strada.Entity"
+			},
+			{
+				"ID": 10,
+				"Name": "Crunch",
+				"Type": "Strada.Entity"
+			},
+			{
+				"ID": 11,
+				"Name": "Wind",
+				"Type": "Strada.Entity"
+			},
+			{
+				"ID": 12,
+				"Name": "Blip",
+				"Type": "Strada.Entity"
+			},
+			{
+				"ID": 13,
+				"Name": "LastGear",
+				"Type": "int",
+				"Value": -1
 			}
 		],
-		"Functions": [],
+		"Functions": [
+			{
+				"ID": 15,
+				"Name": "FollowBike",
+				"Pure": false,
+				"Inputs": [],
+				"Outputs": [],
+				"Locals": [],
+				"Graph": {
+					"Nodes": [
+						{
+							"ID": 16,
+							"Type": "Function.Entry",
+							"Position": [
+								0.0,
+								0.0
+							]
+						},
+						{
+							"ID": 17,
+							"Type": "Function.Return",
+							"Position": [
+								1248.0,
+								0.0
+							]
+						},
+						{
+							"ID": 27,
+							"Type": "Variable.Get",
+							"Position": [
+								0.0,
+								112.0
+							],
+							"Settings": {
+								"Variable": 5
+							}
+						},
+						{
+							"ID": 28,
+							"Type": "Variable.Get",
+							"Position": [
+								192.0,
+								0.0
+							],
+							"Settings": {
+								"Variable": 7
+							}
+						},
+						{
+							"ID": 29,
+							"Type": "Get:Strada.TransformComponent.WorldTranslation",
+							"Position": [
+								192.0,
+								64.0
+							]
+						},
+						{
+							"ID": 30,
+							"Type": "Set:Strada.TransformComponent.Translation",
+							"Position": [
+								416.0,
+								0.0
+							],
+							"Comment": "The director stands at the origin unturned and the bike is a root: their places are the world's"
+						},
+						{
+							"ID": 31,
+							"Type": "Get:Strada.TransformComponent.Rotation",
+							"Position": [
+								416.0,
+								176.0
+							]
+						},
+						{
+							"ID": 32,
+							"Type": "Set:Strada.TransformComponent.Rotation",
+							"Position": [
+								624.0,
+								0.0
+							]
+						},
+						{
+							"ID": 33,
+							"Type": "Variable.Get",
+							"Position": [
+								624.0,
+								176.0
+							],
+							"Settings": {
+								"Variable": 8
+							}
+						},
+						{
+							"ID": 34,
+							"Type": "Get:Strada.VehicleComponent.EngineSpeed",
+							"Position": [
+								624.0,
+								240.0
+							]
+						},
+						{
+							"ID": 35,
+							"Type": "Variable.Set",
+							"Position": [
+								832.0,
+								0.0
+							],
+							"Settings": {
+								"Variable": 1,
+								"Graph": "18355618336197444524"
+							}
+						},
+						{
+							"ID": 36,
+							"Type": "Get:Strada.VehicleComponent.Throttle",
+							"Position": [
+								832.0,
+								176.0
+							]
+						},
+						{
+							"ID": 37,
+							"Type": "Variable.Set",
+							"Position": [
+								1040.0,
+								0.0
+							],
+							"Settings": {
+								"Variable": 2,
+								"Graph": "18355618336197444524"
+							},
+							"Comment": "The throttle the vehicle applied is the engine's load"
+						}
+					],
+					"Links": [
+						{
+							"From": [
+								27,
+								"Value"
+							],
+							"To": [
+								29,
+								"Target"
+							]
+						},
+						{
+							"From": [
+								28,
+								"Value"
+							],
+							"To": [
+								30,
+								"Target"
+							]
+						},
+						{
+							"From": [
+								29,
+								"Value"
+							],
+							"To": [
+								30,
+								"Value"
+							]
+						},
+						{
+							"From": [
+								27,
+								"Value"
+							],
+							"To": [
+								31,
+								"Target"
+							]
+						},
+						{
+							"From": [
+								28,
+								"Value"
+							],
+							"To": [
+								32,
+								"Target"
+							]
+						},
+						{
+							"From": [
+								31,
+								"Value"
+							],
+							"To": [
+								32,
+								"Value"
+							]
+						},
+						{
+							"From": [
+								27,
+								"Value"
+							],
+							"To": [
+								34,
+								"Target"
+							]
+						},
+						{
+							"From": [
+								34,
+								"Value"
+							],
+							"To": [
+								35,
+								"Value"
+							]
+						},
+						{
+							"From": [
+								33,
+								"Value"
+							],
+							"To": [
+								35,
+								"Target"
+							]
+						},
+						{
+							"From": [
+								27,
+								"Value"
+							],
+							"To": [
+								36,
+								"Target"
+							]
+						},
+						{
+							"From": [
+								36,
+								"Value"
+							],
+							"To": [
+								37,
+								"Value"
+							]
+						},
+						{
+							"From": [
+								33,
+								"Value"
+							],
+							"To": [
+								37,
+								"Target"
+							]
+						},
+						{
+							"From": [
+								16,
+								"Then"
+							],
+							"To": [
+								30,
+								"Execute"
+							]
+						},
+						{
+							"From": [
+								30,
+								"Then"
+							],
+							"To": [
+								32,
+								"Execute"
+							]
+						},
+						{
+							"From": [
+								32,
+								"Then"
+							],
+							"To": [
+								35,
+								"Execute"
+							]
+						},
+						{
+							"From": [
+								35,
+								"Then"
+							],
+							"To": [
+								37,
+								"Execute"
+							]
+						},
+						{
+							"From": [
+								37,
+								"Then"
+							],
+							"To": [
+								17,
+								"Execute"
+							]
+						}
+					],
+					"Comments": [
+						{
+							"ID": 38,
+							"Text": "Follow the bike: its sounds where it is, its engine fed",
+							"Position": [
+								-32.0,
+								-72.0
+							],
+							"Size": [
+								1432.0,
+								426.0
+							],
+							"Color": [
+								0.6200000047683716,
+								0.30000001192092896,
+								0.949999988079071,
+								0.2199999988079071
+							]
+						}
+					]
+				}
+			},
+			{
+				"ID": 18,
+				"Name": "Tyres",
+				"Pure": false,
+				"Inputs": [],
+				"Outputs": [],
+				"Locals": [],
+				"Graph": {
+					"Nodes": [
+						{
+							"ID": 19,
+							"Type": "Function.Entry",
+							"Position": [
+								0.0,
+								0.0
+							]
+						},
+						{
+							"ID": 20,
+							"Type": "Function.Return",
+							"Position": [
+								2544.0,
+								0.0
+							]
+						},
+						{
+							"ID": 39,
+							"Type": "Variable.Get",
+							"Position": [
+								0.0,
+								112.0
+							],
+							"Settings": {
+								"Variable": 5
+							}
+						},
+						{
+							"ID": 40,
+							"Type": "Get:Strada.VehicleComponent.ForwardSpeed",
+							"Position": [
+								672.0,
+								0.0
+							]
+						},
+						{
+							"ID": 41,
+							"Type": "Expression",
+							"Position": [
+								896.0,
+								0.0
+							],
+							"Settings": {
+								"Formula": "abs(v)"
+							}
+						},
+						{
+							"ID": 42,
+							"Type": "Call:Strada.VehicleComponent.GetWheelState(int)",
+							"Position": [
+								192.0,
+								0.0
+							],
+							"Inputs": {
+								"Index": 0
+							}
+						},
+						{
+							"ID": 43,
+							"Type": "Get:Strada.VehicleWheelState.Surface",
+							"Position": [
+								464.0,
+								128.0
+							]
+						},
+						{
+							"ID": 44,
+							"Type": "Get:Strada.VehicleWheelState.HasContact",
+							"Position": [
+								672.0,
+								208.0
+							]
+						},
+						{
+							"ID": 45,
+							"Type": "Literal",
+							"Position": [
+								464.0,
+								0.0
+							],
+							"Settings": {
+								"Type": "string",
+								"Value": "Gravel"
+							}
+						},
+						{
+							"ID": 46,
+							"Type": "Operator.Equal",
+							"Position": [
+								672.0,
+								128.0
+							]
+						},
+						{
+							"ID": 47,
+							"Type": "Literal",
+							"Position": [
+								464.0,
+								256.0
+							],
+							"Settings": {
+								"Type": "string",
+								"Value": "Grass"
+							}
+						},
+						{
+							"ID": 48,
+							"Type": "Operator.Equal",
+							"Position": [
+								672.0,
+								336.0
+							]
+						},
+						{
+							"ID": 49,
+							"Type": "Get:Strada.VehicleWheelState.LongitudinalSlip",
+							"Position": [
+								672.0,
+								416.0
+							]
+						},
+						{
+							"ID": 50,
+							"Type": "Get:Strada.VehicleWheelState.LateralSlip",
+							"Position": [
+								672.0,
+								544.0
+							]
+						},
+						{
+							"ID": 51,
+							"Type": "Call:Strada.VehicleComponent.GetWheelState(int)",
+							"Position": [
+								192.0,
+								144.0
+							],
+							"Inputs": {
+								"Index": 1
+							}
+						},
+						{
+							"ID": 52,
+							"Type": "Get:Strada.VehicleWheelState.Surface",
+							"Position": [
+								464.0,
+								512.0
+							]
+						},
+						{
+							"ID": 53,
+							"Type": "Get:Strada.VehicleWheelState.HasContact",
+							"Position": [
+								672.0,
+								832.0
+							]
+						},
+						{
+							"ID": 54,
+							"Type": "Literal",
+							"Position": [
+								464.0,
+								384.0
+							],
+							"Settings": {
+								"Type": "string",
+								"Value": "Gravel"
+							}
+						},
+						{
+							"ID": 55,
+							"Type": "Operator.Equal",
+							"Position": [
+								672.0,
+								672.0
+							]
+						},
+						{
+							"ID": 56,
+							"Type": "Literal",
+							"Position": [
+								464.0,
+								640.0
+							],
+							"Settings": {
+								"Type": "string",
+								"Value": "Grass"
+							}
+						},
+						{
+							"ID": 57,
+							"Type": "Operator.Equal",
+							"Position": [
+								672.0,
+								752.0
+							]
+						},
+						{
+							"ID": 58,
+							"Type": "Get:Strada.VehicleWheelState.LongitudinalSlip",
+							"Position": [
+								672.0,
+								960.0
+							]
+						},
+						{
+							"ID": 59,
+							"Type": "Get:Strada.VehicleWheelState.LateralSlip",
+							"Position": [
+								672.0,
+								1088.0
+							]
+						},
+						{
+							"ID": 60,
+							"Type": "Expression",
+							"Position": [
+								896.0,
+								128.0
+							],
+							"Settings": {
+								"Formula": "contact && !gravel && !grass ? max(smoothstep(0.15, 0.6, ratio), smoothstep(4.0, 10.0, angle)) : 0.0"
+							}
+						},
+						{
+							"ID": 61,
+							"Type": "Expression",
+							"Position": [
+								896.0,
+								352.0
+							],
+							"Settings": {
+								"Formula": "contact && !gravel && !grass ? max(smoothstep(0.15, 0.6, ratio), smoothstep(4.0, 10.0, angle)) : 0.0"
+							}
+						},
+						{
+							"ID": 62,
+							"Type": "Expression",
+							"Position": [
+								1104.0,
+								0.0
+							],
+							"Settings": {
+								"Formula": "max(front, rear) * smoothstep(3.0, 8.0, speed)"
+							}
+						},
+						{
+							"ID": 63,
+							"Type": "Variable.Get",
+							"Position": [
+								1104.0,
+								176.0
+							],
+							"Settings": {
+								"Variable": 9
+							}
+						},
+						{
+							"ID": 64,
+							"Type": "Expression",
+							"Position": [
+								1312.0,
+								0.0
+							],
+							"Settings": {
+								"Formula": "0.8 * slide"
+							}
+						},
+						{
+							"ID": 65,
+							"Type": "Get:Strada.AudioSourceComponent.Volume",
+							"Position": [
+								1312.0,
+								128.0
+							]
+						},
+						{
+							"ID": 66,
+							"Type": "Get:Strada.Time.DeltaTime",
+							"Position": [
+								1312.0,
+								256.0
+							]
+						},
+						{
+							"ID": 67,
+							"Type": "Expression",
+							"Position": [
+								1520.0,
+								0.0
+							],
+							"Settings": {
+								"Formula": "current + (target - current) * (1 - exp(-dt / (target > current ? 0.04 : 0.15)))"
+							}
+						},
+						{
+							"ID": 68,
+							"Type": "Set:Strada.AudioSourceComponent.Volume",
+							"Position": [
+								1728.0,
+								0.0
+							],
+							"Comment": "The more of the two wheels' slides, on the ground off the gravel and the grass, at speed"
+						},
+						{
+							"ID": 69,
+							"Type": "Expression",
+							"Position": [
+								1728.0,
+								176.0
+							],
+							"Settings": {
+								"Formula": "0.9 + 0.2 * slide"
+							}
+						},
+						{
+							"ID": 70,
+							"Type": "Set:Strada.AudioSourceComponent.Pitch",
+							"Position": [
+								1936.0,
+								0.0
+							]
+						},
+						{
+							"ID": 71,
+							"Type": "Expression",
+							"Position": [
+								1520.0,
+								176.0
+							],
+							"Settings": {
+								"Formula": "((front && fg) ? 0.5 : 0.0) + ((rear && rg) ? 0.5 : 0.0)"
+							}
+						},
+						{
+							"ID": 72,
+							"Type": "Variable.Get",
+							"Position": [
+								1520.0,
+								368.0
+							],
+							"Settings": {
+								"Variable": 10
+							}
+						},
+						{
+							"ID": 73,
+							"Type": "Expression",
+							"Position": [
+								1728.0,
+								304.0
+							],
+							"Settings": {
+								"Formula": "0.9 * share * min(speed / 15.0, 1.0)"
+							}
+						},
+						{
+							"ID": 74,
+							"Type": "Get:Strada.AudioSourceComponent.Volume",
+							"Position": [
+								1728.0,
+								448.0
+							]
+						},
+						{
+							"ID": 75,
+							"Type": "Get:Strada.Time.DeltaTime",
+							"Position": [
+								1728.0,
+								576.0
+							]
+						},
+						{
+							"ID": 76,
+							"Type": "Expression",
+							"Position": [
+								1936.0,
+								176.0
+							],
+							"Settings": {
+								"Formula": "current + (target - current) * (1 - exp(-dt / (target > current ? 0.04 : 0.15)))"
+							}
+						},
+						{
+							"ID": 77,
+							"Type": "Set:Strada.AudioSourceComponent.Volume",
+							"Position": [
+								2144.0,
+								0.0
+							],
+							"Comment": "Half for each wheel rolling on gravel, in full from 15 m/s"
+						},
+						{
+							"ID": 78,
+							"Type": "Expression",
+							"Position": [
+								2144.0,
+								176.0
+							],
+							"Settings": {
+								"Formula": "0.8 + 0.4 * min(speed / 30.0, 1.0)"
+							}
+						},
+						{
+							"ID": 79,
+							"Type": "Set:Strada.AudioSourceComponent.Pitch",
+							"Position": [
+								2352.0,
+								0.0
+							]
+						}
+					],
+					"Links": [
+						{
+							"From": [
+								39,
+								"Value"
+							],
+							"To": [
+								40,
+								"Target"
+							]
+						},
+						{
+							"From": [
+								40,
+								"Value"
+							],
+							"To": [
+								41,
+								"v"
+							]
+						},
+						{
+							"From": [
+								39,
+								"Value"
+							],
+							"To": [
+								42,
+								"Target"
+							]
+						},
+						{
+							"From": [
+								42,
+								"Result"
+							],
+							"To": [
+								43,
+								"Target"
+							]
+						},
+						{
+							"From": [
+								42,
+								"Result"
+							],
+							"To": [
+								44,
+								"Target"
+							]
+						},
+						{
+							"From": [
+								43,
+								"Value"
+							],
+							"To": [
+								46,
+								"A"
+							]
+						},
+						{
+							"From": [
+								45,
+								"Value"
+							],
+							"To": [
+								46,
+								"B"
+							]
+						},
+						{
+							"From": [
+								43,
+								"Value"
+							],
+							"To": [
+								48,
+								"A"
+							]
+						},
+						{
+							"From": [
+								47,
+								"Value"
+							],
+							"To": [
+								48,
+								"B"
+							]
+						},
+						{
+							"From": [
+								42,
+								"Result"
+							],
+							"To": [
+								49,
+								"Target"
+							]
+						},
+						{
+							"From": [
+								42,
+								"Result"
+							],
+							"To": [
+								50,
+								"Target"
+							]
+						},
+						{
+							"From": [
+								39,
+								"Value"
+							],
+							"To": [
+								51,
+								"Target"
+							]
+						},
+						{
+							"From": [
+								51,
+								"Result"
+							],
+							"To": [
+								52,
+								"Target"
+							]
+						},
+						{
+							"From": [
+								51,
+								"Result"
+							],
+							"To": [
+								53,
+								"Target"
+							]
+						},
+						{
+							"From": [
+								52,
+								"Value"
+							],
+							"To": [
+								55,
+								"A"
+							]
+						},
+						{
+							"From": [
+								54,
+								"Value"
+							],
+							"To": [
+								55,
+								"B"
+							]
+						},
+						{
+							"From": [
+								52,
+								"Value"
+							],
+							"To": [
+								57,
+								"A"
+							]
+						},
+						{
+							"From": [
+								56,
+								"Value"
+							],
+							"To": [
+								57,
+								"B"
+							]
+						},
+						{
+							"From": [
+								51,
+								"Result"
+							],
+							"To": [
+								58,
+								"Target"
+							]
+						},
+						{
+							"From": [
+								51,
+								"Result"
+							],
+							"To": [
+								59,
+								"Target"
+							]
+						},
+						{
+							"From": [
+								44,
+								"Value"
+							],
+							"To": [
+								60,
+								"contact"
+							]
+						},
+						{
+							"From": [
+								46,
+								"Result"
+							],
+							"To": [
+								60,
+								"gravel"
+							]
+						},
+						{
+							"From": [
+								48,
+								"Result"
+							],
+							"To": [
+								60,
+								"grass"
+							]
+						},
+						{
+							"From": [
+								49,
+								"Value"
+							],
+							"To": [
+								60,
+								"ratio"
+							]
+						},
+						{
+							"From": [
+								50,
+								"Value"
+							],
+							"To": [
+								60,
+								"angle"
+							]
+						},
+						{
+							"From": [
+								53,
+								"Value"
+							],
+							"To": [
+								61,
+								"contact"
+							]
+						},
+						{
+							"From": [
+								55,
+								"Result"
+							],
+							"To": [
+								61,
+								"gravel"
+							]
+						},
+						{
+							"From": [
+								57,
+								"Result"
+							],
+							"To": [
+								61,
+								"grass"
+							]
+						},
+						{
+							"From": [
+								58,
+								"Value"
+							],
+							"To": [
+								61,
+								"ratio"
+							]
+						},
+						{
+							"From": [
+								59,
+								"Value"
+							],
+							"To": [
+								61,
+								"angle"
+							]
+						},
+						{
+							"From": [
+								60,
+								"Result"
+							],
+							"To": [
+								62,
+								"front"
+							]
+						},
+						{
+							"From": [
+								61,
+								"Result"
+							],
+							"To": [
+								62,
+								"rear"
+							]
+						},
+						{
+							"From": [
+								41,
+								"Result"
+							],
+							"To": [
+								62,
+								"speed"
+							]
+						},
+						{
+							"From": [
+								62,
+								"Result"
+							],
+							"To": [
+								64,
+								"slide"
+							]
+						},
+						{
+							"From": [
+								63,
+								"Value"
+							],
+							"To": [
+								65,
+								"Target"
+							]
+						},
+						{
+							"From": [
+								65,
+								"Value"
+							],
+							"To": [
+								67,
+								"current"
+							]
+						},
+						{
+							"From": [
+								64,
+								"Result"
+							],
+							"To": [
+								67,
+								"target"
+							]
+						},
+						{
+							"From": [
+								66,
+								"Value"
+							],
+							"To": [
+								67,
+								"dt"
+							]
+						},
+						{
+							"From": [
+								63,
+								"Value"
+							],
+							"To": [
+								68,
+								"Target"
+							]
+						},
+						{
+							"From": [
+								67,
+								"Result"
+							],
+							"To": [
+								68,
+								"Value"
+							]
+						},
+						{
+							"From": [
+								62,
+								"Result"
+							],
+							"To": [
+								69,
+								"slide"
+							]
+						},
+						{
+							"From": [
+								63,
+								"Value"
+							],
+							"To": [
+								70,
+								"Target"
+							]
+						},
+						{
+							"From": [
+								69,
+								"Result"
+							],
+							"To": [
+								70,
+								"Value"
+							]
+						},
+						{
+							"From": [
+								44,
+								"Value"
+							],
+							"To": [
+								71,
+								"front"
+							]
+						},
+						{
+							"From": [
+								46,
+								"Result"
+							],
+							"To": [
+								71,
+								"fg"
+							]
+						},
+						{
+							"From": [
+								53,
+								"Value"
+							],
+							"To": [
+								71,
+								"rear"
+							]
+						},
+						{
+							"From": [
+								55,
+								"Result"
+							],
+							"To": [
+								71,
+								"rg"
+							]
+						},
+						{
+							"From": [
+								71,
+								"Result"
+							],
+							"To": [
+								73,
+								"share"
+							]
+						},
+						{
+							"From": [
+								41,
+								"Result"
+							],
+							"To": [
+								73,
+								"speed"
+							]
+						},
+						{
+							"From": [
+								72,
+								"Value"
+							],
+							"To": [
+								74,
+								"Target"
+							]
+						},
+						{
+							"From": [
+								74,
+								"Value"
+							],
+							"To": [
+								76,
+								"current"
+							]
+						},
+						{
+							"From": [
+								73,
+								"Result"
+							],
+							"To": [
+								76,
+								"target"
+							]
+						},
+						{
+							"From": [
+								75,
+								"Value"
+							],
+							"To": [
+								76,
+								"dt"
+							]
+						},
+						{
+							"From": [
+								72,
+								"Value"
+							],
+							"To": [
+								77,
+								"Target"
+							]
+						},
+						{
+							"From": [
+								76,
+								"Result"
+							],
+							"To": [
+								77,
+								"Value"
+							]
+						},
+						{
+							"From": [
+								41,
+								"Result"
+							],
+							"To": [
+								78,
+								"speed"
+							]
+						},
+						{
+							"From": [
+								72,
+								"Value"
+							],
+							"To": [
+								79,
+								"Target"
+							]
+						},
+						{
+							"From": [
+								78,
+								"Result"
+							],
+							"To": [
+								79,
+								"Value"
+							]
+						},
+						{
+							"From": [
+								19,
+								"Then"
+							],
+							"To": [
+								68,
+								"Execute"
+							]
+						},
+						{
+							"From": [
+								68,
+								"Then"
+							],
+							"To": [
+								70,
+								"Execute"
+							]
+						},
+						{
+							"From": [
+								70,
+								"Then"
+							],
+							"To": [
+								77,
+								"Execute"
+							]
+						},
+						{
+							"From": [
+								77,
+								"Then"
+							],
+							"To": [
+								79,
+								"Execute"
+							]
+						},
+						{
+							"From": [
+								79,
+								"Then"
+							],
+							"To": [
+								20,
+								"Execute"
+							]
+						}
+					],
+					"Comments": [
+						{
+							"ID": 80,
+							"Text": "Tyres: the squeal from the slip, the crunch on gravel",
+							"Position": [
+								-32.0,
+								-72.0
+							],
+							"Size": [
+								2728.0,
+								1274.0
+							],
+							"Color": [
+								0.6200000047683716,
+								0.30000001192092896,
+								0.949999988079071,
+								0.2199999988079071
+							]
+						}
+					]
+				}
+			},
+			{
+				"ID": 21,
+				"Name": "Air",
+				"Pure": false,
+				"Inputs": [],
+				"Outputs": [],
+				"Locals": [],
+				"Graph": {
+					"Nodes": [
+						{
+							"ID": 22,
+							"Type": "Function.Entry",
+							"Position": [
+								0.0,
+								0.0
+							]
+						},
+						{
+							"ID": 23,
+							"Type": "Function.Return",
+							"Position": [
+								1200.0,
+								0.0
+							]
+						},
+						{
+							"ID": 81,
+							"Type": "Variable.Get",
+							"Position": [
+								0.0,
+								112.0
+							],
+							"Settings": {
+								"Variable": 5
+							}
+						},
+						{
+							"ID": 82,
+							"Type": "Get:Strada.VehicleComponent.ForwardSpeed",
+							"Position": [
+								192.0,
+								0.0
+							]
+						},
+						{
+							"ID": 83,
+							"Type": "Expression",
+							"Position": [
+								400.0,
+								0.0
+							],
+							"Settings": {
+								"Formula": "min(abs(v) / 60.0, 1.0)"
+							}
+						},
+						{
+							"ID": 84,
+							"Type": "Variable.Get",
+							"Position": [
+								592.0,
+								0.0
+							],
+							"Settings": {
+								"Variable": 11
+							}
+						},
+						{
+							"ID": 85,
+							"Type": "Expression",
+							"Position": [
+								592.0,
+								64.0
+							],
+							"Settings": {
+								"Formula": "0.6 * share * share"
+							}
+						},
+						{
+							"ID": 86,
+							"Type": "Set:Strada.AudioSourceComponent.Volume",
+							"Position": [
+								800.0,
+								0.0
+							]
+						},
+						{
+							"ID": 87,
+							"Type": "Expression",
+							"Position": [
+								800.0,
+								176.0
+							],
+							"Settings": {
+								"Formula": "0.85 + 0.35 * share"
+							}
+						},
+						{
+							"ID": 88,
+							"Type": "Set:Strada.AudioSourceComponent.Pitch",
+							"Position": [
+								1008.0,
+								0.0
+							]
+						}
+					],
+					"Links": [
+						{
+							"From": [
+								81,
+								"Value"
+							],
+							"To": [
+								82,
+								"Target"
+							]
+						},
+						{
+							"From": [
+								82,
+								"Value"
+							],
+							"To": [
+								83,
+								"v"
+							]
+						},
+						{
+							"From": [
+								83,
+								"Result"
+							],
+							"To": [
+								85,
+								"share"
+							]
+						},
+						{
+							"From": [
+								84,
+								"Value"
+							],
+							"To": [
+								86,
+								"Target"
+							]
+						},
+						{
+							"From": [
+								85,
+								"Result"
+							],
+							"To": [
+								86,
+								"Value"
+							]
+						},
+						{
+							"From": [
+								83,
+								"Result"
+							],
+							"To": [
+								87,
+								"share"
+							]
+						},
+						{
+							"From": [
+								84,
+								"Value"
+							],
+							"To": [
+								88,
+								"Target"
+							]
+						},
+						{
+							"From": [
+								87,
+								"Result"
+							],
+							"To": [
+								88,
+								"Value"
+							]
+						},
+						{
+							"From": [
+								22,
+								"Then"
+							],
+							"To": [
+								86,
+								"Execute"
+							]
+						},
+						{
+							"From": [
+								86,
+								"Then"
+							],
+							"To": [
+								88,
+								"Execute"
+							]
+						},
+						{
+							"From": [
+								88,
+								"Then"
+							],
+							"To": [
+								23,
+								"Execute"
+							]
+						}
+					],
+					"Comments": [
+						{
+							"ID": 89,
+							"Text": "Air: the wind rises with the bike's speed",
+							"Position": [
+								-32.0,
+								-72.0
+							],
+							"Size": [
+								1384.0,
+								362.0
+							],
+							"Color": [
+								0.6200000047683716,
+								0.30000001192092896,
+								0.949999988079071,
+								0.2199999988079071
+							]
+						}
+					]
+				}
+			},
+			{
+				"ID": 24,
+				"Name": "Shifts",
+				"Pure": false,
+				"Inputs": [],
+				"Outputs": [],
+				"Locals": [],
+				"Graph": {
+					"Nodes": [
+						{
+							"ID": 25,
+							"Type": "Function.Entry",
+							"Position": [
+								0.0,
+								0.0
+							]
+						},
+						{
+							"ID": 26,
+							"Type": "Function.Return",
+							"Position": [
+								1712.0,
+								0.0
+							]
+						},
+						{
+							"ID": 90,
+							"Type": "Variable.Get",
+							"Position": [
+								0.0,
+								112.0
+							],
+							"Settings": {
+								"Variable": 5
+							}
+						},
+						{
+							"ID": 91,
+							"Type": "Get:Strada.VehicleComponent.Gear",
+							"Position": [
+								192.0,
+								0.0
+							]
+						},
+						{
+							"ID": 92,
+							"Type": "Variable.Get",
+							"Position": [
+								192.0,
+								128.0
+							],
+							"Settings": {
+								"Variable": 13
+							}
+						},
+						{
+							"ID": 93,
+							"Type": "Expression",
+							"Position": [
+								400.0,
+								0.0
+							],
+							"Settings": {
+								"Formula": "last >= 0 && gear != last"
+							}
+						},
+						{
+							"ID": 94,
+							"Type": "Flow.Branch",
+							"Position": [
+								592.0,
+								0.0
+							],
+							"Comment": "The gear differs from the last frame's"
+						},
+						{
+							"ID": 95,
+							"Type": "Variable.Get",
+							"Position": [
+								592.0,
+								128.0
+							],
+							"Settings": {
+								"Variable": 12
+							}
+						},
+						{
+							"ID": 96,
+							"Type": "Call:Strada.AudioSourceComponent.PlayOneShot(float)",
+							"Position": [
+								816.0,
+								0.0
+							],
+							"Inputs": {
+								"Volume": 0.9
+							}
+						},
+						{
+							"ID": 97,
+							"Type": "Flow.Branch",
+							"Position": [
+								1104.0,
+								0.0
+							]
+						},
+						{
+							"ID": 98,
+							"Type": "Variable.Get",
+							"Position": [
+								816.0,
+								176.0
+							],
+							"Settings": {
+								"Variable": 6
+							}
+						},
+						{
+							"ID": 99,
+							"Type": "Expression",
+							"Position": [
+								1104.0,
+								128.0
+							],
+							"Settings": {
+								"Formula": "blips + 1"
+							}
+						},
+						{
+							"ID": 100,
+							"Type": "Variable.Set",
+							"Position": [
+								1328.0,
+								0.0
+							],
+							"Settings": {
+								"Variable": 6
+							}
+						},
+						{
+							"ID": 101,
+							"Type": "Variable.Set",
+							"Position": [
+								1520.0,
+								0.0
+							],
+							"Settings": {
+								"Variable": 13
+							}
+						}
+					],
+					"Links": [
+						{
+							"From": [
+								90,
+								"Value"
+							],
+							"To": [
+								91,
+								"Target"
+							]
+						},
+						{
+							"From": [
+								92,
+								"Value"
+							],
+							"To": [
+								93,
+								"last"
+							]
+						},
+						{
+							"From": [
+								91,
+								"Value"
+							],
+							"To": [
+								93,
+								"gear"
+							]
+						},
+						{
+							"From": [
+								93,
+								"Result"
+							],
+							"To": [
+								94,
+								"Condition"
+							]
+						},
+						{
+							"From": [
+								95,
+								"Value"
+							],
+							"To": [
+								96,
+								"Target"
+							]
+						},
+						{
+							"From": [
+								96,
+								"Result"
+							],
+							"To": [
+								97,
+								"Condition"
+							]
+						},
+						{
+							"From": [
+								98,
+								"Value"
+							],
+							"To": [
+								99,
+								"blips"
+							]
+						},
+						{
+							"From": [
+								99,
+								"Result"
+							],
+							"To": [
+								100,
+								"Value"
+							]
+						},
+						{
+							"From": [
+								91,
+								"Value"
+							],
+							"To": [
+								101,
+								"Value"
+							]
+						},
+						{
+							"From": [
+								25,
+								"Then"
+							],
+							"To": [
+								94,
+								"Execute"
+							]
+						},
+						{
+							"From": [
+								94,
+								"True"
+							],
+							"To": [
+								96,
+								"Execute"
+							]
+						},
+						{
+							"From": [
+								96,
+								"Then"
+							],
+							"To": [
+								97,
+								"Execute"
+							]
+						},
+						{
+							"From": [
+								97,
+								"True"
+							],
+							"To": [
+								100,
+								"Execute"
+							]
+						},
+						{
+							"From": [
+								100,
+								"Then"
+							],
+							"To": [
+								101,
+								"Execute"
+							]
+						},
+						{
+							"From": [
+								97,
+								"False"
+							],
+							"To": [
+								101,
+								"Execute"
+							]
+						},
+						{
+							"From": [
+								94,
+								"False"
+							],
+							"To": [
+								101,
+								"Execute"
+							]
+						},
+						{
+							"From": [
+								101,
+								"Then"
+							],
+							"To": [
+								26,
+								"Execute"
+							]
+						}
+					],
+					"Comments": [
+						{
+							"ID": 102,
+							"Text": "Shifts: a blip on every change of gear",
+							"Position": [
+								-32.0,
+								-72.0
+							],
+							"Size": [
+								1896.0,
+								314.0
+							],
+							"Color": [
+								0.949999988079071,
+								0.550000011920929,
+								0.15000000596046448,
+								0.2199999988079071
+							]
+						}
+					]
+				}
+			}
+		],
 		"Graph": {
 			"Nodes": [
 				{
-					"ID": 5,
+					"ID": 103,
+					"Type": "Flow.Sequence",
+					"Position": [
+						192.0,
+						192.0
+					],
+					"Settings": {
+						"Count": 2
+					}
+				},
+				{
+					"ID": 104,
 					"Type": "Variable.Get",
 					"Position": [
-						0.0,
-						192.0
+						192.0,
+						320.0
 					],
 					"Settings": {
 						"Variable": 3
 					}
 				},
 				{
-					"ID": 6,
+					"ID": 105,
 					"Type": "Flow.Branch",
 					"Position": [
-						192.0,
+						400.0,
 						192.0
 					]
 				},
 				{
-					"ID": 7,
+					"ID": 106,
 					"Type": "Event.Create",
 					"Position": [
 						0.0,
-						256.0
+						192.0
 					]
 				},
 				{
-					"ID": 8,
+					"ID": 107,
 					"Type": "Self",
 					"Position": [
-						192.0,
+						400.0,
 						320.0
 					]
 				},
 				{
-					"ID": 9,
+					"ID": 108,
 					"Type": "Event.Send",
 					"Position": [
-						416.0,
+						672.0,
 						192.0
 					],
 					"Settings": {
@@ -86,84 +2141,388 @@
 					}
 				},
 				{
-					"ID": 11,
-					"Type": "Event.ActionPressed",
-					"Position": [
-						0.0,
-						496.0
-					],
-					"Settings": {
-						"Action": "Pause"
-					}
-				},
-				{
-					"ID": 12,
+					"ID": 109,
 					"Type": "Self",
 					"Position": [
 						0.0,
-						608.0
+						304.0
 					]
 				},
 				{
-					"ID": 13,
-					"Type": "Event.Send",
+					"ID": 110,
+					"Type": "Get:Strada.Entity.Children",
 					"Position": [
-						208.0,
-						496.0
+						192.0,
+						384.0
+					]
+				},
+				{
+					"ID": 111,
+					"Type": "Array.Get",
+					"Position": [
+						400.0,
+						384.0
 					],
-					"Settings": {
-						"Name": "TogglePause",
-						"Parameters": []
+					"Inputs": {
+						"Index": 0
 					}
 				},
 				{
-					"ID": 15,
-					"Type": "Event.Custom",
+					"ID": 112,
+					"Type": "Variable.Set",
 					"Position": [
-						0.0,
-						784.0
+						672.0,
+						320.0
 					],
 					"Settings": {
-						"Name": "TogglePause",
-						"Parameters": []
+						"Variable": 7
+					},
+					"Comment": "The director's children: the bike's sounds, then the crowd"
+				},
+				{
+					"ID": 113,
+					"Type": "Variable.Get",
+					"Position": [
+						192.0,
+						512.0
+					],
+					"Settings": {
+						"Variable": 7
 					}
 				},
 				{
-					"ID": 16,
+					"ID": 114,
+					"Type": "Get:Strada.Entity.Children",
+					"Position": [
+						400.0,
+						528.0
+					]
+				},
+				{
+					"ID": 115,
+					"Type": "Array.Get",
+					"Position": [
+						672.0,
+						448.0
+					],
+					"Inputs": {
+						"Index": 0
+					}
+				},
+				{
+					"ID": 116,
+					"Type": "Variable.Set",
+					"Position": [
+						944.0,
+						192.0
+					],
+					"Settings": {
+						"Variable": 8
+					}
+				},
+				{
+					"ID": 117,
+					"Type": "Array.Get",
+					"Position": [
+						944.0,
+						320.0
+					],
+					"Inputs": {
+						"Index": 1
+					}
+				},
+				{
+					"ID": 118,
+					"Type": "Variable.Set",
+					"Position": [
+						1216.0,
+						192.0
+					],
+					"Settings": {
+						"Variable": 9
+					}
+				},
+				{
+					"ID": 119,
+					"Type": "Array.Get",
+					"Position": [
+						1216.0,
+						320.0
+					],
+					"Inputs": {
+						"Index": 2
+					}
+				},
+				{
+					"ID": 120,
+					"Type": "Variable.Set",
+					"Position": [
+						1488.0,
+						192.0
+					],
+					"Settings": {
+						"Variable": 10
+					}
+				},
+				{
+					"ID": 121,
+					"Type": "Array.Get",
+					"Position": [
+						1488.0,
+						320.0
+					],
+					"Inputs": {
+						"Index": 3
+					}
+				},
+				{
+					"ID": 122,
+					"Type": "Variable.Set",
+					"Position": [
+						1760.0,
+						192.0
+					],
+					"Settings": {
+						"Variable": 11
+					}
+				},
+				{
+					"ID": 123,
+					"Type": "Array.Get",
+					"Position": [
+						1760.0,
+						320.0
+					],
+					"Inputs": {
+						"Index": 4
+					}
+				},
+				{
+					"ID": 124,
+					"Type": "Variable.Set",
+					"Position": [
+						2032.0,
+						192.0
+					],
+					"Settings": {
+						"Variable": 12
+					}
+				},
+				{
+					"ID": 125,
+					"Type": "Variable.Get",
+					"Position": [
+						2032.0,
+						320.0
+					],
+					"Settings": {
+						"Variable": 4
+					}
+				},
+				{
+					"ID": 126,
+					"Type": "Flow.Branch",
+					"Position": [
+						2304.0,
+						192.0
+					]
+				},
+				{
+					"ID": 127,
+					"Type": "Array.Get",
+					"Position": [
+						2032.0,
+						384.0
+					],
+					"Inputs": {
+						"Index": 1
+					}
+				},
+				{
+					"ID": 128,
+					"Type": "Get:Strada.Entity.Children",
+					"Position": [
+						2304.0,
+						320.0
+					]
+				},
+				{
+					"ID": 129,
+					"Type": "Flow.ForEach",
+					"Position": [
+						2528.0,
+						192.0
+					]
+				},
+				{
+					"ID": 130,
+					"Type": "Set:Strada.AudioSourceComponent.Volume",
+					"Position": [
+						2768.0,
+						192.0
+					],
+					"Inputs": {
+						"Value": 0.8
+					}
+				},
+				{
+					"ID": 132,
+					"Type": "Variable.Get",
+					"Position": [
+						192.0,
+						752.0
+					],
+					"Settings": {
+						"Variable": 4
+					}
+				},
+				{
+					"ID": 133,
 					"Type": "Variable.Get",
 					"Position": [
 						0.0,
-						896.0
+						752.0
+					],
+					"Settings": {
+						"Variable": 5
+					}
+				},
+				{
+					"ID": 134,
+					"Type": "IsValid",
+					"Position": [
+						192.0,
+						816.0
+					]
+				},
+				{
+					"ID": 135,
+					"Type": "Operator.And",
+					"Position": [
+						400.0,
+						752.0
+					]
+				},
+				{
+					"ID": 136,
+					"Type": "Flow.Branch",
+					"Position": [
+						528.0,
+						752.0
+					],
+					"Comment": "Off, the ride's sounds stay silent"
+				},
+				{
+					"ID": 137,
+					"Type": "Flow.Sequence",
+					"Position": [
+						752.0,
+						752.0
+					],
+					"Settings": {
+						"Count": 4
+					}
+				},
+				{
+					"ID": 138,
+					"Type": "Event.Update",
+					"Position": [
+						0.0,
+						816.0
+					]
+				},
+				{
+					"ID": 139,
+					"Type": "Function.Call",
+					"Position": [
+						944.0,
+						752.0
+					],
+					"Settings": {
+						"Function": 15
+					}
+				},
+				{
+					"ID": 140,
+					"Type": "Function.Call",
+					"Position": [
+						944.0,
+						864.0
+					],
+					"Settings": {
+						"Function": 18
+					}
+				},
+				{
+					"ID": 141,
+					"Type": "Function.Call",
+					"Position": [
+						944.0,
+						976.0
+					],
+					"Settings": {
+						"Function": 21
+					}
+				},
+				{
+					"ID": 142,
+					"Type": "Function.Call",
+					"Position": [
+						944.0,
+						1088.0
+					],
+					"Settings": {
+						"Function": 24
+					}
+				},
+				{
+					"ID": 144,
+					"Type": "Event.Custom",
+					"Position": [
+						0.0,
+						1296.0
+					],
+					"Settings": {
+						"Name": "TogglePause",
+						"Parameters": []
+					}
+				},
+				{
+					"ID": 145,
+					"Type": "Variable.Get",
+					"Position": [
+						0.0,
+						1408.0
 					],
 					"Settings": {
 						"Variable": 2
 					}
 				},
 				{
-					"ID": 17,
+					"ID": 146,
 					"Type": "Flow.Branch",
 					"Position": [
 						192.0,
-						784.0
+						1296.0
 					]
 				},
 				{
-					"ID": 18,
+					"ID": 147,
 					"Type": "Variable.Get",
 					"Position": [
 						192.0,
-						912.0
+						1424.0
 					],
 					"Settings": {
 						"Variable": 1
 					}
 				},
 				{
-					"ID": 19,
+					"ID": 148,
 					"Type": "Call:Strada.Audio.TransitionTo(string,float)",
 					"Position": [
 						416.0,
-						784.0
+						1296.0
 					],
 					"Inputs": {
 						"Snapshot": ""
@@ -171,22 +2530,22 @@
 					"Comment": "Empty: back to the mixer's own values"
 				},
 				{
-					"ID": 20,
+					"ID": 149,
 					"Type": "Call:Strada.Audio.TransitionTo(string,float)",
 					"Position": [
 						416.0,
-						960.0
+						1472.0
 					],
 					"Inputs": {
 						"Snapshot": "Paused"
 					}
 				},
 				{
-					"ID": 21,
+					"ID": 150,
 					"Type": "Variable.Set",
 					"Position": [
 						736.0,
-						784.0
+						1296.0
 					],
 					"Settings": {
 						"Variable": 2
@@ -196,11 +2555,11 @@
 					}
 				},
 				{
-					"ID": 22,
+					"ID": 151,
 					"Type": "Variable.Set",
 					"Position": [
 						736.0,
-						912.0
+						1424.0
 					],
 					"Settings": {
 						"Variable": 2
@@ -213,156 +2572,526 @@
 			"Links": [
 				{
 					"From": [
-						5,
+						104,
 						"Value"
 					],
 					"To": [
-						6,
+						105,
 						"Condition"
 					]
 				},
 				{
 					"From": [
-						7,
+						106,
 						"Then"
 					],
 					"To": [
-						6,
+						103,
 						"Execute"
 					]
 				},
 				{
 					"From": [
-						8,
+						103,
+						"Then0"
+					],
+					"To": [
+						105,
+						"Execute"
+					]
+				},
+				{
+					"From": [
+						107,
 						"Self"
 					],
 					"To": [
-						9,
+						108,
 						"Target"
 					]
 				},
 				{
 					"From": [
-						6,
+						105,
 						"True"
 					],
 					"To": [
-						9,
+						108,
 						"Execute"
 					]
 				},
 				{
 					"From": [
-						12,
+						109,
 						"Self"
 					],
 					"To": [
-						13,
+						110,
 						"Target"
 					]
 				},
 				{
 					"From": [
-						11,
-						"Then"
+						110,
+						"Value"
 					],
 					"To": [
-						13,
-						"Execute"
+						111,
+						"Array"
 					]
 				},
 				{
 					"From": [
-						16,
+						111,
+						"Element"
+					],
+					"To": [
+						112,
+						"Value"
+					]
+				},
+				{
+					"From": [
+						113,
 						"Value"
 					],
 					"To": [
-						17,
+						114,
+						"Target"
+					]
+				},
+				{
+					"From": [
+						114,
+						"Value"
+					],
+					"To": [
+						115,
+						"Array"
+					]
+				},
+				{
+					"From": [
+						115,
+						"Element"
+					],
+					"To": [
+						116,
+						"Value"
+					]
+				},
+				{
+					"From": [
+						114,
+						"Value"
+					],
+					"To": [
+						117,
+						"Array"
+					]
+				},
+				{
+					"From": [
+						117,
+						"Element"
+					],
+					"To": [
+						118,
+						"Value"
+					]
+				},
+				{
+					"From": [
+						114,
+						"Value"
+					],
+					"To": [
+						119,
+						"Array"
+					]
+				},
+				{
+					"From": [
+						119,
+						"Element"
+					],
+					"To": [
+						120,
+						"Value"
+					]
+				},
+				{
+					"From": [
+						114,
+						"Value"
+					],
+					"To": [
+						121,
+						"Array"
+					]
+				},
+				{
+					"From": [
+						121,
+						"Element"
+					],
+					"To": [
+						122,
+						"Value"
+					]
+				},
+				{
+					"From": [
+						114,
+						"Value"
+					],
+					"To": [
+						123,
+						"Array"
+					]
+				},
+				{
+					"From": [
+						123,
+						"Element"
+					],
+					"To": [
+						124,
+						"Value"
+					]
+				},
+				{
+					"From": [
+						125,
+						"Value"
+					],
+					"To": [
+						126,
 						"Condition"
 					]
 				},
 				{
 					"From": [
-						18,
+						110,
 						"Value"
 					],
 					"To": [
-						19,
-						"Seconds"
+						127,
+						"Array"
 					]
 				},
 				{
 					"From": [
-						18,
-						"Value"
+						127,
+						"Element"
 					],
 					"To": [
-						20,
-						"Seconds"
+						128,
+						"Target"
 					]
 				},
 				{
 					"From": [
-						15,
-						"Then"
+						128,
+						"Value"
 					],
 					"To": [
-						17,
+						129,
+						"Array"
+					]
+				},
+				{
+					"From": [
+						129,
+						"Element"
+					],
+					"To": [
+						130,
+						"Target"
+					]
+				},
+				{
+					"From": [
+						103,
+						"Then1"
+					],
+					"To": [
+						112,
 						"Execute"
 					]
 				},
 				{
 					"From": [
-						17,
+						112,
+						"Then"
+					],
+					"To": [
+						116,
+						"Execute"
+					]
+				},
+				{
+					"From": [
+						116,
+						"Then"
+					],
+					"To": [
+						118,
+						"Execute"
+					]
+				},
+				{
+					"From": [
+						118,
+						"Then"
+					],
+					"To": [
+						120,
+						"Execute"
+					]
+				},
+				{
+					"From": [
+						120,
+						"Then"
+					],
+					"To": [
+						122,
+						"Execute"
+					]
+				},
+				{
+					"From": [
+						122,
+						"Then"
+					],
+					"To": [
+						124,
+						"Execute"
+					]
+				},
+				{
+					"From": [
+						124,
+						"Then"
+					],
+					"To": [
+						126,
+						"Execute"
+					]
+				},
+				{
+					"From": [
+						126,
 						"True"
 					],
 					"To": [
-						19,
+						129,
 						"Execute"
 					]
 				},
 				{
 					"From": [
-						19,
+						129,
+						"Body"
+					],
+					"To": [
+						130,
+						"Execute"
+					]
+				},
+				{
+					"From": [
+						133,
+						"Value"
+					],
+					"To": [
+						134,
+						"Value"
+					]
+				},
+				{
+					"From": [
+						132,
+						"Value"
+					],
+					"To": [
+						135,
+						"A"
+					]
+				},
+				{
+					"From": [
+						134,
+						"Result"
+					],
+					"To": [
+						135,
+						"B"
+					]
+				},
+				{
+					"From": [
+						135,
+						"Result"
+					],
+					"To": [
+						136,
+						"Condition"
+					]
+				},
+				{
+					"From": [
+						138,
 						"Then"
 					],
 					"To": [
-						21,
+						136,
 						"Execute"
 					]
 				},
 				{
 					"From": [
-						17,
+						136,
+						"True"
+					],
+					"To": [
+						137,
+						"Execute"
+					]
+				},
+				{
+					"From": [
+						137,
+						"Then0"
+					],
+					"To": [
+						139,
+						"Execute"
+					]
+				},
+				{
+					"From": [
+						137,
+						"Then1"
+					],
+					"To": [
+						140,
+						"Execute"
+					]
+				},
+				{
+					"From": [
+						137,
+						"Then2"
+					],
+					"To": [
+						141,
+						"Execute"
+					]
+				},
+				{
+					"From": [
+						137,
+						"Then3"
+					],
+					"To": [
+						142,
+						"Execute"
+					]
+				},
+				{
+					"From": [
+						145,
+						"Value"
+					],
+					"To": [
+						146,
+						"Condition"
+					]
+				},
+				{
+					"From": [
+						147,
+						"Value"
+					],
+					"To": [
+						148,
+						"Seconds"
+					]
+				},
+				{
+					"From": [
+						147,
+						"Value"
+					],
+					"To": [
+						149,
+						"Seconds"
+					]
+				},
+				{
+					"From": [
+						144,
+						"Then"
+					],
+					"To": [
+						146,
+						"Execute"
+					]
+				},
+				{
+					"From": [
+						146,
+						"True"
+					],
+					"To": [
+						148,
+						"Execute"
+					]
+				},
+				{
+					"From": [
+						148,
+						"Then"
+					],
+					"To": [
+						150,
+						"Execute"
+					]
+				},
+				{
+					"From": [
+						146,
 						"False"
 					],
 					"To": [
-						20,
+						149,
 						"Execute"
 					]
 				},
 				{
 					"From": [
-						20,
+						149,
 						"Then"
 					],
 					"To": [
-						22,
+						151,
 						"Execute"
 					]
 				}
 			],
 			"Comments": [
 				{
-					"ID": 10,
-					"Text": "Start: a director that starts paused muffles the mix",
+					"ID": 131,
+					"Text": "Start: muffled if it starts paused; the ride's sounds found",
 					"Position": [
 						-32.0,
 						120.0
 					],
 					"Size": [
-						613.5875244140625,
-						260.0
+						2991.7861328125,
+						522.0
 					],
 					"Color": [
 						0.20000000298023224,
@@ -372,15 +3101,15 @@
 					]
 				},
 				{
-					"ID": 14,
-					"Text": "Pause: the Pause action sends the director TogglePause",
+					"ID": 143,
+					"Text": "Ride: every update, the bike's sounds from the vehicle",
 					"Position": [
 						-32.0,
-						424.0
+						680.0
 					],
 					"Size": [
-						405.5874938964844,
-						244.0
+						1128.0,
+						506.0
 					],
 					"Color": [
 						0.20000000298023224,
@@ -390,11 +3119,11 @@
 					]
 				},
 				{
-					"ID": 23,
+					"ID": 152,
 					"Text": "Toggle pause: the mix blends to the Paused snapshot, or back",
 					"Position": [
 						-32.0,
-						712.0
+						1224.0
 					],
 					"Size": [
 						950.572509765625,

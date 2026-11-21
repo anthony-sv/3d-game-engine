@@ -26,9 +26,8 @@ is the player's. Each screen draws in two batches when shown: its rectangles and
 
 The assists apply to the riding graph of the menu's Rider (the bike): its LinkedBrakes, LinkedBrakeShare and AutoShift,
 set when the scene starts and after each step from the values the player set (one never set leaves the rider's own),
-through ASSIST_GRAPH, which declares those three names: on this tree it is
-Scripts/AssistsStandIn.sgraph (the ride test scene's stand-in rider runs it), since the bike's riding graph gets the
-rider assists from the ride's track; ShowMenus off shows no screen (the captures of the circuit).
+through ASSIST_GRAPH, the bike's riding graph (Vehicle.py), which has those three names; ShowMenus off shows no screen
+(the captures of the circuit).
 
     python Projects/Moto/Tools/Menu.py      (prints the figures check() asserts)
 """
@@ -39,21 +38,20 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import Graphs  # noqa: E402  (writing graphs)
 import Hud  # noqa: E402  (the screen's layout helpers and its Clock)
 import Race  # noqa: E402  (the race director)
+import Vehicle  # noqa: E402  (the bike's riding graph, which takes the assists)
 from Graphs import EFFECTS, ENTITY, EVENTS, RULES, private, public  # noqa: E402
 
 ROOT = "Menus"
 MENU = Graphs.script("Menu")
-ASSISTS_STAND_IN = Graphs.script("AssistsStandIn")
-# The graph whose public LinkedBrakes, LinkedBrakeShare and AutoShift the assists' settings write: the bike's riding
-# graph takes them when the ride's rider assists meet the race (Vehicle.BIKE).
-ASSIST_GRAPH = ASSISTS_STAND_IN
+# The graph whose public LinkedBrakes, LinkedBrakeShare and AutoShift the assists' settings write: the bike's riding graph.
+ASSIST_GRAPH = Vehicle.BIKE
 LINKED = "LinkedBrakes"
 SHARE = "LinkedBrakeShare"
 AUTO = "AutoShift"
 # The assists' defaults, the riding graph's own: the linked brakes on, the rear given 0.3 of the front; the bike shifts by
 # itself.
 LINKED_ON = True
-LINKED_SHARE = 0.3
+LINKED_SHARE = Vehicle.LINKED_SHARE
 AUTO_ON = True
 NAME = "STRADA MOTO"
 
@@ -341,12 +339,6 @@ def check():
 # --- The graphs ---------------------------------------------------------------------------------------------------------------
 
 def declare(author):
-    author.declare(ASSISTS_STAND_IN, "What the settings screen's assists write of a riding graph: the linked brakes, their "
-                   "share and the automatic shifts. The ride test scene's stand-in rider runs it.", variables=(
-        public(LINKED, "bool", LINKED_ON, "The linked brakes: the front brake also applies the rear by LinkedBrakeShare"),
-        public(SHARE, "float", LINKED_SHARE, "How much of the front brake the linked brakes give the rear, 0 to 1", (0.0, 1.0)),
-        public(AUTO, "bool", AUTO_ON, "The automatic shifts: the gearbox shifts by itself at the definition's speeds"),
-    ))
     entity_variables = tuple(public(variable, ENTITY, None, TOOLTIPS[variable]) for *_, variable in elements() if variable is not None)
     list_variables = tuple(public(variable, TABLE_TYPES[kind], [], TABLE_TOOLTIPS[variable]) for variable, (kind, _) in tables().items())
     author.declare(MENU, "The menus: the title, the results, the pause and the settings screens, shown as the race director's "

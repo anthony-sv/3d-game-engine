@@ -13,7 +13,7 @@ bike is hidden in those views (they are the grid bike's, and a tour's would catc
 started before it had a race: the race director without its title (its TitleOnStart off, Race.py), so no attract mode
 moves a camera, and no screen shows (the HUD's ShowHud and the menus' ShowMenus off, Hud.py and Menu.py): the views are
 pictures of the circuit, not of the title or the HUD. A trackside view is one of
-the four trackside cameras (Trackside.py), on which the camera director starts the game (its StartCamera) and which its
+four of the trackside cameras (Trackside.py), on which the camera director starts the game (its StartCamera) and which its
 graph turns to the ghost, with the ghost set out on its lap (its StartAt) so that the picture's frame catches it riding
 towards the camera, PASS_LEAD seconds before it passes closest. The player runs each with a per-user root of its own
 (APPDATA, LOCALAPPDATA, HOME and XDG_DATA_HOME in a temporary folder), draws 1920 by 1080 pixels (--resolution) and
@@ -230,7 +230,7 @@ def closest_pass(position):
 
 
 def trackside_camera(entities, name):
-    """A trackside camera: its number for the director's StartCamera (1 to 4, its place among the director's children)
+    """A trackside camera: its number for the director's StartCamera (1 to 7, its place among the director's children)
     and where it stands (the director stands at the origin unturned)."""
     director = find(entities, Trackside.ROOT)
     camera = find(entities, name, director["ID"])

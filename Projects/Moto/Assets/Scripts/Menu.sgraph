@@ -6038,7 +6038,7 @@
 							"ID": 89,
 							"Type": "Function.Return",
 							"Position": [
-								1728.0,
+								1712.0,
 								0.0
 							]
 						},
@@ -6061,14 +6061,14 @@
 								0.0
 							],
 							"Settings": {
-								"Graph": "4174439098207623822"
+								"Graph": "9964485574798592623"
 							}
 						},
 						{
 							"ID": 358,
 							"Type": "Flow.Branch",
 							"Position": [
-								416.0,
+								400.0,
 								0.0
 							],
 							"Comment": "A rider whose riding graph takes them"
@@ -6081,15 +6081,15 @@
 								112.0
 							],
 							"Settings": {
-								"Variable": 1,
-								"Graph": "4174439098207623822"
+								"Variable": 7,
+								"Graph": "9964485574798592623"
 							}
 						},
 						{
 							"ID": 360,
 							"Type": "Call:Strada.Settings.Get<T>(string,T)",
 							"Position": [
-								416.0,
+								400.0,
 								128.0
 							],
 							"Inputs": {
@@ -6100,31 +6100,31 @@
 							"ID": 361,
 							"Type": "Variable.Set",
 							"Position": [
-								720.0,
+								704.0,
 								0.0
 							],
 							"Settings": {
-								"Variable": 1,
-								"Graph": "4174439098207623822"
+								"Variable": 7,
+								"Graph": "9964485574798592623"
 							}
 						},
 						{
 							"ID": 362,
 							"Type": "Variable.Get",
 							"Position": [
-								416.0,
+								400.0,
 								272.0
 							],
 							"Settings": {
-								"Variable": 2,
-								"Graph": "4174439098207623822"
+								"Variable": 8,
+								"Graph": "9964485574798592623"
 							}
 						},
 						{
 							"ID": 363,
 							"Type": "Call:Strada.Settings.Get<T>(string,T)",
 							"Position": [
-								720.0,
+								704.0,
 								176.0
 							],
 							"Inputs": {
@@ -6135,31 +6135,31 @@
 							"ID": 364,
 							"Type": "Variable.Set",
 							"Position": [
-								1024.0,
+								1008.0,
 								0.0
 							],
 							"Settings": {
-								"Variable": 2,
-								"Graph": "4174439098207623822"
+								"Variable": 8,
+								"Graph": "9964485574798592623"
 							}
 						},
 						{
 							"ID": 365,
 							"Type": "Variable.Get",
 							"Position": [
-								720.0,
+								704.0,
 								320.0
 							],
 							"Settings": {
-								"Variable": 3,
-								"Graph": "4174439098207623822"
+								"Variable": 9,
+								"Graph": "9964485574798592623"
 							}
 						},
 						{
 							"ID": 366,
 							"Type": "Call:Strada.Settings.Get<T>(string,T)",
 							"Position": [
-								1024.0,
+								1008.0,
 								176.0
 							],
 							"Inputs": {
@@ -6170,19 +6170,19 @@
 							"ID": 367,
 							"Type": "Variable.Set",
 							"Position": [
-								1328.0,
+								1312.0,
 								0.0
 							],
 							"Settings": {
-								"Variable": 3,
-								"Graph": "4174439098207623822"
+								"Variable": 9,
+								"Graph": "9964485574798592623"
 							}
 						},
 						{
 							"ID": 368,
 							"Type": "Variable.Get",
 							"Position": [
-								1024.0,
+								1008.0,
 								320.0
 							],
 							"Settings": {
@@ -6193,7 +6193,7 @@
 							"ID": 369,
 							"Type": "Expression",
 							"Position": [
-								1328.0,
+								1312.0,
 								176.0
 							],
 							"Settings": {
@@ -6204,7 +6204,7 @@
 							"ID": 370,
 							"Type": "Variable.Set",
 							"Position": [
-								1536.0,
+								1520.0,
 								0.0
 							],
 							"Settings": {
@@ -6453,7 +6453,7 @@
 								-72.0
 							],
 							"Size": [
-								1912.0,
+								1896.0,
 								506.0
 							],
 							"Color": [

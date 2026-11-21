@@ -272,19 +272,24 @@ namespace
 		std::string_view Type;
 		// As NodeCaseRecipe::Components.
 		std::string_view Components;
+		// A Warning or Error every member's case may log (a part of what NodeCaseRecipe::ExpectedLog allows); empty for none.
+		std::string_view ExpectedLog;
 	};
 
 	constexpr auto MemberTypeRecipes = std::to_array<MemberTypeRecipe>({
 		// A body is simulated with a collider; a joint joins the body of its entity; a mesh collider needs a mesh (the
 		// built-in cube).
-		{"Strada.RigidBodyComponent", R"({"RigidBody": {}, "BoxCollider": {}})"},
-		{"Strada.JointComponent", R"({"RigidBody": {}, "BoxCollider": {}, "Joint": {}})"},
-		{"Strada.MeshColliderComponent", R"({"RigidBody": {"Type": "Static"}, "MeshCollider": {"Mesh": "1", "Convex": true}})"},
+		{"Strada.RigidBodyComponent", R"({"RigidBody": {}, "BoxCollider": {}})", ""},
+		{"Strada.JointComponent", R"({"RigidBody": {}, "BoxCollider": {}, "Joint": {}})", ""},
+		{"Strada.MeshColliderComponent", R"({"RigidBody": {"Type": "Static"}, "MeshCollider": {"Mesh": "1", "Convex": true}})", ""},
 		// A vehicle rides a dynamic chassis with a collider and a definition (FeatureTest's Vehicles/Bike.svehicle): FeatureTest's
-		// 250 kg chassis box, whose roll inertia carries the definition's lean spring (Docs/Architecture.md §8, "Vehicles").
+		// 250 kg chassis box, whose roll inertia carries the definition's lean spring (Docs/Architecture.md §8, "Vehicles"). The
+		// definition's wheels, 0.12 and 0.18 m wide, are wider than a wheel's round cast, which the scene warns of as the
+		// vehicle is made (§8, "The wide wheel's warning").
 		{"Strada.VehicleComponent",
 	     R"({"RigidBody": {"Type": "Dynamic", "Mass": 250.0}, "BoxCollider": {"HalfExtents": [0.25, 0.5, 0.6], "Offset": [0.0, 0.75, 0.0]},
-	         "Vehicle": {"Definition": "16927299108182019562"}})"},
+	         "Vehicle": {"Definition": "16927299108182019562"}})",
+	     "leans less than its turns balance"},
 	});
 
 	constexpr auto Exclusions = std::to_array<NodeCaseExclusion>({
@@ -511,8 +516,9 @@ namespace
 		uint32_t NodeID = 0;
 		// The script class the entity runs, for members of script classes.
 		std::string ScriptClass;
-		// The components the member's type needs (MemberTypeRecipes); empty for none.
+		// The components the member's type needs, and the Warning or Error its cases may log (MemberTypeRecipes); empty for none.
 		std::string_view MemberTypeComponents;
+		std::string_view MemberTypeExpectedLog;
 		bool Alone = false;
 		// Runs with a game data folder (GameDataTypes).
 		bool GameData = false;
@@ -555,6 +561,7 @@ namespace
 			if (MemberTypeRecipe const* const memberType = FindByType<MemberTypeRecipe>(MemberTypeRecipes, declaringType))
 			{
 				result.MemberTypeComponents = memberType->Components;
+				result.MemberTypeExpectedLog = memberType->ExpectedLog;
 			}
 
 			m_Document.Variables.push_back(MakeVariable(RanVariable, "Ran", "bool", false, true));
@@ -1412,8 +1419,8 @@ namespace
 			}
 		}
 
-		// Passes when Ran is true and the case logged no Warning or Error but the one its recipe allows, or when its recipe
-		// expects an aborting error and the case stopped with it at the node.
+		// Passes when Ran is true and the case logged no Warning or Error but those its recipe and its member type's recipe
+		// allow, or when its recipe expects an aborting error and the case stopped with it at the node.
 		static void Judge(RunningCase const& runningCase, std::optional<bool> ran, std::vector<std::string> const& logged)
 		{
 			NodeCase& nodeCase = *runningCase.Case;
@@ -1434,9 +1441,13 @@ namespace
 				}
 				return;
 			}
+			auto const allows = [](std::string_view expected, std::string const& message)
+			{
+				return !expected.empty() && message.find(expected) != std::string::npos;
+			};
 			for (std::string const& message : logged)
 			{
-				if (recipe == nullptr || recipe->ExpectedLog.empty() || message.find(recipe->ExpectedLog) == std::string::npos)
+				if (!(recipe != nullptr && allows(recipe->ExpectedLog, message)) && !allows(nodeCase.MemberTypeExpectedLog, message))
 				{
 					nodeCase.Failure = "it logged: " + message;
 					return;

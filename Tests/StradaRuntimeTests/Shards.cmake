@@ -12,7 +12,8 @@
 set(STRADA_RUNTIME_TEST_SAMPLE_FILES "*StradaRuntimeTests?Source?SampleTests.cpp,*StradaRuntimeTests?Source?SaveGameTests.cpp")
 # The repository's templates, each through a project made from it.
 set(STRADA_RUNTIME_TEST_TEMPLATE_FILES "*StradaRuntimeTests?Source?TemplateTests.cpp")
-# Moto's ride test scene: the ridden bike's checks and the race's, played at several frame rates, and twice keeping its data.
+# Moto's ride and flow test scenes: the ridden bike's checks, the ride's and the race's, played at several frame rates, and the
+# flow scene twice keeping its data.
 set(STRADA_RUNTIME_TEST_RIDE_FILES "*StradaRuntimeTests?Source?MotoRideTests.cpp")
 
 set(STRADA_TEST_SHARDS Samples Templates Ride Core)
