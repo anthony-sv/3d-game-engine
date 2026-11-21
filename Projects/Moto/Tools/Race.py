@@ -148,6 +148,8 @@ BROADCASTS = {
     "LapFinished": (("Lap", "int"), ("Time", "float"), ("Best", "bool")),
     "RaceFinished": (("Total", "float"),),
 }
+assert all(BROADCASTS[name] == parameters for name, parameters in (Ghost.LAP_STARTED, Ghost.LAP_FINISHED)), \
+    "the director broadcasts the lap events the ghost receives, with their parameters"
 FLOAT_ARRAY = "float[]"
 VECTOR = "Strada.Vector3"
 SAVE_SLOT = "Strada.SaveSlot"

@@ -11,8 +11,10 @@ Confirm and a mouse click come to. One after another:
 3. the settings: SETTINGS clicked, the screen's buttons clicked to step the quality down twice, the window's size up, the
    master volume and the Engine bus a tenth down, the linked brakes off and their share a tenth up, the automatic shifts
    off; Settings reads each back, the menus' rider (the scene's bike, whose riding graph is Menu.ASSIST_GRAPH, standing
-   on the grid since the ride ended) has the three
-   assists, the screen shows them, and BACK saves the settings and shows the title again (the window's mode is not
+   on the grid since the ride ended) has the three assists, each changed by the clicks (the check first puts the bike's
+   linked brakes and automatic shifts on, Menu.LINKED_ON and Menu.AUTO_ON, as a new player's bike has them: the ride had
+   them off, its bands being the raw vehicle's, and its share is the riding graph's own), the screen shows them, and
+   BACK saves the settings and shows the title again (the window's mode is not
    clicked: a test run takes no display; the editor's case MotoPlayTests clicks it, which play mode keeps unapplied);
 4. a rebinding: the throttle's keyboard button clicked listens for a control and says so, Input.CancelRebind() ends it
    with the throttle's key kept and named, and BACK leaves (the capture of a real key is an editor case's, which presses
@@ -251,13 +253,17 @@ def write_settings_clicks(b, name):
     opened = clicked(b, listed(b, "TitleItems", 1))
     shown = waiting(b, on_screen(b, Menu.SETTINGS))
     applied = b.set("AppliedBefore", menu(b, "Applied"))
+    rider = b.var("Rider")
+    # As a new player's bike has them, so that each of the three assists reads changed by the clicks: the ride before had
+    # the two off (BikeChecks' prepare), and the menus' ApplyAssists writes back the rider's own value of a setting never set.
+    new_player = [b.set(Menu.LINKED, Menu.LINKED_ON, graph=Menu.ASSIST_GRAPH, target=rider),
+                  b.set(Menu.AUTO, Menu.AUTO_ON, graph=Menu.ASSIST_GRAPH, target=rider)]
     presses = [clicked(b, listed(b, side, row)) for side, row in CLICKS]
     quality = b.add("Convert", {"To": "int"}, "Result", Value=b.pure("Get:Strada.Settings.Quality", "Value")).out
     linked = b.pure("Call:Strada.Settings.Get<T>(string,T)", Name=Menu.LINKED, Fallback=b.lit("bool", True))
     share = b.pure("Call:Strada.Settings.Get<T>(string,T)", Name=Menu.SHARE, Fallback=b.lit("float", -1.0))
     auto = b.pure("Call:Strada.Settings.Get<T>(string,T)", Name=Menu.AUTO, Fallback=b.lit("bool", True))
     engine = b.pure("Call:Strada.Settings.GetBusVolume(string)", Bus=Menu.BUSES[0])
-    rider = b.var("Rider")
     read = b.set("SettingsRead", b.expr(
         f"q == 0 && w == {SIZE[0]} && h == {SIZE[1]} && abs(master - 0.9) <= {VOLUME_TOLERANCE} && "
         f"abs(engine - 20 * log(0.9) / log(10)) <= {DECIBEL_TOLERANCE} && !linked && abs(share - 0.4) <= {VOLUME_TOLERANCE} && "
@@ -286,7 +292,7 @@ def write_settings_clicks(b, name):
                    Width=b.pure("Get:Strada.Settings.WindowWidth", "Value"), Height=b.pure("Get:Strada.Settings.WindowHeight", "Value"),
                    Master=b.pure("Get:Strada.Settings.MasterVolume", "Value"), Engine=engine, Linked=linked, Share=share, Auto=auto,
                    Given=b.var("RiderGiven"), Values=b.var("ValuesShown"), Saved=b.var("SavedOnce"))
-    run(b, opened, shown, applied, *presses, read, given, shown_values, saved_before, back, titled, saved, report(b, name, passed, detail))
+    run(b, opened, shown, applied, *new_player, *presses, read, given, shown_values, saved_before, back, titled, saved, report(b, name, passed, detail))
 
 
 def write_rebind_listens(b, name):

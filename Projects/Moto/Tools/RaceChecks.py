@@ -38,7 +38,7 @@ frame rate, step for step):
 The graph logs every reading in one line ("Moto's race: ..."), about 7 s into the scene, which StradaRuntimeTests compares
 between frame rates and between two short runs that keep their data (the second loads the best lap the first saved, and
 the ghost rides it: what the loader gave the ghost is read before the first race, its BestLapTime and whether it rides
-the best lap, which the line counts as the times the ghost was told); the checks, which run after the ride's, find the
+the best lap); the checks, which run after the ride's, find the
 readings taken.
 """
 import math
@@ -229,8 +229,8 @@ READOUTS = (
     ("Attracts", "int", 0, "How many AttractStarted broadcasts came"),
     ("Saves", "int", -1, "How many times the director had saved its best lap when the slot was last opened again"),
     ("SavedInStep", "bool", False, "Whether a race's best lap was saved in the fixed step of its finish"),
-    ("Told", "int", -1, "Whether the ghost rode the best lap the director loaded as the scene started, read before the first "
-     "race: 1 when it took the samples and rides them, 0 otherwise"),
+    ("Rides", "bool", False, "Whether the ghost rides the best lap the director loaded as the scene started (its RidesBestLap), "
+     "read before the first race"),
     ("GhostBest", "float", -1.0, "The ghost's BestLapTime before the first race: what the director loaded gave it (seconds)"),
     ("Done", "bool", False, "Whether every reading has been taken"),
 )
@@ -380,8 +380,8 @@ def write_functions(author):
         first = b.branch(b.expr("round == 0", round=b.var("Round")))
         loaded = [b.set("GhostBest", b.get("BestLapTime", GHOST, b.var("Ghost")),
                         comment="What the loader gave the ghost as the scene started, before a race changes it"),
-                  b.set("Told", b.expr("rides ? 1 : 0", rides=b.get("RidesBestLap", GHOST, b.var("Ghost"))),
-                        comment="The ghost took the samples and rides them")]
+                  b.set("Rides", b.get("RidesBestLap", GHOST, b.var("Ghost")),
+                        comment="Whether the ghost took the samples and rides them")]
         ghost = b.set("Ghost", b.var("Probe"), graph=DIRECTOR, target=b.var("Race"),
                       comment="The first race: a ghost that keeps no samples")
         again = b.set("Ghost", b.var("Ghost"), graph=DIRECTOR, target=b.var("Race"), comment="The second: the scene's ghost")
@@ -521,7 +521,7 @@ def write_functions(author):
                          "the ghost kept {Kept} samples; the slot keeps {Saved} s, splits {SavedSplits}, {Samples} samples; "
                          "a real crossing began lap {RealLap} at step {RealStep} and {RealFraction} of the race, {RealError} s "
                          "from its lap's start; abandoned, the director {After} with {Attracts} attract signals; "
-                         "loaded at start: {Loaded} s, the ghost told {Told} times with a best lap of {GhostBest} s; the best "
+                         "loaded at start: {Loaded} s, the ghost riding it {Rides} with a best lap of {GhostBest} s; the best "
                          "lap saved {Saves} times, in a finish's step {InStep}",
                          Passes=b.var("Passes"), Once=b.var("Once"), Worst=shown, Countdown=b.var("CountdownSteps"),
                          Starts=b.var("RaceStarts"), Laps=b.var("Laps"), Mask=b.var("BestMask"), Sectors=b.var("Sectors"),
@@ -530,7 +530,7 @@ def write_functions(author):
                          SavedSplits=b.var("SavedSplits"), Samples=b.var("SavedSamples"), RealLap=b.var("RealLap"),
                          RealStep=b.var("RealStep"), RealFraction=b.var("RealFraction"), RealError=real, After=b.var("AfterState"),
                          Attracts=b.var("Attracts"), Loaded=director_get(b, "LoadedLapTime"),
-                         Told=b.var("Told"), GhostBest=b.var("GhostBest"), Saves=b.var("Saves"),
+                         Rides=b.var("Rides"), GhostBest=b.var("GhostBest"), Saves=b.var("Saves"),
                          InStep=b.var("SavedInStep"))
         log = b.call("Call:Strada.Log.Info(string)", Message=readings, comment="Every reading, the same at every frame rate")
         b.chain(b.entry, log, b.set("Done", True), b.own("Enter", Next="Done"), b.ret)

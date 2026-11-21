@@ -265,9 +265,10 @@ TEST_CASE("Runtime: Moto's race keeps its best lap in the game's save slot, whic
 	// Development runs of the flow test scene, which keep their game data in the project's folder (a test run's is
 	// temporary), each 560 frames at 1/60 s, past the race's readings: the first finds no best lap and saves the scripted
 	// races' best once their results show, the second race's with the samples the scene's ghost was given; the second run
-	// loads it as the scene starts, gives the ghost its samples and its time and tells it, the ghost takes them and rides
-	// them, and its races beat nothing, so the slot keeps the first run's and nothing is saved again. A run without a
-	// window that is not a test run is paced at 60 frames a second, so the runs stop well before the ride's end.
+	// loads it as the scene starts, gives the ghost its samples and its time and sends it BestLapLoaded, the ghost takes
+	// them and rides them (the line's "the ghost riding it True", read before the first race), and its races beat nothing,
+	// so the slot keeps the first run's and nothing is saved again. A run without a window that is not a test run is paced
+	// at 60 frames a second, so the runs stop well before the ride's end.
 	Testing::TemporaryDirectory directory;
 	std::filesystem::path const project = CopyRepositoryProject("Moto", directory.GetPath());
 	Testing::IsolatedUserRoot const userRoot;
@@ -279,7 +280,7 @@ TEST_CASE("Runtime: Moto's race keeps its best lap in the game's save slot, whic
 	CHECK(first.ExitCode == 0);
 	std::string_view const saving = RaceReadings(first.Output);
 	REQUIRE_FALSE(saving.empty());
-	CHECK(Contains(saving, "loaded at start: 0 s, the ghost told 0 times with a best lap of 0 s; the best lap saved 2 times, "
+	CHECK(Contains(saving, "loaded at start: 0 s, the ghost riding it False with a best lap of 0 s; the best lap saved 2 times, "
 	                       "in a finish's step False"));
 	std::string const saved(RaceReading(saving, "the slot keeps ", " s, "));
 	REQUIRE_FALSE(saved.empty());
@@ -294,7 +295,7 @@ TEST_CASE("Runtime: Moto's race keeps its best lap in the game's save slot, whic
 	REQUIRE_FALSE(loading.empty());
 	CHECK(RaceReading(loading, "loaded at start: ", " s, ") == saved);
 	// The ghost's graph took the samples and rides them (its RidesBestLap), with the lap's time the director gave it.
-	CHECK(Contains(loading, "the ghost told 1 times"));
+	CHECK(Contains(loading, "the ghost riding it True"));
 	CHECK(RaceReading(loading, "with a best lap of ", " s; ") == saved);
 	CHECK(Contains(loading, "the best lap saved 0 times"));
 	CHECK(RaceReading(loading, "the slot keeps ", " s, ") == saved);
