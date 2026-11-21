@@ -2,7 +2,9 @@
 what its checks need; its runner graph runs them in turn and reports to the test run. The checks come in modules, each
 registered by one line of MODULES (the scene it joins and the module's name): a module gives its checks, how each is
 written, the scene's entities its checks look at, its own entities and its helper functions (a Suite). SCENES has the
-test scenes, one line each.
+test scenes, one line each. A module whose checks read a graph of its own (which drives what they read from an entity of
+the scene) registers it by one line of MODULE_GRAPHS. Every test scene sets the start switches of SWITCHES, one line each,
+so that a director starts as Moto started before it had one, and a scene's checks turn on what they need.
 
 The first module is this one's (CORE): Scenes/Tests.sscene and its checks: the main scene as it is without its props
 (they stand clear of all it checks and have no colliders), with a crate to drop on the road, two blocks that slide off along the asphalt and along a gravel trap, a second entity running the tour
@@ -120,8 +122,8 @@ SCENES = (
               "bike, one after another, each a latent function that acts or waits for its moment, then reports it.",
               math.ceil(Tour.LENGTH) + 30),
     TestScene("Ride", "Ride Tests", RIDE_TESTS, "The ride test scene's checks: {count} checks of the ridden bike, its rider "
-              "assists, its autopilot, the directors and the best lap's ghost, each a latent function that waits for a reading "
-              "the ride takes, then reports it.", 200),
+              "assists, its autopilot, the directors and the best lap's ghost, the race, the HUD, the pause and the menus, each a "
+              "latent function that waits for its reading, then reports it.", 200),
     TestScene("Lap", "Lap Tests", LAP_TESTS, "The lap test scene's checks: {count} checks of whole laps the autopilot rides from "
               "the grid and the ghost that keeps the best of them, each a latent function that waits for a reading the laps take "
               "in their fixed steps, then reports it.", 240),
@@ -135,10 +137,24 @@ MODULES = (
     ("Ride", "RideChecks"),
     ("Ride", "DirectorChecks"),
     ("Ride", "GhostChecks"),
+    ("Ride", "RaceChecks"),
+    ("Ride", "HudChecks"),
+    ("Ride", "MenuChecks"),
     ("Lap", "LapChecks"),
 )
-# The runner graphs and the library they report through, and the tests part's files.
-GRAPHS = (CHECKS,) + tuple(scene.graph for scene in SCENES)
+# The start switches every test scene sets, one line each: (the main scene's entity, its graph's public variable, the value
+# that makes it start as Moto started before it had that director), so that a test scene's checks turn on what they need.
+SWITCHES = (
+    ("Race", "TitleOnStart", {"Type": "Bool", "Value": False}),
+)
+# The graphs of modules, one line each: (the module, its graph's name). A module whose checks read a graph of their own (one
+# that drives what they read from an entity of the scene) gives declare_graphs(author) and write_module_graphs(author).
+MODULE_GRAPHS = (
+    ("RaceChecks", "RaceTests"),
+    ("HudChecks", "HudTests"),
+)
+# The runner graphs, the modules' graphs and the library they report through, and the tests part's files.
+GRAPHS = (CHECKS,) + tuple(scene.graph for scene in SCENES) + tuple(Graphs.script(name) for _, name in MODULE_GRAPHS)
 FILES = tuple(f"Assets/{scene.path}" for scene in SCENES) + tuple(f"Assets/{graph[len('asset://'):]}" for graph in GRAPHS) + \
     ("Assets/AssetRegistry.sreg",)
 
@@ -367,6 +383,9 @@ def declare(author):
                        ("NearVector", True, (("A", VECTOR), ("B", VECTOR), ("Tolerance", "float")), (("Result", "bool"),), ()),
                        ("Facing", True, (("Direction", VECTOR), ("Expected", VECTOR), ("Degrees", "float")), (("Result", "bool"),), ()),
                    ))
+    # The modules' graphs, which the runner graphs' checks read.
+    for module, _ in MODULE_GRAPHS:
+        importlib.import_module(module).declare_graphs(author)
     # Each runner graph: the entities and the variables of its suites, then their helpers and their checks, in turn.
     for scene in SCENES:
         parts = suites(scene)
@@ -869,6 +888,8 @@ WRITERS = {
 def write(author):
     write_checks(author)
     author.finish(CHECKS)
+    for module, _ in MODULE_GRAPHS:
+        importlib.import_module(module).write_module_graphs(author)
     for scene in SCENES:
         write_tests(author, scene)
         author.finish(scene.graph)
@@ -878,6 +899,13 @@ def write(author):
 
 def entity_value(entity):
     return {"Type": "Entity", "Value": entity}
+
+
+def set_variables(session, entity, values):
+    """Sets public variables of the graph an entity runs, keeping the values its other variables have in the scene."""
+    variables = dict(session.call("component_get", {"entity": entity, "component": "VisualScript"})["fields"].get("Variables") or {})
+    variables.update(values)
+    session.call("component_set", {"entity": entity, "component": "VisualScript", "fields": {"Variables": variables}})
 
 
 def build_scenes(session, handles, project):
@@ -895,7 +923,13 @@ def build_scene(session, handles, project, scene):
     previous = {}
     if os.path.exists(os.path.join(project, "Assets", *scene.path.split("/"))):
         session.call("scene_open", {"path": scene.path})
-        previous = {entity["name"]: entity["id"] for entity in session.call("scene_hierarchy")["entities"] if entity["name"] in own}
+        # At any depth: a suite's prepare may put one of its entities under another.
+        pending = list(session.call("scene_hierarchy")["entities"])
+        while pending:
+            entity = pending.pop()
+            if entity["name"] in own:
+                previous[entity["name"]] = entity["id"]
+            pending.extend(entity.get("children", []))
 
     def create(name, components):
         arguments = {"name": name, "components": components}
@@ -922,6 +956,9 @@ def build_scene(session, handles, project, scene):
             walk(entity.get("children", []))
 
     walk(session.call("scene_hierarchy")["entities"])
+    for name, variable, value in SWITCHES:
+        if name in found:
+            set_variables(session, found[name], {variable: value})
     entities = [row for suite in parts for row in suite.entities]
     missing = [scene_name for _, scene_name, _ in entities if scene_name not in found]
     if missing:
@@ -958,14 +995,6 @@ def make_entities(create, handles):
         "Transform": {"Translation": list(WAITING_SPOT)},
         "VisualScript": {"Graph": handles[Tour.TOUR], "Variables": {
             "PlayOnStart": {"Type": "Bool", "Value": False}, "Repeat": {"Type": "Bool", "Value": False}}}})
-
-
-def set_variables(session, entity, values):
-    """Sets public variables of the graph an entity of the scene runs, keeping its others as the scene has them."""
-    component = session.call("component_get", {"entity": entity, "component": "VisualScript"})["fields"]
-    variables = dict(component.get("Variables", {}))
-    variables.update(values)
-    session.call("component_set", {"entity": entity, "component": "VisualScript", "fields": {"Variables": variables}})
 
 
 def prepare_scene(session, found):

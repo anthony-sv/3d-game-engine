@@ -17,6 +17,7 @@
 #include <cstdint>
 #include <filesystem>
 #include <string>
+#include <string_view>
 #include <system_error>
 
 using namespace Strada;
@@ -75,7 +76,8 @@ TEST_CASE("SceneRenderer: Moto's dressed main scene draws its 10,000 props as in
 			GraphicsDevice::WaitForIdle();
 		}
 	}
-	SUBCASE("at the start line, the bike on the grid and the ghost bike beside the gantry")
+	SUBCASE("at the start line, the bike on the grid and the ghost bike beside the gantry, then as the game draws it in a race, "
+	        "the HUD shown")
 	{
 		// The editor's scene view where slice 2's gate read 392 draws (viewport.camera: the focal point on the line, 14 m
 		// away, yaw 200, pitch -12), with the entity-ID pass the scene view draws. The ghost bike's meshes and materials are
@@ -92,6 +94,31 @@ TEST_CASE("SceneRenderer: Moto's dressed main scene draws its 10,000 props as in
 		CAPTURE(statistics.Batches);
 		CAPTURE(statistics.Instances);
 		CHECK(statistics.DrawCalls <= 400);
+		GraphicsDevice::WaitForIdle();
+
+		// The HUD (Projects/Moto/Tools/Hud.py) is saved hidden, so the views draw none of it; its graph shows its groups while a
+		// race runs. Shown as the graph shows them, it draws in the game's view of the start line (no entity-ID pass) in at
+		// most three batches over the scene's: the track map's texture, every rectangle, then every text.
+		SceneRenderer hidden("Moto");
+		hidden.SetViewportSize(Width, Height);
+		RenderScene(scene, hidden, camera);
+		uint32_t const withoutHud = hidden.GetStatistics().DrawCalls;
+		GraphicsDevice::WaitForIdle();
+		for (std::string_view const name : {"Track Map", "Timing Plates", "Riding Plates", "Timing Labels", "Riding Labels"})
+		{
+			CAPTURE(name);
+			Entity group = scene.FindEntityByName(name);
+			REQUIRE(group);
+			group.GetComponent<UIRectComponent>().Visible = true;
+		}
+		SceneRenderer game("Moto");
+		game.SetViewportSize(Width, Height);
+		RenderScene(scene, game, camera);
+		SceneRendererStatistics const& shown = game.GetStatistics();
+		CAPTURE(withoutHud);
+		CAPTURE(shown.DrawCalls);
+		CHECK(shown.DrawCalls <= withoutHud + 3);
+		CHECK(shown.DrawCalls <= 400);
 		GraphicsDevice::WaitForIdle();
 	}
 	SUBCASE("from high above, every prop in view")

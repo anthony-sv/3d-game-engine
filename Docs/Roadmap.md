@@ -97,8 +97,8 @@ new share: every public scripting-API member becomes a graph node by reflection,
 | A dependency | Pinned by SHA256 in `cmake/StradaDependencies.cmake` and listed in `ThirdPartyNotices.md` |
 | A sample change | Pinned check counts in StradaRuntimeTests; sample graphs in titled, arranged comment boxes (`SampleGraphsTests.cpp`) |
 | A template or an example | A `template.json` or a `catalog.json` entry (versioned formats with fuzz tests), a thumbnail from the player's `--screenshot`, pinned check counts in StradaRuntimeTests, and graphs in titled, arranged comment boxes (`SampleGraphsTests.cpp`). An example is copied before it opens, so its project must survive the copy filter |
-| A test file of StradaEditorTests | It lands in the Core shard unless its name matches another shard's pattern (`Tests/StradaEditorTests/Shards.cmake`); `StradaEditorTests.Partition` keeps the shards a partition, and a ctest entry that passes 450 s on CI's Windows MSVC Debug job is split by source-file patterns (AGENTS.md) |
-| A test file of StradaTests | It lands in the shard that names its module folder, or in Core (`Tests/StradaTests/Shards.cmake`); `StradaTests.Partition` keeps the shards a partition, and a ctest entry that passes 450 s on CI's Windows MSVC Debug job is split by source-file patterns (AGENTS.md) |
+| A test file of StradaEditorTests | It lands in the Core shard unless its name matches another shard's pattern (`Tests/StradaEditorTests/Shards.cmake`); `StradaEditorTests.Partition` keeps the shards a partition, and a ctest entry that passes 450 s on CI's Windows MSVC Debug job that runs its suite is split by source-file patterns (AGENTS.md) |
+| A test file of StradaTests | It lands in the shard that names its module folder, or in Core (`Tests/StradaTests/Shards.cmake`); `StradaTests.Partition` keeps the shards a partition, and a ctest entry that passes 450 s on CI's Windows MSVC Debug job that runs its suite is split by source-file patterns (AGENTS.md) |
 
 **The visual-scripting obligations, in numbers** (an estimate from the checklist, not measured): about 5-10% of an
 item's API work when its API is methods and properties; 10-25% for a typical API-heavy item (about 15% central); up to
@@ -803,7 +803,8 @@ in Effort 3 with the rest of The Rider; and the rest of distribution (§3.10), w
    is compared with itself.
 8. Moto's test scene passes with a pinned check count in StradaRuntimeTests, each run within 60 s on CI's Debug jobs,
    and the exported game passes the same checks.
-9. Every ctest entry takes under 450 s on CI's Windows MSVC Debug job, and every CI job under 50 minutes.
+9. Every ctest entry takes under 450 s on CI's Windows MSVC Debug job that runs its suite, and every CI job under 50
+   minutes.
 
 The third lane adds to this list only what lands: W2's component and meshes (a field table, scene seeds for the fuzz
 tests, a spline in FeatureTest's scene), A1's skeleton and clip data and its API (FeatureTest scripts, node coverage
@@ -942,11 +943,11 @@ playtest round blocks nothing.
 - **Allowance:** a heartbeat cron resumes the running workflow after a pause. Slice 1's reports recorded no active
   hours, so its velocity point comes from the commits' times (§4.1); a slice with a pause needs the hours to tell work
   from waiting.
-- **CI:** nine build jobs (Windows MSVC, Linux GCC and macOS Apple Clang in Debug and Release, with Windows MSVC
-  Release and Linux GCC Release as two jobs each that divide the test suites between them, and Linux Clang Debug) and a
-  format check; each build job has a Build and a Test step, and the Build step passes `Tools/build.py --keep-going`, so
-  a failed run lists every compile error. StradaEditorTests runs as five ctest shards, StradaTests as
-  four (First Ride's slice 1, after it took 313 s as one entry) and StradaRuntimeTests as three (slice 2, after it read
+- **CI:** ten build jobs (Windows MSVC, Linux GCC and macOS Apple Clang in Debug and Release, with Windows MSVC Debug,
+  Windows MSVC Release and Linux GCC Release as two jobs each that divide the test suites between them, and Linux Clang
+  Debug) and a format check; each build job has a Build and a Test step, and the Build step passes
+  `Tools/build.py --keep-going`, so a failed run lists every compile error. StradaEditorTests runs as five ctest
+  shards, StradaTests as four (First Ride's slice 1, after it took 313 s as one entry) and StradaRuntimeTests as three (slice 2, after it read
   190 to 211 s as one entry on the reference machine), each suite with a partition check. The editor core and the C++
   tests precompile their standard and third-party headers on MSVC, Clang and Apple Clang, not on GCC, and the Linux
   Clang Debug job builds without them, as the check that every source includes what it uses. A ThreadSanitizer workflow

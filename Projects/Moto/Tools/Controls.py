@@ -9,11 +9,15 @@ graph that reads them, each registered by one line of GROUPS; no control is boun
     rear one, each wheel braked by its own (a bike's two brakes).
   - Lean (an axis, -1 left to 1 right): A and D, the left stick's X.
   - ShiftUp and ShiftDown (buttons): E and Q, the right and the left bumper.
-- Pause (a button): Escape, the gamepad's Start: the game's pause, which the race director reads (slice 4's GF; it
-  sends the audio director TogglePause, which blends the mix to the Paused snapshot and back). The audio director reads
-  no action, so until the race director plays no graph reads it.
+- Pause (a button): Escape, the gamepad's Start: the game's pause, which the race director reads. It stops the game or
+  lets it go on, and sends the audio director TogglePause, which blends the mix to the Paused snapshot and back (the
+  audio director reads no action).
 - NextCamera and ResetCamera (buttons): C and R, the gamepad's Y and Back. The camera director cuts to the next trackside
   camera, and back to the tour.
+- The screen's menus (the title, the results, the pause and the settings screens, Menu.py): MenuUp, MenuDown, MenuLeft and
+  MenuRight (buttons: the arrow keys, the gamepad's directional pad) move the menu's selection and step the selected
+  setting, Confirm (a button: Enter, the gamepad's A) presses the selected button, and Back (a button: Backspace, the
+  gamepad's B) leaves a screen.
 
 A player's profile written before the two brakes (it names Brake, which the actions no longer have) loses that entry,
 with one line in the log, when the game loads its actions; the rest of the profile holds.
@@ -49,12 +53,21 @@ CAMERAS = (
     action("NextCamera", "Button", binding("Key/C"), binding("Gamepad/Y")),
     action("ResetCamera", "Button", binding("Key/R"), binding("Gamepad/Back")),
 )
+MENUS = (
+    action("Confirm", "Button", binding("Key/Enter"), binding("Gamepad/A")),
+    action("Back", "Button", binding("Key/Backspace"), binding("Gamepad/B")),
+    action("MenuUp", "Button", binding("Key/Up"), binding("Gamepad/DPadUp")),
+    action("MenuDown", "Button", binding("Key/Down"), binding("Gamepad/DPadDown")),
+    action("MenuLeft", "Button", binding("Key/Left"), binding("Gamepad/DPadLeft")),
+    action("MenuRight", "Button", binding("Key/Right"), binding("Gamepad/DPadRight")),
+)
 
 # The groups of actions, one line each: (the graph that reads them, its actions), in the order the asset lists them.
 GROUPS = (
     ("the bike's riding graph", RIDING),
     ("the race director", PAUSE),
     ("the camera director", CAMERAS),
+    ("the screen's menus", MENUS),
 )
 ACTIONS = tuple(action for _, actions in GROUPS for action in actions)
 

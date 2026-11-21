@@ -39,11 +39,22 @@ visual scripts alone (no C#). In order:
     actions, by its own rule in the attract mode and to the chase view in the race;
 11. the ride part: the Ride entity and its graph (Ride.py: Scripts/Ride.sgraph), which keeps the bike's place on the lap
     (Ride.Distance in telemetry) and rides it round the racing line when its autopilot is on (off, as Moto starts);
-12. the tests part: the test scenes (Checks.py's SCENES, each the main scene with its checks and without the props:
+12. the race part: the race (Race.py): the Race entity, which runs the race director (Scripts/RaceDirector.sgraph: the time
+    trial from the title over the attract mode, through the countdown and three laps timed from the gates' interpolated
+    crossings, to the results, the best lap kept in a save slot), and its children, the trigger gates at the start and
+    finish line and at the two sector arches (Scripts/Gate.sgraph), with Scripts/GhostStandIn.sgraph, what the director
+    keeps of a ghost;
+13. the hud part: the screen (Hud.py): the Screen entity, a UI canvas that runs Scripts/Hud.sgraph, with the HUD (the
+    speed, the gear, the engine speed and its shift light, the lean, the inputs, the track map with the bike's mark, the
+    lap's and the sectors' times, the countdown and the delta), and under it the Menus entity, which runs
+    Scripts/Menu.sgraph (Menu.py), with the title, the results, the pause and the settings screens of stepped buttons,
+    every group saved hidden for the graphs to show while the game plays; the track map's image
+    (Textures/Hud/TrackMap.png); and Scripts/AssistsStandIn.sgraph, what the settings' assists write of a riding graph;
+14. the tests part: the test scenes (Checks.py's SCENES, each the main scene with its checks and without the props:
     Scenes/Tests.sscene; Scenes/Ride.sscene, whose graph rides the bike, BikeChecks.py, and its assists and its
     autopilot, RideChecks.py, reads the directors, DirectorChecks.py, and the best lap's ghost, GhostChecks.py; and
     Scenes/Lap.sscene, whole laps on the autopilot, LapChecks.py) and their graphs (Checks.py);
-13. checks: spheres dropped on the road, a kerb, a gravel trap, a verge, the ground, a barrier and the footbridge come to
+15. checks: spheres dropped on the road, a kerb, a gravel trap, a verge, the ground, a barrier and the footbridge come to
     rest on their surfaces; the test scene's checks pass in a test run; the tour plays in play mode, the camera where its
     path puts it, and so does the ghost, where its line puts it; and nothing logs a warning.
 
@@ -63,7 +74,7 @@ with the checks and they name its entities; its own entities keep their IDs too.
 project outside Tools before and after: when a file the part (or the tests part after it) does not own changed, it names
 the files and fails, also when the authoring itself failed. After a change to how graphs are arranged, `--part camera`
 writes every graph again: the tour's, then those of the parts that have made theirs (the audio director's, the ghost's
-and its engine sound's, the camera director's) and the test scene's.
+and its engine sound's, the camera director's, the bike's, the race's, the screen's and its menus') and the test scenes'.
 
 With --captures, nothing is built: the player takes its screenshots of the main scene from the fixed list of cameras in
 Captures.py, each from a copy of the project outside the repository, at 1920 by 1080 pixels, into the output folder;
@@ -93,8 +104,11 @@ import EngineSound  # noqa: E402  (the engine's sound)
 import GenerateAudio  # noqa: E402  (the sounds)
 import Ghost  # noqa: E402  (the ghost bike)
 import Graphs  # noqa: E402  (writing graphs)
+import Hud  # noqa: E402  (the HUD)
+import Menu  # noqa: E402  (the menus: the title, the results, the pause and the settings)
 import MotoLib  # noqa: E402  (the graph library the ride's graphs share)
 import Props  # noqa: E402  (the props' placement)
+import Race  # noqa: E402  (the gates and the race director)
 import RacingLine  # noqa: E402  (the line the ghost rides)
 import Ride  # noqa: E402  (the ride: the bike's place on the lap, its telemetry and the autopilot)
 import Sound  # noqa: E402  (the mixer)
@@ -175,6 +189,14 @@ def _bike_graphs(write):
     return run
 
 
+def _screen_graphs(write):
+    """Declares or writes the screen's graphs: the HUD's, then the menus' (with what their assists write)."""
+    def run(author):
+        getattr(Hud, write)(author)
+        getattr(Menu, write)(author)
+    return run
+
+
 # The graphs of the parts, each group written together (every graph's declarations before any body names them), one line
 # per group: the part that makes them, the graphs, and how to declare and write them.
 GRAPH_GROUPS = (
@@ -184,6 +206,8 @@ GRAPH_GROUPS = (
     ("trackside", (Trackside.CAMERA_DIRECTOR,), Trackside.declare, Trackside.write),
     ("bike", (MotoLib.LIB, Vehicle.BIKE), _bike_graphs("declare"), _bike_graphs("write")),
     ("ride", (Ride.RIDE,), Ride.declare, Ride.write),
+    ("race", (Race.GHOST_STAND_IN, Race.GATE, Race.DIRECTOR), Race.declare, Race.write),
+    ("hud", (Hud.HUD, Menu.ASSISTS_STAND_IN, Menu.MENU), _screen_graphs("declare"), _screen_graphs("write")),
 )
 # The function libraries among them, made as libraries.
 LIBRARIES = Checks.LIBRARIES + (MotoLib.LIB,)
@@ -680,6 +704,58 @@ class Moto:
         self.entity(Ride.ROOT, {"VisualScript": {"Graph": self.handles[Ride.RIDE], "Variables": {
             "Bike": {"Type": "Entity", "Value": roots["Bike"]}}}})
 
+    def make_race(self):
+        """The race (Race.py): the Race entity, which runs the race director with the grid bike as the subject its gates time
+        and the ghost whose samples it keeps, and its children, the trigger gates."""
+        print("race:", Race.check())
+        self.write_part_graphs("race")
+        roots = self.root_ids()
+        missing = [name for name in ("Bike", Ghost.ENTITY, Sound.DIRECTOR) if name not in roots]
+        if missing:
+            raise SystemExit(f"the race part follows the bike, sound and ghost parts: the scene has no {', '.join(missing)}")
+        root = self.entity(Race.ROOT, {"Transform": {"Translation": [0.0, 0.0, 0.0]}, "VisualScript": {
+            "Graph": self.handles[Race.DIRECTOR], "Variables": {
+                "Subject": {"Type": "Entity", "Value": roots["Bike"]},
+                "Ghost": {"Type": "Entity", "Value": roots[Ghost.ENTITY]},
+                "AudioDirector": {"Type": "Entity", "Value": roots[Sound.DIRECTOR]}}}})
+        for number, (name, s) in enumerate(Race.GATES):
+            self.entity(name, Race.gate_components(number, s, self.handles[Race.GATE]), root)
+
+    def make_hud(self):
+        """The screen (Hud.py): the track map's image and the screen's graphs, then the Screen entity, a UI canvas that runs
+        the HUD's with the race director and the grid bike to read, and its elements; under it, after them, the Menus entity
+        (Menu.py), which runs the menus' graph with the director, the bike and its lists, and its screens. Every group is
+        saved hidden for the graphs to show."""
+        print("hud:", Hud.check())
+        print("menus:", Menu.check())
+        Hud.generate(os.path.join(PROJECT, "Assets"))
+        refreshed = self.call("asset_refresh")
+        if refreshed.get("warnings"):
+            raise SystemExit(f"the assets refreshed with warnings: {refreshed['warnings']}")
+        self.write_part_graphs("hud")
+        roots = self.root_ids()
+        missing = [name for name in ("Bike", Race.ROOT) if name not in roots]
+        if missing:
+            raise SystemExit(f"the hud part follows the bike and race parts: the scene has no {', '.join(missing)}")
+        screen = self.entity(Hud.ROOT, {"UICanvas": {"ScaleMode": "ScaleWithScreenSize", "ReferenceResolution": list(Hud.REFERENCE)},
+                                        "VisualScript": {"Graph": self.handles[Hud.HUD]}})
+        made = {}
+        variables = {"Race": {"Type": "Entity", "Value": roots[Race.ROOT]}, "Bike": {"Type": "Entity", "Value": roots["Bike"]}}
+        for name, parent, components, variable in Hud.elements():
+            made[name] = self.entity(name, components, made[parent] if parent is not None else screen)
+            if variable is not None:
+                variables[variable] = {"Type": "Entity", "Value": made[name]}
+        self.call("component_set", {"entity": screen, "component": "VisualScript", "fields": {"Variables": variables}})
+        menus = self.entity(Menu.ROOT, {"UIRect": Hud.fill(), "VisualScript": {"Graph": self.handles[Menu.MENU]}}, screen)
+        variables = {"Race": {"Type": "Entity", "Value": roots[Race.ROOT]}, "Rider": {"Type": "Entity", "Value": roots["Bike"]}}
+        for name, parent, components, variable in Menu.elements():
+            made[name] = self.entity(name, components, made[parent] if parent is not None else menus)
+            if variable is not None:
+                variables[variable] = {"Type": "Entity", "Value": made[name]}
+        for variable, (kind, values) in Menu.tables().items():
+            variables[variable] = {"Type": kind, "Value": [made[value] for value in values] if kind == "Entity[]" else list(values)}
+        self.call("component_set", {"entity": menus, "component": "VisualScript", "fields": {"Variables": variables}})
+
     def make_lighting(self):
         self.call("scene_settings", {"name": "Main", "settings": {"Renderer": {
             "Tonemapper": "ACES", "EV100": 0.0, "Shadows": True, "SoftShadows": True, "ShadowDistance": 220.0, "CascadeCount": 4,
@@ -959,6 +1035,8 @@ PARTS = {
     "ghost": ((Ghost.ENTITY,), (MAIN, graph_file(Ghost.GHOST), REGISTRY), Moto.make_ghost),
     "trackside": ((Trackside.ROOT,), (MAIN, graph_file(Trackside.CAMERA_DIRECTOR), REGISTRY), Moto.make_trackside),
     "ride": ((Ride.ROOT,), (MAIN, graph_file(Ride.RIDE), REGISTRY), Moto.make_ride),
+    "race": ((Race.ROOT,), (MAIN, graph_file(Race.GHOST_STAND_IN), graph_file(Race.GATE), graph_file(Race.DIRECTOR), REGISTRY), Moto.make_race),
+    "hud": ((Hud.ROOT,), (MAIN, graph_file(Hud.HUD), graph_file(Menu.ASSISTS_STAND_IN), graph_file(Menu.MENU), "Assets/Textures/Hud/*.png", REGISTRY), Moto.make_hud),
     "tests": ((), Checks.FILES, None),
 }
 ORDER = tuple(PARTS)

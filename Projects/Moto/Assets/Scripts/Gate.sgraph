@@ -1,0 +1,139 @@
+{
+	"Strada": {
+		"Version": 3,
+		"Type": "VisualScript"
+	},
+	"VisualScript": {
+		"Description": "A timing gate: its trigger tells the race director when a body meets it.",
+		"Variables": [
+			{
+				"ID": 1,
+				"Name": "Gate",
+				"Type": "int",
+				"Value": 0,
+				"Public": true,
+				"Tooltip": "Which gate this is: 0 the start and finish line, 1 and 2 the sector gates",
+				"Range": [
+					0.0,
+					2.0
+				]
+			}
+		],
+		"Functions": [],
+		"Graph": {
+			"Nodes": [
+				{
+					"ID": 2,
+					"Type": "Event.TriggerEnter",
+					"Position": [
+						0.0,
+						0.0
+					]
+				},
+				{
+					"ID": 3,
+					"Type": "Get:Strada.Entity.Parent",
+					"Position": [
+						0.0,
+						128.0
+					]
+				},
+				{
+					"ID": 4,
+					"Type": "Variable.Get",
+					"Position": [
+						0.0,
+						256.0
+					],
+					"Settings": {
+						"Variable": 1
+					}
+				},
+				{
+					"ID": 5,
+					"Type": "Event.Send",
+					"Position": [
+						240.0,
+						0.0
+					],
+					"Settings": {
+						"Name": "GateEntered",
+						"Graph": "12016132572530095741",
+						"Parameters": [
+							{
+								"Name": "Gate",
+								"Type": "int"
+							},
+							{
+								"Name": "Other",
+								"Type": "Strada.Entity"
+							}
+						]
+					}
+				}
+			],
+			"Links": [
+				{
+					"From": [
+						3,
+						"Value"
+					],
+					"To": [
+						5,
+						"Target"
+					]
+				},
+				{
+					"From": [
+						4,
+						"Value"
+					],
+					"To": [
+						5,
+						"Gate"
+					]
+				},
+				{
+					"From": [
+						2,
+						"Other"
+					],
+					"To": [
+						5,
+						"Other"
+					]
+				},
+				{
+					"From": [
+						2,
+						"Then"
+					],
+					"To": [
+						5,
+						"Execute"
+					]
+				}
+			],
+			"Comments": [
+				{
+					"ID": 6,
+					"Text": "Entered: a body met the gate, which tells the race director",
+					"Position": [
+						-32.0,
+						-72.0
+					],
+					"Size": [
+						433.20001220703125,
+						388.0
+					],
+					"Color": [
+						0.20000000298023224,
+						0.41999998688697815,
+						0.949999988079071,
+						0.2199999988079071
+					]
+				}
+			]
+		}
+	}
+}

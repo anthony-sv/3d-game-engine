@@ -2,8 +2,9 @@
 #
 # cmake/StradaTestShards.cmake says how a shard selects its test cases by source file and how patterns match.
 # StradaRuntimeTests.Partition checks that the shards are a partition of the suite: every test case in exactly one shard,
-# no shard empty. A shard that passes 450 s on CI's Windows MSVC Debug job is split by source-file patterns: add the new
-# shard here and take its files out of the shard that held them (for Core: add its patterns to Core's exclusions).
+# no shard empty. A shard that passes 450 s on CI's Windows MSVC Debug job that runs this suite (editor and player
+# tests) is split by source-file patterns: add the new shard here and take its files out of the shard that held them
+# (for Core: add its patterns to Core's exclusions).
 
 # The repository's sample projects, each played several times through the player, and what a game keeps for its player
 # between runs (SaveGameTests.cpp: a few short runs of generated games, kept out of Core, which holds the player's oldest
@@ -11,7 +12,7 @@
 set(STRADA_RUNTIME_TEST_SAMPLE_FILES "*StradaRuntimeTests?Source?SampleTests.cpp,*StradaRuntimeTests?Source?SaveGameTests.cpp")
 # The repository's templates, each through a project made from it.
 set(STRADA_RUNTIME_TEST_TEMPLATE_FILES "*StradaRuntimeTests?Source?TemplateTests.cpp")
-# Moto's ride test scene: the ridden bike's checks, played at several frame rates.
+# Moto's ride test scene: the ridden bike's checks and the race's, played at several frame rates, and twice keeping its data.
 set(STRADA_RUNTIME_TEST_RIDE_FILES "*StradaRuntimeTests?Source?MotoRideTests.cpp")
 
 set(STRADA_TEST_SHARDS Samples Templates Ride Core)
