@@ -134,18 +134,20 @@ namespace
 	}
 }
 
-// M1's sixth step (slice 4's spec, section 0.1), as an agent takes it: told "make the bike shift later and lean faster", it
-// edits the bike's definition with vehicle.set while the bike rides, then checks the ride with telemetry.read and
+// M1's sixth step (Docs/Roadmap.md, M1), as an agent takes it: told "make the bike shift later and lean faster", it edits
+// the bike's definition with vehicle.set while the bike rides, then checks the ride with telemetry.read and
 // profiler.capture. The Moto sample's lap test scene (Scenes/Lap.sscene: the main scene without its props) starts with the
 // autopilot riding the bike from the grid (Tools/LapChecks.py); the rider assists shift for it by the definition's
-// ShiftUpRPM, read at every step (Tools/Vehicle.py). The agent first rides the scene as it is through Turn 1's turn-in,
-// then again, and a second into the second ride raises the shift point (with the red line above it, which the engine's
-// speed never passes) and doubles the lean spring, its damping left where it is (raised with the spring, towards the roll
-// inertia's bound, it slows the lean: Docs/Architecture.md section 15, the feel pass). The first upshift, about 6 s from the
-// grid, then comes at a road speed whose engine speed in first gear is above the old shift point; the riding vehicle takes
-// the new spring in place, before its next step; and at Turn 1's turn-in, about 16 s from the grid, the bike rolls from 2 to
-// 10 degrees of lean in less time than it did as it was, on either side of RollSeconds (read 0.72 and 0.52 s in Debug, 0.72
-// and 0.53 s in Release). The capture holds the physics' zones.
+// ShiftUpRPM, read at every step (Tools/Vehicle.py). The agent rides the scene twice through Turn 1's turn-in, each time
+// editing the definition a second in: the first ride raises the shift point alone (with the red line above it, which the
+// engine's speed never passes), the second the shift point and red line the same and the lean spring doubled, its damping
+// left where it is (raised with the spring, towards the roll inertia's bound, it slows the lean: Docs/Architecture.md
+// section 15, the feel pass). The two rides differ by the spring alone, so the speed the bike turns in at is the same in
+// both and the quicker roll is the spring's. In the second, the first upshift, about 6 s from the grid, comes at a road
+// speed whose engine speed in first gear is above the old shift point, with the engine past the old red line; the riding
+// vehicle takes the new spring in place, before its next step; and at Turn 1's turn-in, about 16 s from the grid, the bike
+// rolls from 2 to 10 degrees of lean in less time than in the first ride, on either side of RollSeconds (read 0.650 and
+// 0.533 s in Release, 0.650 and 0.517 s in Debug). The capture holds the physics' zones.
 TEST_CASE("MotoAgent: vehicle.set while the autopilot rides makes the bike shift later and lean faster, telemetry.read shows "
           "the next upshift above the old shift point and a quicker roll into Turn 1, and profiler.capture holds the physics")
 {
@@ -172,29 +174,39 @@ TEST_CASE("MotoAgent: vehicle.set while the autopilot rides makes the bike shift
 	float const rearRadius = fields["Wheels"][1]["Radius"].get<float>();
 	float const newShiftUp = oldShiftUp + 1000.0f;
 	float const newLeanSpring = 2.0f * oldLeanSpring;
-	// Each ride from the grid through Turn 1's turn-in (17.5 s), and the roll's time halfway between the two rides' readings.
+	// Each ride from the grid through Turn 1's turn-in (17.5 s), edited at EditFrame, and the roll's time halfway between the
+	// two rides' readings.
 	constexpr int RideFrames = 1050;
-	constexpr float RollSeconds = 0.625f;
+	constexpr int EditFrame = 60;
+	constexpr float RollSeconds = 0.59f;
+	Json const shiftLater = Json::object(
+		{{"Engine", Json::object({{"MaxRPM", oldRedLine + 1000.0f}})}, {"Transmission", Json::object({{"ShiftUpRPM", newShiftUp}})}});
 	fixture.Ok("telemetry.start");
 
-	// The ride as it is: Turn 1's turn-in from the vehicle's lean and the ride's distance along the lap.
+	// The first ride, shifting later alone: Turn 1's turn-in from the vehicle's lean and the ride's distance along the lap.
 	CHECK(fixture.Ok("play.start", Json::object({{"paused", true}}))["state"] == "play");
-	fixture.Ok("play.advance", Json::object({{"frames", RideFrames}}));
-	Entity const grid = fixture.Context.GetScene().FindEntityByName("Bike");
-	REQUIRE(grid);
-	std::string const leanChannel = "Vehicle." + std::to_string(grid.GetUUID().GetValue()) + ".LeanAngle";
-	Json const unedited =
+	fixture.Ok("play.advance", Json::object({{"frames", EditFrame}}));
+	fixture.Ok("vehicle.set", Json::object({{"vehicle", Definition}, {"fields", shiftLater}}));
+	fixture.Ok("play.advance", Json::object({{"frames", RideFrames - EditFrame}}));
+	Entity const first = fixture.Context.GetScene().FindEntityByName("Bike");
+	REQUIRE(first);
+	std::string const leanChannel = "Vehicle." + std::to_string(first.GetUUID().GetValue()) + ".LeanAngle";
+	Json const shifted =
 		fixture.Ok("telemetry.read", Json::object({{"channels", Json::array({leanChannel, "Ride.Distance"})}, {"maxSamples", 4096}}));
-	REQUIRE(unedited["stride"] == 1);
-	std::optional<float> const uneditedRoll =
-		TurnInSeconds(unedited["channels"][0]["samples"], unedited["channels"][1]["samples"], unedited["stepSeconds"].get<float>());
-	REQUIRE(uneditedRoll.has_value());
+	REQUIRE(shifted["stride"] == 1);
+	std::optional<float> const shiftedRoll =
+		TurnInSeconds(shifted["channels"][0]["samples"], shifted["channels"][1]["samples"], shifted["stepSeconds"].get<float>());
+	REQUIRE(shiftedRoll.has_value());
 	CHECK(fixture.Ok("play.stop")["state"] == "edit");
+	// The definition as it was, so that the second ride starts as the first did.
+	fixture.Ok("vehicle.set",
+	           Json::object({{"vehicle", Definition},
+	                         {"fields", {{"Engine", {{"MaxRPM", oldRedLine}}}, {"Transmission", {{"ShiftUpRPM", oldShiftUp}}}}}}));
 
-	// The ride again, edited a second in.
+	// The second ride, edited at the same frame: shifting later as the first, and leaning faster.
 	fixture.Ok("profiler.start");
 	CHECK(fixture.Ok("play.start", Json::object({{"paused", true}}))["state"] == "play");
-	fixture.Advance(60);
+	fixture.Advance(EditFrame);
 	Entity const bike = fixture.Context.GetScene().FindEntityByName("Bike");
 	REQUIRE(bike);
 	Json const before = fixture.Ok("vehicle.state", Json::object({{"entity", bike.GetUUID().ToString()}}))["vehicles"][0];
@@ -203,11 +215,9 @@ TEST_CASE("MotoAgent: vehicle.set while the autopilot rides makes the bike shift
 	REQUIRE(before["applied"]["throttle"].get<float>() > 0.9f);
 
 	// The agent's edit, while the bike rides.
-	fixture.Ok("vehicle.set", Json::object({{"vehicle", Definition},
-	                                        {"fields",
-	                                         {{"Engine", {{"MaxRPM", oldRedLine + 1000.0f}}},
-	                                          {"Transmission", {{"ShiftUpRPM", newShiftUp}}},
-	                                          {"Lean", {{"SpringConstant", newLeanSpring}}}}}}));
+	Json both = shiftLater;
+	both["Lean"] = Json::object({{"SpringConstant", newLeanSpring}});
+	fixture.Ok("vehicle.set", Json::object({{"vehicle", Definition}, {"fields", both}}));
 	// In place, before the next step: the riding vehicle has the new spring with its damping as it was, and the ride goes on
 	// from where it was.
 	fixture.Advance(1);
@@ -219,10 +229,11 @@ TEST_CASE("MotoAgent: vehicle.set while the autopilot rides makes the bike shift
 	CHECK(riding->LeanSpringDamping == leanDamping);
 	Json const after = fixture.Ok("vehicle.state", Json::object({{"entity", bike.GetUUID().ToString()}}))["vehicles"][0];
 	CHECK(after["forwardSpeed"].get<float>() > before["forwardSpeed"].get<float>());
-	// On to 8 s from the grid frame by frame, for the profiler (the first upshift comes at about 6.8 s after the edit, 6.3 s
-	// without it), then on through Turn 1's turn-in.
-	fixture.Advance(419);
-	fixture.Ok("play.advance", Json::object({{"frames", RideFrames - 480}}));
+	// On to 8 s from the grid frame by frame, for the profiler (the first upshift comes at about 6.8 s), then on through Turn
+	// 1's turn-in.
+	constexpr int ProfiledFrames = 480;
+	fixture.Advance(ProfiledFrames - EditFrame - 1);
+	fixture.Ok("play.advance", Json::object({{"frames", RideFrames - ProfiledFrames}}));
 
 	// The telemetry the ride recorded, its own session: the vehicle's channels at every step (Vehicle.<entity>.<quantity>), and
 	// the ride's own (Scripts/Ride.sgraph records them while the editor records: M1's fifth step plots laps against
@@ -233,7 +244,7 @@ TEST_CASE("MotoAgent: vehicle.set while the autopilot rides makes the bike shift
 	                                                                     prefix + "LeanAngle", "Ride.Distance", "Ride.Speed"})},
 	                                           {"maxSamples", 4096}}));
 	CHECK(read["stride"] == 1);
-	CHECK(read["session"] != unedited["session"]);
+	CHECK(read["session"] != shifted["session"]);
 	Json const& gears = read["channels"][0]["samples"];
 	Json const& speeds = read["channels"][1]["samples"];
 	Json const& engine = read["channels"][2]["samples"];
@@ -253,18 +264,19 @@ TEST_CASE("MotoAgent: vehicle.set while the autopilot rides makes the bike shift
 	MESSAGE("the first upshift at " << roadSpeed << " m/s: " << roadEngineSpeed << " rpm in first gear (the old shift point " << oldShiftUp
 	                                << ", the new " << newShiftUp << "); the engine at " << engine[*upshift - 1].get<float>() << " rpm");
 	CHECK(roadEngineSpeed > oldShiftUp + 500.0f);
-	CHECK(engine[*upshift - 1].get<float>() > oldShiftUp);
+	// The engine at the new red line before the upshift (the rear tyre's drive slip holds the road's speed a little under
+	// the shift point while the engine runs at its limit), which only the edit lets it reach.
+	CHECK(engine[*upshift - 1].get<float>() > oldRedLine);
 
-	// Leaning faster: from 2 to 10 degrees at Turn 1's turn-in in less time than the ride as it was took, on either side of
-	// the time between the two rides' readings.
+	// Leaning faster: from 2 to 10 degrees at Turn 1's turn-in in less time than the ride that only shifted later took, on
+	// either side of the time between the two rides' readings.
 	std::optional<float> const editedRoll =
 		TurnInSeconds(read["channels"][3]["samples"], read["channels"][4]["samples"], read["stepSeconds"].get<float>());
 	REQUIRE(editedRoll.has_value());
-	MESSAGE("Turn 1's turn-in: from " << TurnInLean << " to " << TurnLean << " degrees in " << *uneditedRoll
-	                                  << " s with the lean spring at " << oldLeanSpring << ", in " << *editedRoll << " s at "
-	                                  << newLeanSpring << " (its damping " << leanDamping << " in both); the lean "
-	                                  << read["channels"][3]["summary"].dump());
-	CHECK(*uneditedRoll > RollSeconds);
+	MESSAGE("Turn 1's turn-in: from " << TurnInLean << " to " << TurnLean << " degrees in " << *shiftedRoll << " s with the lean spring at "
+	                                  << oldLeanSpring << ", in " << *editedRoll << " s at " << newLeanSpring << " (its damping "
+	                                  << leanDamping << " in both); the lean " << read["channels"][3]["summary"].dump());
+	CHECK(*shiftedRoll > RollSeconds);
 	CHECK(*editedRoll < RollSeconds);
 	// Within the line's lean limit through the ride.
 	CHECK(std::abs(read["channels"][3]["summary"]["minimum"].get<float>()) < 50.0f);

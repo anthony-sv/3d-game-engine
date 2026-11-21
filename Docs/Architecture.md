@@ -7151,14 +7151,17 @@ graphs alone keeps its best lap and its settings screen, and none exposes a path
   40 m/s (a full lever) nothing weaved; the autopilot's brake ramps on gently. In neutral the engine winds down from
   its red line by 80 rpm a second (Jolt's engine damping, 0.005 of its speed a second, which also takes its share of the
   power at every speed). Neither is tuned here. **M1's sixth step** (`MotoAgentTests.cpp`, StradaEditorTests): in the lap
-  test scene, the autopilot riding from the grid, an agent rides through Turn 1's turn-in as the bike is, then again,
-  and a second into the second ride `vehicle.set` raises the shift point and the red line by 1,000 rpm and doubles the
-  lean spring, its damping left as it was. The riding vehicle takes the spring in place before its next step and rides
-  on; `telemetry.read` of the vehicle's channels shows the first upshift at a road speed whose engine speed in first gear
-  is above the old shift point by more than 500 rpm (read 16,505 rpm at 45.0 m/s), and
-  a quicker roll into Turn 1: from the turn-in (the first step past 500 m along the lap leaned 2°) to 10° of lean, 0.72 s
-  as the bike was and 0.52 s edited (0.72 and 0.53 in Release), on either side of the case's 0.625 s; and `profiler.capture`
-  of the frames writes a capture whose subsystems hold `Physics`.
+  test scene, the autopilot riding from the grid, an agent rides twice through Turn 1's turn-in, `vehicle.set` editing
+  the definition a second into each ride: the first raises the shift point and the red line by 1,000 rpm, the second
+  raises them the same and doubles the lean spring, its damping left as it was (the definition is set back between the
+  two). The rides differ by the spring alone, so the bike turns in at the same speed in both and the quicker roll is the
+  spring's. The riding vehicle takes the spring in place before its next step and rides on; `telemetry.read` of the
+  vehicle's channels shows the first upshift at a road speed whose engine speed in first gear is above the old shift
+  point by more than 500 rpm (read 16,505 rpm at 45.0 m/s), the engine past the old red line (read 17,000 rpm, the new
+  one: the rear tyre's drive slip holds the road's speed a little under the shift point while the engine runs at its
+  limit), and a quicker roll into Turn 1: from the turn-in (the first step past 500 m along the lap leaned 2°) to 10° of
+  lean, 0.650 s in the first ride and 0.517 s in the second (0.650 and 0.533 in Release), on either side of the case's
+  0.59 s; and `profiler.capture` of the frames writes a capture whose subsystems hold `Physics`.
 - The Showcase's **Graph Garden**: chimes played by six visual scripts (`Scripts/GraphGarden`; `Tools/GraphGarden.py`
   authors them and `Tools/Author.py --exhibit GraphGarden` rebuilds the exhibit in place, with a hash guard that names
   any file outside the exhibit that changed), whose score is a Timeline; seven of the Showcase's 68 checks look at it.
