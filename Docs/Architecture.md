@@ -7358,7 +7358,7 @@ graphs alone keeps its best lap and its settings screen, and none exposes a path
   200 mm wide; the lean spring goes from 5,000 to 10,000 with its damping held at 400 (a stiffer spring with
   the damping held leans the bike deeper and faster: on these contacts Turn 1's peak roll rate read 31, 38, 43 and 61°/s
   at 5,000, 7,500, 10,000 and 15,000; a damping raised with the spring, towards the roll inertia's bound of 589, slows the
-  lean instead); and the autopilot takes `LineSpeed`'s corners at 0.75 g with an understeer of 1.15 (on the narrow contacts
+  lean instead); and the autopilot takes `LineSpeed`'s corners at 0.75 g with an understeer of 1.15 (1.24 since the yaw damper, below; on the narrow contacts
   the upright bike's 0.8 g and 1.3 ran exits onto the grass). The tune was chosen by its margin: it rides the lap and ride
   scenes clean in Debug and Release, and so does each one-notch change of it on the lap scene in Release (the grip by
   ±0.025, the understeer by ±0.05, each contact width by ±10 %, the spring by ±10 %: first laps of 81.72 to 83.33 s, 1.97 to
@@ -7379,8 +7379,8 @@ graphs alone keeps its best lap and its settings screen, and none exposes a path
   motorcycle steers by its input alone, nothing steers against the yaw (`MotorcycleController.cpp:155-182`), and the yaw
   rate departs first, the lean after it. Not the cause: the contact widths, the fixed step, the fork's rake, the lean
   spring, its damping and smoothing, the gear and a locking front. A fall from 58 m/s at a lever of 0.45, first taken for
-  a weave, was the test scene's own Asphalt Slider, which a bike ridden straight there meets 358 m into the lap (the tests
-  part's text says so). **The yaw damper** stands in the riding graph for what a motorcycle's free front end does by
+  a weave, was the test scene's own Asphalt Slider, which a bike ridden straight there meets 358 m into the lap. **The yaw
+  damper** stands in the riding graph for what a motorcycle's free front end does by
   itself, so it steers whatever `LeanAssist` says and for every driver, after the assist's mapping and before
   `SetDriverInput`: the steering the vehicle gets is clamp(s + `Vehicle.YAW_DAMPING` × degrees(ω + max(v, 4) sin(28° × s)
   cos(caster) / wheelbase), −1, 1), where s is the steering the lean asked for gives (the assist's with `LeanAssist` on,
@@ -7400,7 +7400,8 @@ graphs alone keeps its best lap and its settings screen, and none exposes a path
   launch 20.429 → 20.412 m/s, its front stop 25.606 → 25.623 m, its lean to the left −27.861 → −27.865°), inside every
   band. **The autopilot's understeer** goes from 1.15 to 1.24, the middle of the window in which the lap scene's two
   laps stay on the road with the damper, the automatic shift above and the engine in neutral below: clean from 1.20 to
-  1.275, off the road at 1.175 and 1.30 (22 and 9 steps), so a step of 0.025 either side stays inside. At 1.24 the laps
+  1.275, off the road at 1.175 and 1.30 (22 and 9 steps); the one-notch changes ride the laps clean (the understeer at 1.19
+  and 1.29, `YAW_DAMPING` at 0.00175 and 0.00225). At 1.24 the laps
   read 82.47 and 79.07 s, 2.24 m off the line at most, 35.3° at the deepest and 0.641 of the balancing lean (82.43 and
   79.08 s, 2.24 m, 35.9° and 0.645 in Debug; the pin 0.57);
   the rider's pose checks, whose bounds are 10 mm and 0.5°, read his hips 0.75 mm from their pose and the fork 0.10° from
@@ -7485,17 +7486,19 @@ graphs alone keeps its best lap and its settings screen, and none exposes a path
   hold gives them from the step after `StartRace` at the latest (from the first step of its frame when the menus send it,
   in an update). Read in the main scene through the menus (the title's RACE, the results' RACE AGAIN), the player's
   throttle held open and `ShiftUp` pressed through the countdown, from the grid, after riding under the title (27 m/s in
-  first at the limiter), fallen (lying at 56°, its wheels in the air), in the gravel outside Turn 6 (the rear spinning
-  at the limiter) and from the results at 62 m/s in third, at 60 and 30 frames a second: at the signal the bike stood the
+  first at the limiter), after a fall (past 55° on a full lever from 64 m/s with the linked brakes off, its wheels off
+  the ground at 21 m/s as RACE was pressed; in Debug that lever ran the bike into the gravel at 30 m/s instead), in the
+  gravel outside Turn 6 (the rear spinning at the limiter) and from the results at 62 m/s in third, at 60 and 30 frames a second: at the signal the bike stood the
   same in every case, 15 mm from the grid's place and 0.5 mm above it (a new bike settling on its springs), 0.001° off
-  its heading, its wheels still, the engine at 1,700 rpm in neutral, and launched to 20.56 m/s in 3 s (Debug alike:
-  15.1 mm and 20.56 m/s), also with the
+  its heading, its wheels still, the engine at 1,700 rpm in neutral, and launched to 20.56 m/s in 3 s (in Debug, each
+  case the same too: 15.1 mm and 20.56 m/s), also with the
   engine's `NeutralDamping` at 0 (the reset puts the engine at idle). The others do at a second start what they do at
   a first: the HUD shows the countdown from the director's read-outs, the camera director cuts to the chase view at
   `RaceStarted` and the chase camera jumps with the bike (it snaps to its place when the bike moved more than 20 m in a
   frame), the ghost sets out on its best lap at `LapStarted` and records the new lap, and the audio director follows the
   bike, whose teleport gives no doppler (section 9.8). The ride and the lap test scenes leave the `Race` and `Screen`
-  roots out (`TestScene.left_out`): their checks stand in for the director's events, so its gates' trigger bodies, its
+  roots out (`TestScene.left_out`; their lines, frames and checks read the same so, the ride scene's step-1750 hash goes
+  back to the world before the race joined it): their checks stand in for the director's events, so its gates' trigger bodies, its
   loading of a kept best lap into the ghost and the menus' giving of stored settings to the bike have no place there, and
   their riding graph, finding no director, holds nothing; `MotoAgentTests` rides the lap scene so. Two test scenes of
   their own play the race with nothing standing in, the director, the bike, the ghost and the menus wired as the main
