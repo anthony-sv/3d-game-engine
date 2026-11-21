@@ -7377,7 +7377,7 @@ graphs alone keeps its best lap and its settings screen, and none exposes a path
   to BACK and `Back` saves and leaves; (6) `Pause` shows the pause screen with time standing still, and `Confirm`
   presses RESUME while it does; (7) RACE clicked, a lap 1 of 83 s sent the director, faster than the best, then `Pause`
   and QUIT TO TITLE clicked before the race's end: the director, which saved nothing while racing, saves once as it
-  goes back to the title, and the slot opened again holds the lap. The scene runs 31 checks in 2,165 frames at 1/60 s
+  goes back to the title, and the slot opened again holds the lap. The scene runs 31 checks in 2,160 frames at 1/60 s (the bike's ride, as in the ride scene, ends at step 1,866)
   (its timeout is 60 s). **In the
   editor** (`MotoPlayTests.cpp`, StradaEditorTests): a conditional breakpoint `Lap == 3` on the director's `LapStarted`
   broadcast in `BeginLap`, playing the flow test scene, is reached at each lap's start and holds at the first scripted
