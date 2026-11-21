@@ -13,7 +13,7 @@ counts a lap when the timeline's time comes round past the line, keeps the read-
 the engine's EngineSpeed and Load) and sets the engine sound's EngineSpeed and Load, which it plays from.
 
 The best lap (declare_best_lap() and write_best_lap(), regions of their own, so that the graph without them is the racing
-line's ghost alone). The race director (slice 4's race part) broadcasts LapStarted(Lap) when the ridden bike (Bike) begins a
+line's ghost alone). The race director (Race.py) broadcasts LapStarted(Lap) when the ridden bike (Bike) begins a
 lap and LapFinished(Lap, Time, Best) when it ends one, Best when the lap is the race's best. From LapStarted the ghost
 records the bike every SAMPLE_PERIOD seconds of fixed steps (SAMPLE_STEPS steps of Moto's 1/60 s: ten samples a second, so
 that a lap of up to MAX_SAMPLES samples, 409.5 s, fits one list): its position, its rotation, its engine's speed and its

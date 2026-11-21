@@ -3,7 +3,7 @@ STRADA_LONG_RIDES=1 (MotoRideTests.cpp): the main scene without its props, the a
 the scene starts (prepare: the Ride graph's Autopilot on), LAPS laps of it round the whole circuit, and the ghost keeping
 the best of them.
 
-It stands in for the race director (slice 4's GF), which it does not run: each fixed step it reads where the bike is on the
+It stands in for the race director (Race.py), which it does not run: each fixed step it reads where the bike is on the
 lap (the Ride graph's Distance) and, when the bike crossed the start and finish line since the step before (its distance
 came round from the lap's last CROSSING meters to its first), broadcasts LapFinished(Lap, Time, Best) for the lap it ends
 (Best when it is the faster) and LapStarted(Lap) for the next, as the race director does, the lap's time in fixed steps

@@ -13,7 +13,7 @@ graph that reads them, each registered by one line of GROUPS; no control is boun
   lets it go on, and sends the audio director TogglePause, which blends the mix to the Paused snapshot and back (the
   audio director reads no action).
 - NextCamera and ResetCamera (buttons): C and R, the gamepad's Y and Back. The camera director cuts to the next trackside
-  camera, and back to the tour.
+  camera, and back to the tour (in the attract mode until its rule's next cut), or in the race back to the chase view.
 - The screen's menus (the title, the results, the pause and the settings screens, Menu.py): MenuUp, MenuDown, MenuLeft and
   MenuRight (buttons: the arrow keys, the gamepad's directional pad) move the menu's selection and step the selected
   setting, Confirm (a button: Enter, the gamepad's A) presses the selected button, and Back (a button: Backspace, the

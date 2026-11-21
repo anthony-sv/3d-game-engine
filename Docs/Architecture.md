@@ -6843,7 +6843,7 @@ graphs alone keeps its best lap and its settings screen, and none exposes a path
   checking every graph (no diagnostic, every node in one box, every box arranged), by a test run that must pass every
   check, by playing the main scene for 10 s in play mode, where the camera must be on the tour's path and the ghost on
   its line, and by refusing any warning in the log.
-  **The ridden bike** (slice 4's VH2). The grid bike is a vehicle ridden with the actions: the `bike` part gives the
+  **The ridden bike**. The grid bike is a vehicle ridden with the actions: the `bike` part gives the
   `Bike` root a dynamic body of `RacingLine.py`'s 262 kg (rider included), a chassis box low between the wheels (not the
   wheels: a wheel entity has no collider, §8 "Vehicles") whose roll inertia of 9.82 kg m² clears the lean spring's bound
   of 6.67, and `Vehicle` on `Assets/Vehicles/Moto.svehicle`; `Front Wheel` and `Rear Wheel` get `VehicleWheel`.
@@ -6875,20 +6875,22 @@ graphs alone keeps its best lap and its settings screen, and none exposes a path
   into the gravel trap outside Turn 6 at the speed it had, facing along the lap with its wheels turning on, for 1 s more;
   then back onto the main straight, 3 m right of its center line, first gear up to 15 m/s, the coast, and a lean of -0.5 for
   1 s. At the end it is teleported back onto the grid at rest, braked until it stops, and left in neutral with no input:
-  the ride writes nothing more, for the checks that join the scene later. It takes about 1,875 steps (31 s), and about
-  15 s more when a brake never stops the bike (a stop gives up after 900 steps). A module whose checks join
-  `Ride.sscene` (a line of `MODULES` naming `Ride`) runs them after the seven, from about step 1,875, with the bike on
+  the ride writes nothing more, for the checks that join the scene later. It takes 1,865 steps in Release and 1,866 in
+  Debug (31 s), and about 15 s more when a brake never stops the bike (a stop gives up after 900 steps). A module whose
+  checks join `Ride.sscene` (a line of `MODULES` naming `Ride`) runs them after the seven, from about step 1,865, with the bike on
   the grid in neutral and `Driver` still 2, and raises the scene's test timeout (200 s since the best lap's checks joined, in
   `Checks.SCENES` and in `MotoRideTests.cpp`'s `--timeout`) by what they add; a check's wait (`BikeChecks.WAIT`) stays
   below it. Since the assists' and the autopilot's checks joined after the seven (the ride in graphs, below), a module
-  registered after theirs starts its ride when their ride's phase (`AssistPhase`) is `Done`, at about step 4,700, the
+  registered after theirs starts its ride when their ride's phase (`AssistPhase`) is `Done`, at about step 5,040, the
   bike again on the grid at rest in neutral, `Driver` 2 and the assists off; since the best lap's checks joined after
-  those, one registered after them starts when `GhostPhase` is `Done`, at about step 9,080, the bike left the same way. A
+  those, one registered after them starts when `GhostPhase` is `Done`, at about step 9,505, the bike left the same way. A
   module that
   needs the bike from the grid at the first step (a ride compared across frame rates from the start) registers a test
   scene of its own instead, one line of `SCENES`: it too is the main scene without its props, its runner runs only the
-  modules that name it, the ride is not in it, and the riding graph's `Driver` is what that module's `prepare` sets (0,
-  the player's, unless it sets one). The registration is the ride's switch: the runner graph has no public one. Seven
+  modules that name it, and the ride is in it only when the scene names `BikeChecks` too (the flow test scene does: the
+  same ride, with the race's checks beside it from the first step); without it the riding graph's `Driver` is what that
+  module's `prepare` sets (0, the player's, unless it sets one). The registration is the ride's switch: the runner graph
+  has no public one. Seven
   checks, each a band drawn from the figures
   `Vehicle.py`'s `ride_figures()` gives (closed forms from the definition), with the room each form leaves:
   (1) the speed 3 s after the launch, 18.92 m/s by the form, in 0.9 to 1.3 times it (the form takes the spinning rear tyre at its
@@ -6912,7 +6914,7 @@ graphs alone keeps its best lap and its settings screen, and none exposes a path
   the right (the steering applied and the lean's sign), the left trigger slows it by more than 2 m/s in 1 s still in
   gear on the linked brakes (the rear at 0.3 of the front), then the X button alone (the front off) slows it on, the left
   bumper shifts it into neutral, and stopping brings it back to the grid.
-  **The ride in graphs** (slice 4's GR). The bike's graphs make the ridden bike a rider's: the riding graph
+  **The ride in graphs**. The bike's graphs make the ridden bike a rider's: the riding graph
   (`Scripts/Bike.sgraph`, `Tools/Vehicle.py`) stays the one writer of `SetDriverInput` and the shifts and gives every
   driver (`Driver` 0 the player's actions, 1 the autopilot, 2 a test) its **rider assists**, each a public switch on by
   default that a settings screen writes and keeps (`Settings.Set` of its name, section 13.1):
@@ -7178,7 +7180,7 @@ graphs alone keeps its best lap and its settings screen, and none exposes a path
   limit), and a quicker roll into Turn 1: from the turn-in (the first step past 500 m along the lap leaned 2°) to 10° of
   lean, 0.650 s in the first ride and 0.517 s in the second (0.650 and 0.533 in Release), on either side of the case's
   0.59 s; and `profiler.capture` of the frames writes a capture whose subsystems hold `Physics`.
-  **The race** (slice 4's GF): the gates, the race director, the HUD, the pause and the menus, all graphs.
+  **The race**: the gates, the race director, the HUD, the pause and the menus, all graphs.
   **The gates** (`Tools/Race.py`, the `race` part, which makes the `Race` root; the circuit part's solid arches and its
   `Sector Gate` entities stay as they are): `Line` at the start and finish line under the gantry, `Gate 1` and `Gate 2` at
   the two sector arches (`Circuit.SECTOR_GATES`, 896.0 and 1,792.7 m), each a static body whose `BoxCollider` is a
@@ -7343,7 +7345,7 @@ graphs alone keeps its best lap and its settings screen, and none exposes a path
   development runs of the scene of 560 frames with one per-user root, which keep their game data in the project's
   `.strada/PlayData` where a
   test run's is temporary, show the first saving the best lap and the second loading it as the scene starts, giving
-  the ghost its samples and its time and telling it, the ghost riding them (its `RidesBestLap`, read before the first
+  the ghost its samples and its time and sending it `BestLapLoaded`, the ghost riding them (its `RidesBestLap`, read before the first
   race), and keeping it without a save. **The HUD's and the pause's checks** (`Tools/HudChecks.py`, after the race's): the
   `Hud Tests` entity's graph (`Scripts/HudTests.sgraph`) presses `Pause` by an action override in the ridden bike's
   launch (the riding graph's `Throttle` open, the bike past 10 m/s, the director still idle and the HUD's riding group
@@ -7377,7 +7379,8 @@ graphs alone keeps its best lap and its settings screen, and none exposes a path
   to BACK and `Back` saves and leaves; (6) `Pause` shows the pause screen with time standing still, and `Confirm`
   presses RESUME while it does; (7) RACE clicked, a lap 1 of 83 s sent the director, faster than the best, then `Pause`
   and QUIT TO TITLE clicked before the race's end: the director, which saved nothing while racing, saves once as it
-  goes back to the title, and the slot opened again holds the lap. The scene runs 31 checks in 2,160 frames at 1/60 s (the bike's ride, as in the ride scene, ends at step 1,866)
+  goes back to the title, and the slot opened again holds the lap. The scene runs 31 checks in 2,159 frames at 1/60 s in Release and 2,160 in Debug (the bike's ride, as in the ride scene,
+  ends at step 1,865 in Release and 1,866 in Debug)
   (its timeout is 60 s). **In the
   editor** (`MotoPlayTests.cpp`, StradaEditorTests): a conditional breakpoint `Lap == 3` on the director's `LapStarted`
   broadcast in `BeginLap`, playing the flow test scene, is reached at each lap's start and holds at the first scripted

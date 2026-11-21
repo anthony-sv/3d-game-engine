@@ -2,7 +2,7 @@
 (DirectorChecks.py): its ride starts where the assists' and the autopilot's ends (RideChecks.py: AssistPhase Done, the bike
 on the grid at rest in neutral, the riding graph on its test driver with the assists off), and its checks run after theirs.
 
-It stands in for the race director (slice 4's GF), which it does not run: it broadcasts LapStarted(Lap) and
+It stands in for the race director (Race.py), which it does not run: it broadcasts LapStarted(Lap) and
 LapFinished(Lap, Time, Best) as the race director does, in the fixed step a lap starts or ends, Best when the lap is shorter
 than every lap before it. Its laps are short stretches, each from the grid at rest with the autopilot riding to
 LAP_DISTANCE meters along the lap (through Turn 1), timed in fixed steps, so that whole laps stay behind STRADA_LONG_RIDES

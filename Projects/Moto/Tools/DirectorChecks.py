@@ -10,7 +10,7 @@ directors set what they set once a frame, so the readings are of frames, not of 
 frame rates holds them; a graph's update may run before or after another's in a frame, so a reading that compares what the
 director set with what the bike reads takes the nearer of the bike's reading in this frame and in the last.
 
-It stands in for the race director (slice 4's GF), which it does not run: it broadcasts AttractStarted at ATTRACT_FROM
+It stands in for the race director (Race.py), which it does not run: it broadcasts AttractStarted at ATTRACT_FROM
 seconds of the game and RaceStarted at ATTRACT_TO, as the race director broadcasts them.
 
 - Attract mode, from AttractStarted to RaceStarted: in every frame the camera that shows is the one the rule's plan

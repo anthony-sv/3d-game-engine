@@ -22,7 +22,7 @@ The audio director (the Audio Director entity, Scripts/AudioDirector.sgraph) pla
 
 - The pause: the custom event TogglePause blends the mix to the Paused snapshot over PAUSE_SECONDS, or back to the mixer's
   own values; with StartPaused on it sends itself one when the scene starts (the player's sound test measures the muffled
-  mix that way). It reads no action: the game's pause is the race director's (slice 4's GF), which owns the Pause action
+  mix that way). It reads no action: the game's pause is the race director's (Race.py), which owns the Pause action
   and sends it TogglePause; a test, or any graph, sends it the same event.
 - The ridden bike's sounds (its public Bike, the grid bike): the Bike Sounds entity, its child, which every update puts
   where the bike is as drawn (the director stands at the origin unturned, and the bike is a root), with the bike's own
