@@ -59,8 +59,8 @@ OFF_LOAD = "Curves/EngineOffLoad.scurve"
 # within about 1e-4 of the function.
 CURVE_STEP = 0.125
 # How far below the on-load voices the off-load ones play at the same speed (dB): the engine braking on a closed throttle
-# is quieter than one pulling, by about what a superbike's intake and exhaust give up off load (FR-R45.3.4 asked for the
-# retune: MO3's off-load voices played as loud as the on-load ones). The off-load curve's gain is its amplitude.
+# is quieter than one pulling, by about what a superbike's intake and exhaust give up off load (MO3's off-load voices
+# played as loud as the on-load ones). The off-load curve's gain is its amplitude.
 OFF_LOAD_DB = -6.0
 OFF_LOAD_GAIN = round(10.0 ** (OFF_LOAD_DB / 20.0), 6)
 # How far the voices' powers may sum from what the curves give anywhere in the engine's range (the curves are cubics

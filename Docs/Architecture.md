@@ -6919,7 +6919,7 @@ graphs alone keeps its best lap and its settings screen, and none exposes a path
     pulls the bike off its line rather than giving up its grip. The share is the largest under which the lightened rear
     tyre rolls on through the front's hardest stop (0.3 × 300 N m on 0.326 m is 276 N, against 442 N the rear holds at its
     peak at that deceleration), so one trigger stops the bike from 20 m/s in 20.1 m (9.46 m/s², `Vehicle.ride_figures()`)
-    where the front alone takes 24.2 m. Off, each lever is its own brake, as given (FR-R49.2.3). What the brakes will not
+    where the front alone takes 24.2 m. Off, each lever is its own brake, as the vehicle takes it. What the brakes will not
     do stays as section 8 says: a locked rear wheel keeps its sideways grip, and trail braking and rear-brake slides as a
     simulation has them are not promised.
   - `AutoShift`: the riding graph shifts the `Manual` gearbox itself (a new player's default; off, only the rider shifts,
@@ -6958,12 +6958,12 @@ graphs alone keeps its best lap and its settings screen, and none exposes a path
   holds the speed of the line 0.5 s ahead: `LineSpeed` is the line's corners at 0.75 g, slowed for at 4 m/s² besides the
   drag, never faster than the line's own point mass, times `Pace` (1); the throttle opens by 0.5 for each m/s below it
   (exactly 0 at or above), the front lever by 0.4 for each m/s above it past 0.5, at most 0.45 (the linked brakes add the
-  rear). A probe found that a front lever of 0.45 at 58 m/s sets the bike weaving until it falls (the feel pass, below),
-  which is why the autopilot brakes gently and early; a lap at its speeds is 84.6 s against the line's 71.1 s (its point mass's), and
+  rear). A hard front lever at speed sets the bike weaving until it falls (the feel pass, below), which is why the
+  autopilot brakes gently and early; a lap at its speeds is 84.6 s against the line's 71.1 s (its point mass's), and
   whole laps ride within 1 to 1.25 times the line's (the feel pass, below). **The best lap's ghost**
   (`Tools/Ghost.py`, the `ghost` part, in regions of the ghost's graph of their own, so that the graph without them is
   slice 3's ghost on the racing line). The ghost's public `Bike` is the ridden bike (the `ghost` part follows the `bike`
-  part). From the race director's `LapStarted(Lap)` the ghost records the bike at 10 samples a second (FR-R54.7: a sample
+  part). From the race director's `LapStarted(Lap)` the ghost records the bike at 10 samples a second (a sample
   every 6 fixed steps of 1/60 s, the first in the step `LapStarted` arrives in), into private arrays: its position, its
   rotation, its engine's speed and its applied throttle as the load; a lap of up to 4,096 samples (409.5 s) fits one list.
   At `LapFinished(Lap, Time, Best)` of that lap with `Best`, it keeps them as its best lap, public arrays of a value per
@@ -6989,8 +6989,8 @@ graphs alone keeps its best lap and its settings screen, and none exposes a path
   holds numbers, vectors and quaternions, and lists of them of up to 4,096 elements (`SavedValueCodec.cs`, section 13.1),
   and a graph reads another's public array and sets it whole (the interpreter's remote Get and Set pass the array), so the
   race's graph saves the samples with `SaveSlot.Set` of each array and loads them back the same way. The inspector reads a
-  selected entity's public lists back whole on every draw while a game plays (FR-R40.6.1): with the ghost selected that is
-  four lists of about 800 samples a lap. **The camera
+  selected entity's public lists back whole on every draw while a game plays: with the ghost selected that is four lists
+  of about 800 samples a lap. **The camera
   director** (`Tools/Trackside.py`, the `trackside` part) grows from slice 3's (`Cut`, `Face`, `NextCamera`, `ResetCamera`
   and `StartCamera` stay; the trackside cameras follow `Followed`, the subject or the bike) with a public `Bike` and the
   start switch `Directs` (on; the test scene turns it off): the race director's broadcasts start it, `AttractStarted` and
@@ -7143,14 +7143,19 @@ graphs alone keeps its best lap and its settings screen, and none exposes a path
   drawn width less half the contact's) times (1 − cos lean), 18 mm for the rear and 11 mm for the front at the laps'
   deepest 39°. **By measurement**, with the assists off in neutral from 20 m/s, the front brake stops the bike in 25.6 m at
   its 750 N m (its wheel locks at once and its tyre slides), 26.2 m at 600, 30.9 m at 500 and 37.9 m at 400: a brake that
-  does not lock stops longer, so it stays at 750. From 58 m/s a front lever of 0.45, the front tyre rolling, sets the bike
-  weaving until it falls within about 2 s, with the linked brakes on or off, the rear brake's share at 0, the lean assist
-  off or the spring at 5,000 (at 0.6 it falls with the linked brakes on and rides on with them off; at 0.3 it rides on). A
-  full lever locks the front: the bike slides straight with the linked brakes off or their rear share at 0, but spins
-  round with the share of 0.3 (leaned 47.6° and running backwards 1.5 s later). From 50 m/s (levers of 0.45 and 0.6) and
-  40 m/s (a full lever) nothing weaved; the autopilot's brake ramps on gently. In neutral the engine winds down from
-  its red line by 80 rpm a second (Jolt's engine damping, 0.005 of its speed a second, which also takes its share of the
-  power at every speed). Neither is tuned here. **M1's sixth step** (`MotoAgentTests.cpp`, StradaEditorTests): in the lap
+  does not lock stops longer, so it stays at 750. **Under a hard front lever at speed the bike weaves** and leaves the
+  road: with the linked brakes on, a full lever from about 58 m/s and a lever of 0.8 from about 62 m/s (it falls from 64
+  to 66), while a lever of 0.6 rides to about 70 m/s and one of 0.45 to 78 m/s at least; a player at full throttle reaches
+  about 76 m/s at the end of the main straight. Braking moves the load forward, and a tyre's side grip is its curve times
+  its load, the same curve front and rear (`WheeledVehicleController.h:191-196`), so the braking bike oversteers, the
+  faster the harder it brakes; Jolt's motorcycle steers by its input alone, nothing steers against the yaw
+  (`MotorcycleController.cpp:155-182`), and the yaw rate departs first, the lean after it. Not the cause: the contact
+  widths, the fixed step, the fork's rake, the lean spring, its damping and smoothing, the gear and a locking front. The
+  riding graph does not damp the yaw yet (a probe found that a damper of the yaw rate beyond what the steer asks for rides
+  every case), so the autopilot's brake ramps on gently and stays at 0.45. A fall from 58 m/s at a lever of 0.45, first
+  taken for a weave, was the test scene's own Asphalt Slider, which a bike ridden straight there meets 358 m into the lap.
+  In neutral the engine winds down from its red line by 80 rpm a second (Jolt's engine damping, 0.005 of its speed a
+  second, which also takes its share of the power at every speed). Neither is tuned here. **M1's sixth step** (`MotoAgentTests.cpp`, StradaEditorTests): in the lap
   test scene, the autopilot riding from the grid, an agent rides twice through Turn 1's turn-in, `vehicle.set` editing
   the definition a second into each ride: the first raises the shift point and the red line by 1,000 rpm, the second
   raises them the same and doubles the lean spring, its damping left as it was (the definition is set back between the
