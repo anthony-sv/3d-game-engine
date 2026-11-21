@@ -1160,6 +1160,40 @@ namespace Strada
 		return MakeVehicle(desc, &state, body, objectLayer);
 	}
 
+	Result<void> VehicleWorld::ResetVehicle(UUID entity)
+	{
+		auto const it = m_Vehicles.find(entity);
+		if (it == m_Vehicles.end())
+		{
+			return MakeError("entity {} has no vehicle", entity);
+		}
+		VehicleRecord& record = it->second;
+		// MakeVehicle locks the body: found first, so that a reset that cannot make the vehicle again changes nothing.
+		{
+			JPH::BodyLockRead const lock(m_System.GetBodyLockInterface(), record.Body);
+			if (!lock.Succeeded())
+			{
+				return MakeError("entity {} has no body for its vehicle", entity);
+			}
+		}
+		// The values it runs with as they are (PrepareDesc made them so when they were given), and only its latest inputs:
+		// the callbacks hold the record's address, so the old record goes before the new one is made.
+		VehicleDesc const desc = record.Desc;
+		VehicleInputs const inputs = record.Inputs;
+		JPH::BodyID const body = record.Body;
+		JPH::ObjectLayer const objectLayer = record.Tester->GetObjectLayer();
+		DestroyVehicle(record);
+		m_Vehicles.erase(it);
+		Result<void> made = MakeVehicle(desc, nullptr, body, objectLayer);
+		ST_CORE_ASSERT(made, "A vehicle whose body was found could not be made again on it");
+		if (!made)
+		{
+			return made;
+		}
+		m_Vehicles.at(entity).Inputs = inputs;
+		return {};
+	}
+
 	void VehicleWorld::ReaddConstraints(std::vector<JPH::Constraint*> const& joints)
 	{
 		std::vector<JPH::Constraint*> constraints;

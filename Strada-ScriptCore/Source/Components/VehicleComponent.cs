@@ -9,11 +9,12 @@ namespace Strada;
 /// <see cref="RigidBodyComponent"/> and a collider (its chassis), and the entities below it that draw its wheels a
 /// VehicleWheel component each. While the scene simulates it, a rider drives it with <see cref="SetDriverInput"/> (the
 /// throttle, the front and the rear brake, and the lean) and, in a Manual gearbox, <see cref="ShiftUp"/> and
-/// <see cref="ShiftDown"/>; its engine, gearbox, lean and wheels read as its last physics step left them. Set the inputs
-/// in <see cref="Script.OnFixedUpdate"/> (or a graph's Event.FixedUpdate): each physics step applies the latest given
-/// before it, so a ride set there as a function of the simulation is the same at every frame rate. Without a simulated
-/// vehicle (the scene is not playing, the entity has no dynamic body or no definition that loads) the reads are a vehicle
-/// at rest in neutral, and the inputs and shifts are logged and do nothing.</summary>
+/// <see cref="ShiftDown"/>, and <see cref="ResetVehicle"/> puts it back as it was made; its engine, gearbox, lean and wheels
+/// read as its last physics step left them. Set the inputs in <see cref="Script.OnFixedUpdate"/> (or a graph's
+/// Event.FixedUpdate): each physics step applies the latest given before it, so a ride set there as a function of the
+/// simulation is the same at every frame rate. Without a simulated vehicle (the scene is not playing, the entity has no
+/// dynamic body or no definition that loads) the reads are a vehicle at rest in neutral, and the inputs, shifts and resets
+/// are logged and do nothing.</summary>
 [NativeComponent("Vehicle")]
 public sealed unsafe class VehicleComponent : Component
 {
@@ -89,6 +90,17 @@ public sealed unsafe class VehicleComponent : Component
 	public void ShiftDown()
 	{
 		InternalCalls.VehicleComponent_Shift(Entity.ID, -1);
+	}
+
+	/// <summary>Puts the vehicle back as it was made, at rest where its body stands: the engine at idle, the gearbox in
+	/// neutral with no shift under way or asked for, the wheels still and straight, the lean as new, and the chassis's
+	/// velocity and angular velocity at zero. The inputs last given stay, so the next physics step applies them; give others
+	/// after this call to change them. It takes effect at once, before the next physics step, and keeps where the body
+	/// stands: to put the vehicle somewhere else as well, Teleport its <see cref="RigidBodyComponent"/> in the same frame,
+	/// before or after. Without a simulated vehicle it is logged and does nothing.</summary>
+	public void ResetVehicle()
+	{
+		InternalCalls.VehicleComponent_ResetVehicle(Entity.ID);
 	}
 
 	/// <summary>A wheel as the last physics step left it: what it stands on, its suspension, its spin and its slips. Without

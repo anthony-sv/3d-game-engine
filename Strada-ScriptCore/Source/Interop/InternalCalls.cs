@@ -242,6 +242,7 @@ internal static unsafe class InternalCalls
 	internal static delegate* unmanaged<ulong, ulong*, void> VehicleComponent_GetDefinition;
 	internal static delegate* unmanaged<ulong, ulong*, void> VehicleComponent_SetDefinition;
 	internal static delegate* unmanaged<ulong, NativeVehicleState*, void> VehicleComponent_GetState;
+	internal static delegate* unmanaged<ulong, void> VehicleComponent_ResetVehicle;
 	internal static delegate* unmanaged<ulong, float, float, float, float, void> VehicleComponent_SetDriverInput;
 	internal static delegate* unmanaged<ulong, int, void> VehicleComponent_Shift;
 

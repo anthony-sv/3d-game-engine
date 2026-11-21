@@ -58,22 +58,51 @@ TEST_CASE("ScriptEngine: loads game scripts and describes their classes")
 	{
 		names.push_back(scriptClass.Name);
 	}
-	CHECK(names ==
-	      std::vector<std::string>{"Strada.Tests.ActionProbe",     "Strada.Tests.AssetProbe",       "Strada.Tests.AudioProbe",
-	                               "Strada.Tests.BaseBehaviour",   "Strada.Tests.CameraProbe",      "Strada.Tests.CharacterProbe",
-	                               "Strada.Tests.ClickRecorder",   "Strada.Tests.ComponentWriter",  "Strada.Tests.ContactReader",
-	                               "Strada.Tests.CurveProbe",      "Strada.Tests.DerivedBehaviour", "Strada.Tests.FieldLists",
-	                               "Strada.Tests.FieldReporter",   "Strada.Tests.FieldTypes",       "Strada.Tests.FirstPersonController",
-	                               "Strada.Tests.FixedStepMover",  "Strada.Tests.HierarchyProbe",   "Strada.Tests.HostProbe",
-	                               "Strada.Tests.InputFrameProbe", "Strada.Tests.InputProbe",       "Strada.Tests.Lifecycle",
-	                               "Strada.Tests.Mover",           "Strada.Tests.ParentMover",      "Strada.Tests.PhysicsMaterialProbe",
-	                               "Strada.Tests.PhysicsProbe",    "Strada.Tests.PrefabMember",     "Strada.Tests.PrefabProbe",
-	                               "Strada.Tests.QueryProbe",      "Strada.Tests.QueryReader",      "Strada.Tests.SaveSlotProbe",
-	                               "Strada.Tests.SceneSwitcher",   "Strada.Tests.SelfTest",         "Strada.Tests.SettingsProbe",
-	                               "Strada.Tests.Spawner",         "Strada.Tests.Spinner",          "Strada.Tests.StepProbe",
-	                               "Strada.Tests.TelemetryProbe",  "Strada.Tests.Thrower",          "Strada.Tests.TransformProbe",
-	                               "Strada.Tests.UIWriter",        "Strada.Tests.ValueGuard",       "Strada.Tests.VehicleProbe",
-	                               "Strada.Tests.VehicleRider",    "Strada.Tests.VisualScriptProbe"});
+	CHECK(names == std::vector<std::string>{"Strada.Tests.ActionProbe",
+	                                        "Strada.Tests.AssetProbe",
+	                                        "Strada.Tests.AudioProbe",
+	                                        "Strada.Tests.BaseBehaviour",
+	                                        "Strada.Tests.CameraProbe",
+	                                        "Strada.Tests.CharacterProbe",
+	                                        "Strada.Tests.ClickRecorder",
+	                                        "Strada.Tests.ComponentWriter",
+	                                        "Strada.Tests.ContactReader",
+	                                        "Strada.Tests.CurveProbe",
+	                                        "Strada.Tests.DerivedBehaviour",
+	                                        "Strada.Tests.FieldLists",
+	                                        "Strada.Tests.FieldReporter",
+	                                        "Strada.Tests.FieldTypes",
+	                                        "Strada.Tests.FirstPersonController",
+	                                        "Strada.Tests.FixedStepMover",
+	                                        "Strada.Tests.HierarchyProbe",
+	                                        "Strada.Tests.HostProbe",
+	                                        "Strada.Tests.InputFrameProbe",
+	                                        "Strada.Tests.InputProbe",
+	                                        "Strada.Tests.Lifecycle",
+	                                        "Strada.Tests.Mover",
+	                                        "Strada.Tests.ParentMover",
+	                                        "Strada.Tests.PhysicsMaterialProbe",
+	                                        "Strada.Tests.PhysicsProbe",
+	                                        "Strada.Tests.PrefabMember",
+	                                        "Strada.Tests.PrefabProbe",
+	                                        "Strada.Tests.QueryProbe",
+	                                        "Strada.Tests.QueryReader",
+	                                        "Strada.Tests.SaveSlotProbe",
+	                                        "Strada.Tests.SceneSwitcher",
+	                                        "Strada.Tests.SelfTest",
+	                                        "Strada.Tests.SettingsProbe",
+	                                        "Strada.Tests.Spawner",
+	                                        "Strada.Tests.Spinner",
+	                                        "Strada.Tests.StepProbe",
+	                                        "Strada.Tests.TelemetryProbe",
+	                                        "Strada.Tests.Thrower",
+	                                        "Strada.Tests.TransformProbe",
+	                                        "Strada.Tests.UIWriter",
+	                                        "Strada.Tests.ValueGuard",
+	                                        "Strada.Tests.VehicleProbe",
+	                                        "Strada.Tests.VehicleResetRider",
+	                                        "Strada.Tests.VehicleRider",
+	                                        "Strada.Tests.VisualScriptProbe"});
 	CHECK(ScriptEngine::FindClass("Strada.Tests.NotAScript") == nullptr);
 	CHECK(ScriptEngine::FindClass("Strada.Tests.Missing") == nullptr);
 	CHECK(Testing::WasLogged(logStart, "Strada.Tests.NoDefaultConstructor is ignored"));
@@ -263,7 +292,7 @@ TEST_CASE("ScriptEngine: shuts down, starts again and replaces game assemblies")
 		CHECK(ScriptEngine::FindClass("Strada.Tests.Mover") != nullptr);
 		// Loading again replaces the assembly.
 		CHECK(ScriptEngine::LoadGameAssembly(Testing::GetTestScriptsPath()).IsOk());
-		CHECK(ScriptEngine::GetClasses().size() == 44);
+		CHECK(ScriptEngine::GetClasses().size() == 45);
 		CHECK(ScriptEngine::LoadGameAssembly(Testing::GetTestScriptsPath().parent_path() / "Missing.dll").IsError());
 	}
 	CHECK_FALSE(ScriptEngine::IsInitialized());

@@ -1606,6 +1606,34 @@ namespace Strada
 		state->second.Place(position);
 	}
 
+	bool Scene::ResetVehicle(Entity entity)
+	{
+		if (!entity || entity.GetScene() != this || !entity.HasComponent<VehicleComponent>() || !m_Physics)
+		{
+			return false;
+		}
+		// A vehicle made or changed this frame is in the world before it is reset.
+		ApplyPhysicsChanges();
+		auto const state = m_Vehicles.find(entity.GetHandle());
+		if (state == m_Vehicles.end() || !state->second.Made)
+		{
+			return false;
+		}
+		if (!m_Physics->ResetVehicle(state->second.Entity))
+		{
+			if (!m_Physics->HasVehicle(state->second.Entity))
+			{
+				// The world lost it: made again from the component before the next step.
+				state->second.Made = false;
+				m_ChangedVehicles.insert(entity.GetHandle());
+			}
+			return false;
+		}
+		// Made again, its wheels are drawn from its next step on, as a vehicle made again's are.
+		state->second.Wheels = {};
+		return true;
+	}
+
 	void Scene::SyncCharactersFromTransforms()
 	{
 		std::vector<entt::entity> rescaled;

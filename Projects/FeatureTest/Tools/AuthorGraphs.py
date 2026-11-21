@@ -208,6 +208,8 @@ FEATURE_MIXER = "15018235737354920508"
 # The graph's ride of the scene's Bike: the fixed steps of throttle, and the step it ends at (the brakes in between).
 RIDE_THROTTLE_STEPS = 60
 RIDE_STEPS = 150
+# The idle speed of Assets/Vehicles/Bike.svehicle's engine, at which a reset leaves it.
+BIKE_IDLE_RPM = 1500.0
 
 FEATURES_DESCRIPTION = (
     "The feature test's visual script. Event.Create runs a check of every built-in node kind but the contact and click "
@@ -225,7 +227,7 @@ FEATURES_DESCRIPTION = (
     "start and its first step for telemetry and records its fixed steps as Features.FixedSteps. It saves a slot of its own, "
     "held in a variable, reads it back through another and deletes it, and sets, reads and removes a value of the player's "
     "settings. It rides the scene's Bike from its fixed steps (VehicleComponent: the throttle in the first gear, then both "
-    "brakes) and sets BikeRidden when the ride has ended, for VehicleTests to ride it next.")
+    "brakes), resets it once it stands, and sets BikeRidden when the ride has ended, for VehicleTests to ride it next.")
 
 
 def build_features(references):
@@ -1041,8 +1043,9 @@ def build_features(references):
     # A ride of the scene's Bike (an Automatic gearbox), driven from the fixed steps by their count while Riding (set by the
     # second group of Create's Sequence), so that it is the same at every frame rate: the throttle for RIDE_THROTTLE_STEPS
     # steps (a ShiftUp at the first, which an Automatic gearbox ignores), then both brakes until RIDE_STEPS; what the
-    # throttle's last step left is read on the step after it, and BikeRidden is set at the end, which VehicleTests waits for
-    # before it rides the bike itself. The check waits for the ride.
+    # throttle's last step left is read on the step after it; at the end, with the bike stopped, Reset Vehicle puts it back as
+    # it was made, read at once, and BikeRidden is set, which VehicleTests waits for before it rides the bike itself. The
+    # checks wait for the ride.
     riding = doc.variable("Riding", "bool", False)
     ride_steps = doc.variable("RideSteps", "int", 0)
     bike_ridden = doc.variable("BikeRidden", "bool", False, True, "Whether the graph's ride of the Bike has ended (VehicleTests rides it next)")
@@ -1054,6 +1057,11 @@ def build_features(references):
     ride_suspension = doc.variable("RideSuspension", "float", 0.0)
     ride_surface = doc.variable("RideSurface", "string", "")
     ride_stopped = doc.variable("RideStopped", "float", 0.0)
+    reset_contact_before = doc.variable("ResetContactBefore", "bool", False)
+    reset_contact_after = doc.variable("ResetContactAfter", "bool", True)
+    reset_gear = doc.variable("ResetGear", "int", -1)
+    reset_engine = doc.variable("ResetEngine", "float", 0.0)
+    reset_speed = doc.variable("ResetSpeed", "float", -1.0)
     bike = (g.node("Call:Strada.Entity.FindByName(string)", None, {"Name": "Bike"}), "Result")
 
     def vehicle_read(member):
@@ -1094,8 +1102,12 @@ def build_features(references):
     g.chain((ending, "True"), g.set(ride_stopped, stopped_speed),
             g.node("Call:Strada.VehicleComponent.SetDriverInput(float,float,float,float)", None,
                    {"Throttle": 0.0, "FrontBrake": 0.0, "RearBrake": 0.0, "Lean": 0.0}, Target=bike),
-            g.node("Call:Strada.VehicleComponent.ShiftDown()", Target=bike), g.set(riding, literal=False),
-            g.set(bike_ridden, literal=True))
+            g.node("Call:Strada.VehicleComponent.ShiftDown()", Target=bike),
+            g.set(reset_contact_before, (rear_parts, "HasContact")),
+            g.node("Call:Strada.VehicleComponent.ResetVehicle()", Target=bike),
+            g.set(reset_contact_after, (rear_parts, "HasContact")), g.set(reset_gear, vehicle_read("Gear")),
+            g.set(reset_engine, vehicle_read("EngineSpeed")), g.set(reset_speed, vehicle_read("ForwardSpeed")),
+            g.set(riding, literal=False), g.set(bike_ridden, literal=True))
     kicked_off = g.set(riding, literal=True)
     groups.insert(1, kicked_off)
     waits.append(kicked_off)
@@ -1109,7 +1121,17 @@ def build_features(references):
            call_check("a graph rides a vehicle from its fixed steps: the throttle takes the first gear and speeds it up on both "
                       "wheels, the brakes stop it", passed,
                       g.format("{Speed} m/s in gear {Gear} at {Engine} rpm, then {Stopped} m/s", **results)))
+    # Reset where it stands: in neutral at idle, at rest, its wheels without contact until the next step tests them.
+    reset_results = {"Gear": g.get(reset_gear), "Engine": g.get(reset_engine), "Speed": g.get(reset_speed)}
+    reset_passed = g.all_of(g.equal(reset_results["Gear"], 0), g.equal(reset_results["Engine"], BIKE_IDLE_RPM),
+                            g.equal(reset_results["Speed"], 0.0), g.get(reset_contact_before),
+                            g.op("Not", g.get(reset_contact_after)))
+    reset_read = g.node("Flow.WaitUntil", Condition=g.get(bike_ridden))
+    g.flow((reset_read, "Completed"),
+           call_check("a graph's Reset Vehicle puts the vehicle back as it was made, at rest where it stands", reset_passed,
+                      g.format("gear {Gear} at {Engine} rpm, {Speed} m/s", **reset_results)))
     groups.append(ridden)
+    groups.append(reset_read)
 
     finished = g.set(done, literal=True)
     g.flow(finished, g.node("Call:Strada.Log.Info(string)", Message=g.format("Features: {Checks} checks passed", Checks=g.get(checks))))

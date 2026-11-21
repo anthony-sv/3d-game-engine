@@ -92,6 +92,7 @@ add_executable(StradaTests
     Source/Physics/PhysicsStateTests.cpp
     Source/Physics/PhysicsTestUtilities.h
     Source/Physics/PhysicsVehicleNeutralTests.cpp
+    Source/Physics/PhysicsVehicleResetTests.cpp
     Source/Physics/PhysicsVehicleTests.cpp
     Source/Physics/VehicleRideTestUtilities.h
     Source/Platform/ProcessTests.cpp
@@ -158,6 +159,7 @@ add_executable(StradaTests
     Source/Scene/SceneTelemetryTests.cpp
     Source/Scene/SceneTests.cpp
     Source/Scene/SceneUITests.cpp
+    Source/Scene/SceneVehicleResetTests.cpp
     Source/Scene/SceneVehicleTests.cpp
     Source/Scene/SceneVisualScriptingTests.cpp
     Source/Scene/UILayoutTests.cpp

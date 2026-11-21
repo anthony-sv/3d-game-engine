@@ -3236,7 +3236,11 @@ wheel all of its torque).
   saved as any vehicle is. **When it applies**: at the call, on the main thread, between steps (no script runs inside
   one), so from `OnFixedUpdate` it is in place for the step that follows and from `OnUpdate` for the next frame's first.
   A reset touches its own vehicle alone and the constraints go back into UUID order after each, so several resets in one
-  frame or fixed step leave the same world in whatever order they come. **With `Teleport`**: `RigidBodyComponent.Teleport`
+  frame or fixed step leave the same world in whatever order they come: the one trace of their order is the order in
+  which they wake sleeping chassis, and Jolt's list of active bodies has no order a simulation depends on (it is filled
+  from several threads, Jolt's `Docs/Architecture.md:811`; what decides an update is the binary state before it, `:852`),
+  which a case shows with two sleeping vehicles reset in both orders. A sleeping vehicle that is reset wakes, rides on as
+  one made there does, and falls asleep again. **With `Teleport`**: `RigidBodyComponent.Teleport`
   sets the chassis entity's transform, and the next step's sync takes the body there, keeping its velocity; the reset
   reads nothing of the pose and zeroes the velocities at once, so a teleport and a reset in one frame or fixed step, in
   either order, leave the vehicle new and at rest at the teleported place for that step. `Scene::ResetVehicle` applies the
