@@ -25,6 +25,7 @@
 #include <optional>
 #include <string>
 #include <utility>
+#include <vector>
 
 using namespace Strada;
 
@@ -206,6 +207,67 @@ TEST_CASE("Scene: a teleport and a vehicle's reset in one fixed step leave the s
 	CheckReport(resetFirst.Report);
 	CHECK(teleportFirst.Hashes == resetFirst.Hashes);
 	CHECK(resetFirst.PlaceAfterReset == teleportFirst.PlaceAfterReset);
+}
+
+TEST_CASE("Scene: the wheels of a vehicle reset from OnFixedUpdate are drawn at the step after the reset, never between the old ride "
+          "and the new")
+{
+	Testing::AssetManagerScope const assets;
+	Testing::PhysicsSystemScope physics;
+	Testing::ScriptEngineScope scripting;
+	AssetHandle const definition = AddManualBike();
+	Scene scene("Reset Wheels");
+	Entity bike = MakeRide(scene, definition, "Bike");
+	// The chassis is drawn between its steps (a rigid body's default), and so are its wheels.
+	REQUIRE(bike.GetComponent<RigidBodyComponent>().Interpolation == RigidBodyInterpolation::Interpolate);
+	Entity rear = scene.CreateEntity("Rear Wheel", bike);
+	rear.AddComponent<VehicleWheelComponent>().Wheel = "Rear";
+	scene.OnRuntimeStart();
+	// The rear wheel in its chassis's space as the frame draws it.
+	auto const inChassis = [&scene, &bike, &rear]
+	{
+		return glm::inverse(scene.GetWorldTransform(bike)) * scene.GetWorldTransform(rear);
+	};
+	auto const isNear = [](glm::mat4 const& first, glm::mat4 const& second)
+	{
+		for (int column = 0; column < 4; column++)
+		{
+			if (glm::any(glm::greaterThan(glm::abs(first[column] - second[column]), glm::vec4(1e-4f))))
+			{
+				return false;
+			}
+		}
+		return true;
+	};
+
+	// At 144 frames a second a frame that ran a step is followed by one that runs none and draws further into the next. For
+	// the step before the reset's (the rider's 110th, in second gear at speed) and for the reset's own (its 120th), the poses
+	// of those two frames.
+	std::map<uint64_t, std::vector<glm::mat4>> poses;
+	for (int frame = 0; frame < 1000 && scene.GetFixedStepCount() < 122; frame++)
+	{
+		scene.OnUpdateRuntime(Timestep(1.0f / 144.0f));
+		uint64_t const step = scene.GetFixedStepCount();
+		if (step == 110 || step == 120)
+		{
+			poses[step].push_back(inChassis());
+		}
+	}
+	REQUIRE(scene.GetFixedStepCount() == 122);
+	REQUIRE(poses[110].size() >= 2);
+	REQUIRE(poses[120].size() >= 2);
+	// The premise: before the reset the frames between two steps draw the spinning wheel on its way from one to the next.
+	CHECK_FALSE(isNear(poses[110][0], poses[110][1]));
+	// After the reset nothing is drawn between the old ride and the new: from the step after the reset on, the wheel is
+	// drawn at that step, whatever part of the next the frame shows.
+	for (size_t index = 1; index < poses[120].size(); index++)
+	{
+		CAPTURE(index);
+		CHECK(isNear(poses[120][index], poses[120][0]));
+	}
+	std::map<std::string, std::string> const report = ParseReport(bike.GetName());
+	CHECK(Number(report, "Reset") == 120.0f);
+	scene.OnRuntimeStop();
 }
 
 TEST_CASE("Scene: a vehicle's reset without a simulated vehicle is logged and changes nothing")
