@@ -42,6 +42,7 @@ add_executable(StradaEditorTests
     Source/Main.cpp
     Source/MixerPanelTests.cpp
     Source/MotoAgentTests.cpp
+    Source/MotoCopyTests.cpp
     Source/MotoPlayTests.cpp
     Source/PanelTests.cpp
     Source/PlayModeTests.cpp

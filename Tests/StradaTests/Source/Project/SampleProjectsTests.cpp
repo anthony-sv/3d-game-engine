@@ -4,10 +4,14 @@
 #include "Strada/Asset/MeshImporter.h"
 #include "Strada/Asset/MeshSource.h"
 #include "Strada/Core/FileSystem.h"
+#include "Strada/Core/GameData.h"
+#include "Strada/Project/Project.h"
+#include "Strada/Project/ProjectCopy.h"
 #include "Strada/Scene/Components.h"
 #include "Strada/Scene/Entity.h"
 #include "Strada/Scene/Scene.h"
 #include "Strada/Scene/SceneSerializer.h"
+#include "Strada/Serialization/JsonSerialization.h"
 
 #include <doctest/doctest.h>
 #include <glm/glm.hpp>
@@ -30,7 +34,8 @@ using namespace Strada;
 
 // The documents that name the sample projects (AGENTS.md's repository map, README.md's layout and the visual scripting
 // guide's table of Prism Break's graphs) name exactly what the repository holds, Moto's collision meshes import as the
-// physics needs them, and its bike has the proportions the vehicle and the rider build on.
+// physics needs them, its bike has the proportions the vehicle and the rider build on, its identity names its game, and a
+// copy of it weighs under 20 MB.
 namespace
 {
 	std::string ReadDocument(char const* path)
@@ -252,4 +257,45 @@ TEST_CASE("Project: Moto's bike stands on both tyres with a 1,485 mm wheelbase, 
 	CHECK(std::abs(axis.x) <= 1e-5f);
 	CHECK(std::abs(foot.y) <= Millimeter);
 	CHECK(std::abs((front.z - foot.z) - 0.098f) <= Millimeter);
+}
+
+TEST_CASE("Project: Moto's identity names its game Strada Moto, whose data folder keeps that name when the project is renamed")
+{
+	// Projects/Moto/Tools/Author.py's identity part writes the identity into Moto.sproj: the product, and no company, so that
+	// the exported game keeps its players' saves and settings in <per-user root>/Strada Moto whatever the project is called.
+	// A company named after the engine would be kept apart from the engine's folder as "Strada_" (UserDataLocations).
+	Result<std::string> text = FileSystem::ReadTextFile(FileSystem::PathFromUtf8(STRADA_SAMPLE_PROJECTS_DIR) / "Moto" / "Moto.sproj");
+	REQUIRE(text.IsOk());
+	Result<Json> parsed = ParseJson(text.GetValue());
+	REQUIRE(parsed.IsOk());
+	Json document = parsed.TakeValue();
+	CHECK(document["Project"]["Identity"]["Product"] == "Strada Moto");
+	CHECK(document["Project"]["Identity"]["Company"] == "");
+	document["Project"]["Name"] = "Renamed Moto";
+
+	Testing::TemporaryDirectory directory;
+	std::filesystem::path const file = directory.GetPath() / "Moto.sproj";
+	REQUIRE(FileSystem::WriteTextFile(file, DumpJson(document)).IsOk());
+	Result<GameIdentity> const identity = Project::ReadGameIdentity(file, ProjectFileKind::Project);
+	REQUIRE_MESSAGE(identity.IsOk(), (identity ? std::string() : identity.GetError()));
+	CHECK(identity.GetValue() == GameIdentity{"", "Strada Moto"});
+	std::filesystem::path const root = directory.GetPath() / "Root";
+	CHECK(UserDataLocations::MakeGameDirectory(root, identity.GetValue(), UserDataPlatform::Windows) == root / "Strada Moto");
+	CHECK(UserDataLocations::MakeGameDirectory(root, identity.GetValue(), UserDataPlatform::MacOS) == root / "Strada Moto");
+}
+
+TEST_CASE("Project: a copy of Moto, everything but its tools, weighs under 20 MB")
+{
+	// What a copy holds by the project copy's rules (ProjectCopy: no Tools/, build output or caches), the files Moto plays
+	// from, against 20 MB (20,000,000 bytes), the most a copy of it may weigh.
+	constexpr uint64_t MaxBytes = 20'000'000;
+	Testing::TemporaryDirectory directory;
+	std::filesystem::path const copy = directory.GetPath() / "Moto";
+	Result<ProjectCopyResult> const copied = ProjectCopy::Copy(FileSystem::PathFromUtf8(STRADA_SAMPLE_PROJECTS_DIR) / "Moto", copy);
+	REQUIRE_MESSAGE(copied.IsOk(), (copied ? std::string() : copied.GetError()));
+	CHECK(copied.GetValue().Warnings.empty());
+	CHECK_FALSE(FileSystem::Exists(copy / "Tools"));
+	CAPTURE(copied.GetValue().Bytes);
+	CHECK(copied.GetValue().Bytes > 0);
+	CHECK(copied.GetValue().Bytes < MaxBytes);
 }

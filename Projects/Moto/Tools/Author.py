@@ -50,13 +50,16 @@ visual scripts alone (no C#). In order:
     Scripts/Menu.sgraph (Menu.py), with the title, the results, the pause and the settings screens of stepped buttons,
     every group saved hidden for the graphs to show while the game plays; the track map's image
     (Textures/Hud/TrackMap.png), the settings' assists given to the bike's riding graph;
-14. the tests part: the test scenes (Checks.py's SCENES, each the main scene with its checks and without the props:
+14. the identity part: the game's identity in the project file, its product "Strada Moto" and no company, which names the
+    exported game's data folder on each player's machine (<per-user root>/Strada Moto) and its macOS bundle identifier
+    whatever the project's name becomes;
+15. the tests part: the test scenes (Checks.py's SCENES, each the main scene with its checks and without the props:
     Scenes/Tests.sscene; Scenes/Ride.sscene, whose graph rides the bike, BikeChecks.py, and its assists and its
     autopilot, RideChecks.py, reads the directors, DirectorChecks.py, and the best lap's ghost, GhostChecks.py;
     Scenes/Flow.sscene, whose graph rides the bike too while the race, the HUD, the pause and the menus are played,
     RaceChecks.py, HudChecks.py and MenuChecks.py; and Scenes/Lap.sscene, whole laps on the autopilot, LapChecks.py) and
     their graphs (Checks.py);
-15. checks: spheres dropped on the road, a kerb, a gravel trap, a verge, the ground, a barrier and the footbridge come to
+16. checks: spheres dropped on the road, a kerb, a gravel trap, a verge, the ground, a barrier and the footbridge come to
     rest on their surfaces; the test scene's checks pass in a test run; the tour plays in play mode, the camera where its
     path puts it, and so does the ghost, where its line puts it; and nothing logs a warning.
 
@@ -121,6 +124,9 @@ import Vehicle  # noqa: E402  (the ridden bike: its vehicle definition and its r
 PROJECT = os.path.dirname(TOOLS)
 ROOT = os.path.dirname(os.path.dirname(PROJECT))
 NAME = "Strada Moto"
+# The game's product (the identity part): the exported game's data folder on each player's machine is named after it, and
+# so is its macOS bundle identifier, whatever the project's name.
+PRODUCT = "Strada Moto"
 
 
 class McpClient:
@@ -758,6 +764,10 @@ class Moto:
             variables[variable] = {"Type": kind, "Value": [made[value] for value in values] if kind == "Entity[]" else list(values)}
         self.call("component_set", {"entity": menus, "component": "VisualScript", "fields": {"Variables": variables}})
 
+    def make_identity(self):
+        """The game's identity (PRODUCT, no company), which the project file holds."""
+        self.call("project_settings", {"settings": {"Identity": {"Company": "", "Product": PRODUCT}}})
+
     def make_lighting(self):
         self.call("scene_settings", {"name": "Main", "settings": {"Renderer": {
             "Tonemapper": "ACES", "EV100": 0.0, "Shadows": True, "SoftShadows": True, "ShadowDistance": 220.0, "CascadeCount": 4,
@@ -1024,8 +1034,8 @@ class Moto:
 # Each part, one line, in the order a rebuild makes them: the root entities of the main scene it makes, the files of the
 # project it may write, and what makes it (given the session). The tests part makes no entity of the main scene: its own
 # scenes are made from it after every other part (Checks.py); nor does the input part, whose files are the actions and the
-# project file that names them, and which comes before the parts whose graphs name the actions. The camera part writes
-# every graph again.
+# project file that names them, and which comes before the parts whose graphs name the actions, nor the identity part,
+# whose file is the project file. The camera part writes every graph again.
 PARTS = {
     "circuit": (("Circuit",), ("Assets/Meshes/*.gltf", "Assets/Textures/*.png", "Assets/Environments/*.hdr", "Assets/Materials/*.smat", "Assets/Surfaces/*.sphysmat", MAIN, REGISTRY), Moto.make_circuit),
     "lighting": (("Sun", "Sky"), (MAIN,), Moto.make_lighting),
@@ -1039,6 +1049,7 @@ PARTS = {
     "ride": ((Ride.ROOT,), (MAIN, graph_file(Ride.RIDE), REGISTRY), Moto.make_ride),
     "race": ((Race.ROOT,), (MAIN, graph_file(Race.GATE), graph_file(Race.DIRECTOR), REGISTRY), Moto.make_race),
     "hud": ((Hud.ROOT,), (MAIN, graph_file(Hud.HUD), graph_file(Menu.MENU), "Assets/Textures/Hud/*.png", REGISTRY), Moto.make_hud),
+    "identity": ((), ("Moto.sproj",), Moto.make_identity),
     "tests": ((), Checks.FILES, None),
 }
 ORDER = tuple(PARTS)
