@@ -4,23 +4,63 @@
 #include "Strada/Script/ScriptField.h"
 #include "Strada/Script/ScriptFieldSerialization.h"
 
+#include <glm/glm.hpp>
+#include <glm/gtc/quaternion.hpp>
 #include <spdlog/fmt/fmt.h>
 
 #include <algorithm>
 #include <charconv>
 #include <cstddef>
 #include <cstdint>
+#include <cstring>
 #include <limits>
 #include <optional>
 #include <string>
 #include <string_view>
+#include <type_traits>
 #include <utility>
+#include <variant>
 #include <vector>
 
 namespace Strada::ScriptFieldInspection
 {
 	namespace
 	{
+		// Whether two stored values are the same as the runtime's read-back compares the running values (ReadBackCopy in
+		// Strada.ScriptCore): of one type, floating-point numbers and the math values made of them bit for bit (so a NaN that
+		// stays is the same and a change between 0 and -0 is a change), lists element by element, every other value by
+		// value.
+		bool IsSameStoredValue(ScriptFieldValue const& first, ScriptFieldValue const& second)
+		{
+			if (first.GetType() != second.GetType() || first.GetStorage().index() != second.GetStorage().index())
+			{
+				return false;
+			}
+			return std::visit(
+				[&second](auto const& value)
+				{
+					using TValue = std::decay_t<decltype(value)>;
+					TValue const& other = std::get<TValue>(second.GetStorage());
+					if constexpr (std::is_same_v<TValue, std::vector<ScriptFieldValue>>)
+					{
+						return std::equal(value.begin(), value.end(), other.begin(), other.end(), IsSameStoredValue);
+					}
+					else if constexpr (std::is_same_v<TValue, float> || std::is_same_v<TValue, double> ||
+				                       std::is_same_v<TValue, glm::vec2> || std::is_same_v<TValue, glm::vec3> ||
+				                       std::is_same_v<TValue, glm::vec4> || std::is_same_v<TValue, glm::quat>)
+					{
+						// Numbers alone: glm's vectors and quaternions hold their components without padding.
+						static_assert(sizeof(TValue) % sizeof(float) == 0 && std::is_trivially_copyable_v<TValue>);
+						return std::memcmp(&value, &other, sizeof(TValue)) == 0;
+					}
+					else
+					{
+						return value == other;
+					}
+				},
+				first.GetStorage());
+		}
+
 		// An integer value as bits (two's complement for signed types), so enumerators of every size combine alike.
 		uint64_t ToBits(ScriptFieldValue const& value)
 		{
@@ -456,8 +496,8 @@ namespace Strada::ScriptFieldInspection
 			if (index < m_Fields.size())
 			{
 				ConvertedField const& last = m_Fields[index];
-				if (last.Type == field.Type && last.IsFlags == field.IsFlags && last.FromStored == fromStored && last.Source == source &&
-				    last.Enumerators == field.Enumerators)
+				if (last.Type == field.Type && last.IsFlags == field.IsFlags && last.FromStored == fromStored &&
+				    IsSameStoredValue(last.Source, source) && last.Enumerators == field.Enumerators)
 				{
 					index++;
 					continue;

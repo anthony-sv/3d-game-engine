@@ -5266,7 +5266,10 @@ once. Without .NET a document still loads, saves and shows in the editor; analys
     variables of its graph), each entity's field editor values with what it converted each from
     (`ScriptFieldInspection::EditorValueCache`), and at each draw converts again only a field whose stored value, or what
     the class says of it (its type, its enumerators and their kind, its default where no stored value has its type),
-    differs from what it last converted (compared by value), changing its field editor value in place; the mixed fields
+    differs from what it last converted, changing its field editor value in place. The stored values are compared as the
+    runtime compares the running ones (floating-point numbers and the vectors and quaternions made of them bit for bit,
+    lists element by element), so the two halves agree on what is unchanged: a list holding a NaN that stays is neither
+    answered nor converted again, and a change between 0 and -0 is both. The mixed fields
     are found again only when the selection changes or a value was converted. The comparison is with the component's
     values, never with what a refresh counted, since every reader merges its answers into the component. The
     descriptors (`ScriptFieldInspection::DescribeFields`, `DescribeVisualScriptVariables`) are made at each draw: they

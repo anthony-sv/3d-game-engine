@@ -179,6 +179,43 @@ TEST_CASE("ScriptFieldInspection: kept editor values are converted again only wh
 	CHECK_FALSE(values.contains("Speed"));
 }
 
+TEST_CASE("ScriptFieldInspection: kept editor values compare floating-point numbers bit for bit, as the runtime's read-back does")
+{
+	ScriptClassInfo info;
+	info.Name = "Game.Samples";
+	info.Fields.push_back(MakeField("Rate", ScriptFieldType::Float, ScriptFieldValue::FromFloat(0.0f)));
+	info.Fields.push_back(MakeField("Offset", ScriptFieldType::Vector3, ScriptFieldValue::FromVector3(glm::vec3(0.0f))));
+	info.Fields.push_back(MakeField("Samples", MakeScriptFieldListType(ScriptFieldType::Float),
+	                                ScriptFieldValue::CreateDefault(MakeScriptFieldListType(ScriptFieldType::Float))));
+	float const nan = std::numeric_limits<float>::quiet_NaN();
+	auto const makeSamples = [](float last)
+	{
+		std::vector<ScriptFieldValue> elements(3, ScriptFieldValue::FromFloat(1.0f));
+		elements.back() = ScriptFieldValue::FromFloat(last);
+		return ScriptFieldValue::FromList(ScriptFieldType::Float, std::move(elements));
+	};
+	ScriptFieldMap stored = {{"Rate", ScriptFieldValue::FromFloat(nan)},
+	                         {"Offset", ScriptFieldValue::FromVector3({1.0f, nan, 2.0f})},
+	                         {"Samples", makeSamples(nan)}};
+	ScriptFieldInspection::EditorValueCache cache;
+	Json values;
+	CHECK(cache.Update(info, stored, values) == 3);
+	// A NaN that stays, alone, in a vector or in a list, is unchanged: nothing is converted again.
+	CHECK(cache.Update(info, stored, values) == 0);
+	stored["Samples"] = makeSamples(nan);
+	CHECK(cache.Update(info, stored, values) == 0);
+	// A change between 0 and -0 is a change.
+	stored["Rate"] = ScriptFieldValue::FromFloat(0.0f);
+	CHECK(cache.Update(info, stored, values) == 1);
+	stored["Rate"] = ScriptFieldValue::FromFloat(-0.0f);
+	CHECK(cache.Update(info, stored, values) == 1);
+	stored["Samples"] = makeSamples(0.0f);
+	CHECK(cache.Update(info, stored, values) == 1);
+	stored["Samples"] = makeSamples(-0.0f);
+	CHECK(cache.Update(info, stored, values) == 1);
+	CHECK(cache.Update(info, stored, values) == 0);
+}
+
 TEST_CASE("ScriptFieldInspection: edited values are stored in the scene format")
 {
 	ScriptClassInfo const info = MakeClass();

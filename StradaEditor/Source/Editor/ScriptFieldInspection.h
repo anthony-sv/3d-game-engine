@@ -35,7 +35,9 @@ namespace Strada::ScriptFieldInspection
 	// changed (Docs/Architecture.md §11, "Long lists"): Update gives `values` what ToEditorValues gives for the class and the
 	// stored fields (in their file form), converting a field again only when its stored value, or what the class says of it
 	// (its type, its enumerators and their kind, its default where no stored value has its type), differs from what it last
-	// converted, compared by value. A class whose shown fields are others than last time (names or order) starts over.
+	// converted, the values compared as the runtime's read-back compares them (floating-point numbers bit for bit, so a list
+	// holding a NaN that stays is not converted again). A class whose shown fields are others than last time (names or order)
+	// starts over.
 	class EditorValueCache
 	{
 	public:
