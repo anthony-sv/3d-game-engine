@@ -133,7 +133,7 @@ namespace
 	std::vector<std::string> SceneRun(std::filesystem::path const& project, std::string_view scene, std::string_view timeout,
 	                                  char const* timestep = nullptr)
 	{
-		std::vector<std::string> arguments = {"--project", Native(project),      "--scene",     std::string(scene), "--test",
+		std::vector<std::string> arguments = {"--project", Native(project),      "--scene",     std::string(scene),   "--test",
 		                                      "--timeout", std::string(timeout), "--hash-step", std::string(HashStep)};
 		if (timestep != nullptr)
 		{
