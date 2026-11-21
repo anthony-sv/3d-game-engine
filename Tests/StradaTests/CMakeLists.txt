@@ -21,6 +21,7 @@ add_executable(StradaTests
     Source/Asset/TestDataAsset.h
     Source/Asset/TrueTypeSanitizerTests.cpp
     Source/Asset/VehicleAssetTests.cpp
+    Source/Asset/VehicleNeutralAssetTests.cpp
     Source/Asset/VisualScriptFuzzTests.cpp
     Source/Asset/VisualScriptLayoutTests.cpp
     Source/Asset/VisualScriptReferencesTests.cpp
@@ -90,7 +91,9 @@ add_executable(StradaTests
     Source/Physics/PhysicsSceneTests.cpp
     Source/Physics/PhysicsStateTests.cpp
     Source/Physics/PhysicsTestUtilities.h
+    Source/Physics/PhysicsVehicleNeutralTests.cpp
     Source/Physics/PhysicsVehicleTests.cpp
+    Source/Physics/VehicleRideTestUtilities.h
     Source/Platform/ProcessTests.cpp
     Source/Project/ExampleCatalogFuzzTests.cpp
     Source/Project/ExampleCatalogTests.cpp

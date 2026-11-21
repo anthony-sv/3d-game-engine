@@ -224,12 +224,14 @@ namespace Strada
 		// open while the rear wheel turns the gear slower than the engine idles (TurnsBelowIdle), as a rider holds the lever:
 		// the idling engine never pushes the bike, which rolls free and stops on its brakes, while above that speed the clutch
 		// stays closed and the engine turns with the wheels. The rule reads only the step's inputs and the wheel's spin, so it
-		// adds no state.
-		void UpdateManualGearbox(VehicleRecord& record, JPH::PhysicsStepListenerContext const& context)
+		// adds no state. Returns whether that hold opens the clutch in a collision step that makes no shift (none applied in
+		// it, and neither the switch time nor the release time running at its start): the engine then runs free of the wheels
+		// as in neutral (ApplyEngineDamping).
+		bool UpdateManualGearbox(VehicleRecord& record, JPH::PhysicsStepListenerContext const& context)
 		{
 			if (record.Desc.TransmissionMode != VehicleTransmissionMode::Manual)
 			{
-				return;
+				return false;
 			}
 			VehicleShiftState& shift = record.Shift;
 			bool shifted = false;
@@ -247,6 +249,7 @@ namespace Strada
 				}
 			}
 			float clutch = 1.0f;
+			bool shifting = shifted;
 			if (shifted)
 			{
 				clutch = 0.0f;
@@ -255,18 +258,35 @@ namespace Strada
 			{
 				shift.SwitchTimeLeft = std::max(0.0f, shift.SwitchTimeLeft - context.mDeltaTime);
 				clutch = 0.0f;
+				shifting = true;
 			}
 			else if (shift.ClutchReleaseTimeLeft > 0.0f)
 			{
 				shift.ClutchReleaseTimeLeft = std::max(0.0f, shift.ClutchReleaseTimeLeft - context.mDeltaTime);
 				float const release = record.Desc.ClutchReleaseTime;
 				clutch = release > 0.0f ? std::clamp(1.0f - shift.ClutchReleaseTimeLeft / release, 0.0f, 1.0f) : 1.0f;
+				shifting = true;
 			}
-			if (shift.Gear != 0 && record.AppliedInputs.Throttle <= 0.0f && TurnsBelowIdle(record, shift.Gear))
+			bool const held = shift.Gear != 0 && record.AppliedInputs.Throttle <= 0.0f && TurnsBelowIdle(record, shift.Gear);
+			if (held)
 			{
 				clutch = 0.0f;
 			}
 			record.Controller->GetTransmission().Set(shift.Gear, clutch);
+			return held && !shifting;
+		}
+
+		// The engine's damping for one collision step, before Jolt's step of the vehicle damps it (WheeledVehicleController.cpp
+		// :288 of the pinned Jolt; Docs/Architecture.md §8, "The engine in neutral"): its own, plus the neutral damping by how
+		// far the applied throttle is closed while the engine runs free of the wheels (Jolt's gearbox in neutral, or a Manual
+		// gearbox's clutch held open below idle outside a shift). Set at every collision step, so that no step's value outlives
+		// it. Exact at full throttle, outside those cases and with the neutral damping at 0: the sum adds 0 to the bit.
+		void ApplyEngineDamping(VehicleRecord& record, bool held)
+		{
+			bool const runsFree = held || record.Controller->GetTransmission().GetCurrentGear() == 0;
+			float const closed = 1.0f - record.AppliedInputs.Throttle;
+			record.Controller->GetEngine().mAngularDamping =
+				runsFree ? record.Desc.EngineAngularDamping + record.Desc.EngineNeutralDamping * closed : record.Desc.EngineAngularDamping;
 		}
 
 		bool IsFinite(glm::vec3 const& value)
@@ -640,6 +660,7 @@ namespace Strada
 		desc.MaxRPM = definition.Engine.MaxRPM;
 		desc.EngineInertia = definition.Engine.Inertia;
 		desc.EngineAngularDamping = definition.Engine.AngularDamping;
+		desc.EngineNeutralDamping = definition.Engine.NeutralDamping;
 		desc.TransmissionMode = definition.Transmission.Mode;
 		desc.GearRatios = definition.Transmission.GearRatios;
 		desc.FinalDrive = definition.Transmission.FinalDrive;
@@ -761,6 +782,7 @@ namespace Strada
 		checker.Curve("NormalizedTorque", desc.NormalizedTorque);
 		checker.Range("EngineInertia", desc.EngineInertia, 0.001f, 1.0e3f);
 		checker.Range("EngineAngularDamping", desc.EngineAngularDamping, 0.0f, 100.0f);
+		checker.Range("EngineNeutralDamping", desc.EngineNeutralDamping, 0.0f, 100.0f);
 		if (desc.TransmissionMode != VehicleTransmissionMode::Automatic && desc.TransmissionMode != VehicleTransmissionMode::Manual)
 		{
 			checker.Fail("TransmissionMode: not a mode");
@@ -1188,7 +1210,8 @@ namespace Strada
 		ST_PROFILE_SCOPE("Physics.Vehicles");
 		for (auto& [entity, record] : m_Vehicles)
 		{
-			UpdateManualGearbox(record, context);
+			bool const held = UpdateManualGearbox(record, context);
+			ApplyEngineDamping(record, held);
 			// VehicleConstraint::OnStep is private to the constraint and public in the listener interface it implements.
 			static_cast<JPH::PhysicsStepListener&>(*record.Constraint).OnStep(context);
 		}

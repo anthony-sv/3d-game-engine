@@ -108,7 +108,13 @@ namespace Strada
 				.Doc("The engine's moment of inertia in kg m²: higher revs up more slowly."),
 			Field("AngularDamping", &VehicleEngineDefinition::AngularDamping)
 				.Range(0.0, 100.0)
-				.Doc("How fast the engine's speed decays by itself, per second."));
+				.Doc("How fast the engine's speed decays by itself, per second."),
+			Field("NeutralDamping", &VehicleEngineDefinition::NeutralDamping)
+				.Range(0.0, 100.0)
+				.Doc("How much faster, per second, the engine's speed decays while it turns free of the wheels (in neutral, or with "
+		             "a Manual gearbox's clutch held open below idle), times how far the throttle is closed: a revved engine falls "
+		             "back to idle with no gear to hold it, while a full throttle and a closed clutch in gear are as without it. 0 "
+		             "adds nothing."));
 	};
 
 	template<>
