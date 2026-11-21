@@ -13,6 +13,7 @@
 #include "Strada/Asset/VisualScriptAsset.h"
 #include "Strada/Core/FileSystem.h"
 #include "Strada/Core/Timestep.h"
+#include "Strada/Core/UUID.h"
 #include "Strada/Scene/Entity.h"
 #include "Strada/Scene/Scene.h"
 #include "Strada/Script/ScriptEngine.h"
@@ -652,4 +653,108 @@ TEST_CASE("FieldEditor: rows of a long list out of view keep their space, the ac
 	imgui.Frame(drawTexts);
 	CHECK(editor.GetDrawStatistics().ArrayRowsDrawn == 50);
 	CHECK(editor.GetDrawStatistics().ArrayRowsClipped == 0);
+}
+
+TEST_CASE("FieldEditor: the row of a long list whose asset picker is open stays drawn while the list scrolls it out of view, and the "
+          "picker with it")
+{
+	HeadlessImGui imgui;
+	FieldEditor editor;
+	FieldDescriptor models;
+	models.Name = "Models";
+	models.Kind = FieldKind::Array;
+	models.ElementKind = FieldKind::Asset;
+	models.Hints.AssetTypeName = "Mesh";
+	models.Hints.MaxCount = LongList;
+	std::array<FieldDescriptor, 1> const fields = {models};
+	Json values = Json::object({{"Models", Json::array()}});
+	for (int i = 0; i < 200; i++)
+	{
+		values["Models"].push_back(UUID::Invalid().ToString());
+	}
+
+	std::optional<float> scroll;
+	// The picker of element 2, opened as its "..." button opens it: in the row's ID scope.
+	ImGuiID rowScope = 0;
+	ImGuiID picker = 0;
+	bool openPicker = false;
+	bool deactivate = false;
+	bool closePopups = false;
+	std::function<void()> const draw = [&]
+	{
+		ImGui::SetNextWindowPos(ImVec2(0.0f, 0.0f));
+		ImGui::SetNextWindowSize(ImVec2(500.0f, 300.0f));
+		if (scroll)
+		{
+			ImGui::SetNextWindowScroll(ImVec2(-1.0f, *scroll));
+		}
+		ImGui::Begin("Fields", nullptr, ImGuiWindowFlags_NoSavedSettings);
+		if (std::exchange(openPicker, false))
+		{
+			ImGui::PushOverrideID(rowScope);
+			ImGui::OpenPopupEx(picker);
+			ImGui::PopID();
+		}
+		if (std::exchange(deactivate, false))
+		{
+			ImGui::ClearActiveID();
+		}
+		if (std::exchange(closePopups, false))
+		{
+			ImGui::ClosePopupsExceptModals();
+		}
+		static_cast<void>(editor.Draw(fields, values));
+		ImGui::End();
+	};
+	imgui.Frame(draw);
+	imgui.Frame(draw);
+	ImGuiWindow const* window = ImGui::FindWindowByName("Fields");
+	REQUIRE(window != nullptr);
+	CHECK(editor.GetDrawStatistics().ArrayRowsDrawn < 20);
+	int const index = 2;
+	rowScope = ImHashData(&index, sizeof(index), ImHashStr("Models", 0, ImHashStr("##fields", 0, window->ID)));
+	picker = ImHashStr("##assetPicker", 0, rowScope);
+	auto const isPickerShown = [picker]
+	{
+		ImGuiContext const& context = *GImGui;
+		return ImGui::IsPopupOpen(picker, ImGuiPopupFlags_AnyPopupLevel) && context.OpenPopupStack.Size == 1 &&
+		       context.OpenPopupStack[0].Window != nullptr && context.OpenPopupStack[0].Window->LastFrameActive == context.FrameCount;
+	};
+	openPicker = true;
+	imgui.Frame(draw);
+	imgui.Frame(draw);
+	REQUIRE(isPickerShown());
+	// Its search field takes the keyboard as it opens (a frame or two after it shows), which keeps the row drawn as the active
+	// one; a click elsewhere in the picker (its list's scrollbar, its margin) gives that up, and the picker stays open.
+	for (int frame = 0; frame < 3; frame++)
+	{
+		imgui.Frame(draw);
+	}
+	REQUIRE(GImGui->ActiveId == ImHashStr("##search", 0, GImGui->OpenPopupStack[0].Window->ID));
+	deactivate = true;
+	imgui.Frame(draw);
+	imgui.Frame(draw);
+	REQUIRE(GImGui->ActiveId == 0);
+	REQUIRE(isPickerShown());
+
+	// Scrolled to the list's end, far from the row: the row is drawn beside the view's, and submits its picker.
+	scroll = 1.0e9f;
+	imgui.Frame(draw);
+	scroll.reset();
+	imgui.Frame(draw);
+	CHECK(window->Scroll.y == window->ScrollMax.y);
+	CHECK(isPickerShown());
+	size_t const drawnWithPicker = editor.GetDrawStatistics().ArrayRowsDrawn;
+	float const rowsInView = window->InnerClipRect.GetHeight() / ImGui::GetFrameHeightWithSpacing();
+	CHECK(static_cast<float>(drawnWithPicker) <= rowsInView + 5.0f);
+	imgui.Frame(draw);
+	CHECK(isPickerShown());
+
+	// Closed, the row is no longer drawn out of view.
+	closePopups = true;
+	imgui.Frame(draw);
+	imgui.Frame(draw);
+	CHECK_FALSE(ImGui::IsPopupOpen(picker, ImGuiPopupFlags_AnyPopupLevel));
+	CHECK(editor.GetDrawStatistics().ArrayRowsDrawn == drawnWithPicker - 1);
+	CHECK(editor.GetDrawStatistics().ArrayRowsDrawn + editor.GetDrawStatistics().ArrayRowsClipped == 200);
 }

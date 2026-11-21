@@ -1889,13 +1889,35 @@ namespace Strada
 			first = toRow(firstInView);
 			last = std::max(first, toRow(endOfView));
 		}
-		// The row whose widget is active (an edit or a grip's drag under way) is drawn wherever it lies, so the interaction
-		// goes on while it is scrolled out of view.
-		std::optional<size_t> activeRow;
-		if (m_ActiveArrayRow.Array == array && m_ActiveArrayRow.ActiveId != 0 && m_ActiveArrayRow.ActiveId == context.ActiveId &&
-		    m_ActiveArrayRow.Row < count && (m_ActiveArrayRow.Row < first || m_ActiveArrayRow.Row >= last))
+		// Rows drawn wherever they lie, so that what they started goes on while they are scrolled out of view: the row whose
+		// widget is active (an edit or a grip's drag under way), and the row the popup open at this level of ImGui's popup
+		// stack was opened from (ImGui records the ID scope it was opened in, imgui.cpp:13148 of the pinned ImGui), which only
+		// that row submits (an asset picker). At most two, in order.
+		int const popupLevel = context.BeginPopupStack.Size;
+		ImGuiID const popupParent = popupLevel < context.OpenPopupStack.Size ? context.OpenPopupStack[popupLevel].OpenParentId : 0;
+		std::array<size_t, 2> kept{};
+		size_t keptCount = 0;
+		auto const keep = [&kept, &keptCount, first, last](size_t row)
 		{
-			activeRow = m_ActiveArrayRow.Row;
+			if ((row < first || row >= last) && (keptCount == 0 || kept[0] != row))
+			{
+				kept[keptCount] = row;
+				keptCount++;
+			}
+		};
+		if (m_ActiveArrayRow.Array == array && m_ActiveArrayRow.ActiveId != 0 && m_ActiveArrayRow.ActiveId == context.ActiveId &&
+		    m_ActiveArrayRow.Row < count)
+		{
+			keep(m_ActiveArrayRow.Row);
+		}
+		if (m_PopupArrayRow.Array == array && popupParent != 0 && m_PopupArrayRow.Parent == popupParent && m_PopupArrayRow.Row < count &&
+		    ImGui::GetID(static_cast<int>(m_PopupArrayRow.Row)) == popupParent)
+		{
+			keep(m_PopupArrayRow.Row);
+		}
+		if (keptCount == 2 && kept[1] < kept[0])
+		{
+			std::swap(kept[0], kept[1]);
 		}
 
 		// Rows left out keep their space, so the rows drawn and "+" are where they are with every row drawn.
@@ -1965,6 +1987,12 @@ namespace Strada
 			{
 				ImGui::SetTooltip("Remove element %zu", i);
 			}
+			// A popup this row opened, or keeps open, at the array's level.
+			ImGuiID const rowScope = ImGui::GetCurrentWindowRead()->IDStack.back();
+			if (popupLevel < context.OpenPopupStack.Size && context.OpenPopupStack[popupLevel].OpenParentId == rowScope)
+			{
+				m_PopupArrayRow = PopupArrayRow{array, rowScope, static_cast<uint32_t>(i)};
+			}
 			ImGui::PopID();
 			if (removed && !changed)
 			{
@@ -1980,17 +2008,20 @@ namespace Strada
 			cursorRow = i + 1;
 			rowsDrawn++;
 		};
-		if (activeRow && *activeRow < first)
+		size_t keptDrawn = 0;
+		while (keptDrawn < keptCount && kept[keptDrawn] < first)
 		{
-			drawRow(*activeRow);
+			drawRow(kept[keptDrawn]);
+			keptDrawn++;
 		}
 		for (size_t row = first; row < last; row++)
 		{
 			drawRow(row);
 		}
-		if (activeRow && *activeRow >= last)
+		while (keptDrawn < keptCount)
 		{
-			drawRow(*activeRow);
+			drawRow(kept[keptDrawn]);
+			keptDrawn++;
 		}
 		skipTo(count);
 		if (clip)

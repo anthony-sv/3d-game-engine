@@ -5283,7 +5283,12 @@ once. Without .NET a document still loads, saves and shows in the editor; analys
     widget is one frame high, but for a multiline text (`FieldDisplay::MultilineText`, four lines high: the element takes
     the array's hints, `MakeElementDescriptor`), whose array is drawn whole. The active row is the one that held the
     active widget when it was last drawn (ImGui's `ActiveIdIsAlive` test, as `EndGroup` makes it for a group,
-    `imgui.cpp:12638`), drawn while that widget stays active. `ImGuiListClipper` cannot clip inside the table's value cell,
+    `imgui.cpp:12638`), drawn while that widget stays active. So is the row a popup was opened from (ImGui records the ID
+    scope a popup was opened in, `OpenParentId`, `imgui.cpp:13148`), drawn while that popup stays open at the array's
+    level of the popup stack: a popup that only its row submits, as an element's asset picker is, stays open and shown while
+    the list scrolls its row out of view. A combo's popup (an enum element's) is submitted only by a combo ImGui does not
+    clip (`BeginCombo` returns at `ItemAdd`, `imgui_widgets.cpp:1969`), so it hides while its row is out of view and shows
+    again with it, as in any window ImGui scrolls. `ImGuiListClipper` cannot clip inside the table's value cell,
     since its `Begin` ends the table's row (`imgui.cpp:3411-3412` of the pinned ImGui), so the field editor clips by hand.
     Tab moves through the rows drawn. Arrays drawn without a table row (`DrawInlineValue`, `DrawValuePopup`) and arrays of reflected structs
     (bounded by their `MaxCount`, which no script's or graph's list is) are drawn whole.

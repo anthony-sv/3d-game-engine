@@ -359,6 +359,17 @@ namespace Strada
 			uint32_t Row = 0;
 		};
 		ActiveArrayRow m_ActiveArrayRow;
+		// The element row of an array of plain values that a popup open at the array's level of ImGui's popup stack was
+		// opened from (Array, the array's ID scope; Parent, the row's ID scope, which ImGui records as the popup's
+		// OpenParentId; both ImGuiIDs): drawn while that popup stays open, wherever it lies, since only the row submits it
+		// (an asset picker).
+		struct PopupArrayRow
+		{
+			uint32_t Array = 0;
+			uint32_t Parent = 0;
+			uint32_t Row = 0;
+		};
+		PopupArrayRow m_PopupArrayRow;
 		FieldEditorDrawStatistics m_DrawStatistics;
 		// How deep Draw calls nest (a struct drawer's table inside the one being drawn): the statistics start at the outermost.
 		int m_DrawDepth = 0;

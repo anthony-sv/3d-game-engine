@@ -32,7 +32,8 @@ directly: every modification goes through `EditorOperations` (undoable commands,
   Project Settings panel does for the layers; an editor that can move that data with its elements does so instead, as
   the Mixer panel and the inspector's mixer drawer move snapshot values with their effects); buttons that add stop at
   the field's `MaxCount`. Script fields and graph variables that are lists are such arrays (`ScriptFieldInspection`).
-  In a field table an array of plain values draws only the rows in the window's view and the row whose widget is active,
+  In a field table an array of plain values draws only the rows in the window's view, the row whose widget is active
+  and the row whose popup is open (a popup only its row submits, as an asset picker),
   keeping the others' space, because a row is one frame high: a plain value's widget that is taller than a frame makes
   its array drawn whole, as `FieldDisplay::MultilineText` does (`FieldEditor::DrawArrayElements`); headless tests count
   the rows with `FieldEditor::GetDrawStatistics`. A panel that shows running values converts again only what changed
