@@ -264,16 +264,16 @@ TEST_CASE("Project: Moto's identity names its game Strada Moto, whose data folde
 	// A company named after the engine would be kept apart from the engine's folder as "Strada_" (UserDataLocations).
 	Result<std::string> text = FileSystem::ReadTextFile(FileSystem::PathFromUtf8(STRADA_SAMPLE_PROJECTS_DIR) / "Moto" / "Moto.sproj");
 	REQUIRE(text.IsOk());
-	Result<Json> document = ParseJson(text.GetValue());
-	REQUIRE(document.IsOk());
-	Json& project = document.GetValue()["Project"];
-	CHECK(project["Identity"]["Product"] == "Strada Moto");
-	CHECK(project["Identity"]["Company"] == "");
-	project["Name"] = "Renamed Moto";
+	Result<Json> parsed = ParseJson(text.GetValue());
+	REQUIRE(parsed.IsOk());
+	Json document = parsed.TakeValue();
+	CHECK(document["Project"]["Identity"]["Product"] == "Strada Moto");
+	CHECK(document["Project"]["Identity"]["Company"] == "");
+	document["Project"]["Name"] = "Renamed Moto";
 
 	Testing::TemporaryDirectory directory;
 	std::filesystem::path const file = directory.GetPath() / "Moto.sproj";
-	REQUIRE(FileSystem::WriteTextFile(file, DumpJson(document.GetValue())).IsOk());
+	REQUIRE(FileSystem::WriteTextFile(file, DumpJson(document)).IsOk());
 	Result<GameIdentity> const identity = Project::ReadGameIdentity(file, ProjectFileKind::Project);
 	REQUIRE_MESSAGE(identity.IsOk(), (identity ? std::string() : identity.GetError()));
 	CHECK(identity.GetValue() == GameIdentity{"", "Strada Moto"});
