@@ -1612,7 +1612,10 @@ namespace Strada
 		{
 			return false;
 		}
-		// A vehicle made or changed this frame is in the world before it is reset.
+		// A vehicle made or changed this frame is in the world before it is reset, with the values of its definition and curves
+		// as they are now: an edit of those (vehicle.set, a curve's edit) is pending only through the asset registry's epoch,
+		// which ApplyPhysicsChanges does not look at, so it is taken first and the vehicle is made again with the new values.
+		SyncVehicles();
 		ApplyPhysicsChanges();
 		auto const state = m_Vehicles.find(entity.GetHandle());
 		if (state == m_Vehicles.end() || !state->second.Made)

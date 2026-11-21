@@ -520,7 +520,8 @@ namespace Strada
 		// its character, which finds what it stands on there.
 		void TeleportCharacter(Entity entity, glm::vec3 const& position);
 		// Puts the vehicle of an entity with a Vehicle back as it was made, at rest where its body stands
-		// (PhysicsScene::ResetVehicle, Docs/Architecture.md §8, "The reset"), applying the physics changes not applied yet first,
+		// (PhysicsScene::ResetVehicle, Docs/Architecture.md §8, "The reset"), applying the physics changes not applied yet first
+		// (an edit of its definition or curves made since the last step among them, so it is made again with the new values),
 		// and draws its wheels again from its next step on, as a vehicle made again's are. At once, between steps: called from
 		// OnFixedUpdate, it is in place for the step that follows. False, changing nothing, while the scene simulates no vehicle
 		// for the entity (it does not play, or the entity has no dynamic body or no definition that loads).

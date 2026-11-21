@@ -21,6 +21,7 @@
 #include <doctest/doctest.h>
 
 #include <algorithm>
+#include <cstdint>
 #include <optional>
 #include <string>
 #include <string_view>
@@ -170,5 +171,57 @@ TEST_CASE("VehicleLiveEdit: vehicle.set of the engine's NeutralDamping while a b
 	CHECK(rpm() == doctest::Approx(16000.0f * (1.0f - 0.005f / 60.0f)).epsilon(1e-6));
 	CHECK(world->FindVehicleSettings(bike)->EngineNeutralDamping == 0.0f);
 	CHECK(world->GetStructureVersion() == structure);
+	play.Stop();
+}
+
+TEST_CASE("VehicleLiveEdit: a bike whose definition vehicle.set edits and that is reset with no step between is made again with the "
+          "new values")
+{
+	Testing::PhysicsSystemScope physics;
+	VehicleEditFixture fixture;
+	EditorScripts scripts{fixture.Context, FileSystem::GetExecutableDirectory() / "Strada.ScriptCore.dll"};
+	PlayMode play{fixture.Context, scripts};
+	std::string const definition = fixture
+	                                   .Ok("vehicle.create", Json::object({{"path", "Vehicles/Bike.svehicle"},
+	                                                                       {"fields",
+	                                                                        {{"Engine", {{"MinRPM", 1700}, {"MaxRPM", 16000}}},
+	                                                                         {"Transmission", {{"Mode", "Manual"}}},
+	                                                                         {"Lean", {{"SpringDamping", 800}}}}}}))["vehicle"]["id"]
+	                                   .get<std::string>();
+	fixture.Create("Ground", Json::object({{"Transform", {{"Translation", {0.0, -0.5, 0.0}}}},
+	                                       {"BoxCollider", {{"HalfExtents", {400.0, 0.5, 400.0}}}}}));
+	UUID const bike =
+		fixture.Create("Bike", Json::object({{"Transform", {{"Translation", {0.0, 0.05, 0.0}}}},
+	                                         {"RigidBody", {{"Type", "Dynamic"}, {"Mass", 250.0}, {"AllowSleep", false}}},
+	                                         {"BoxCollider", {{"HalfExtents", {0.25, 0.5, 0.6}}, {"Offset", {0.0, 0.75, 0.0}}}},
+	                                         {"Vehicle", {{"Definition", definition}}}}));
+
+	REQUIRE(play.Start(EditorPlayState::Simulate, 640, 480).IsOk());
+	Scene& scene = fixture.Context.GetScene();
+	scene.ApplyPhysicsChanges();
+	PhysicsScene* const world = scene.GetPhysicsScene();
+	REQUIRE(world != nullptr);
+	REQUIRE(world->HasVehicle(bike));
+	auto const rpm = [world, bike]
+	{
+		std::optional<VehicleState> const state = world->GetVehicleState(bike);
+		REQUIRE(state);
+		return state->EngineSpeed;
+	};
+	// Idling in neutral, at the definition's 1,700 rpm.
+	REQUIRE(play.Advance(30, Timestep(1.0f / 60.0f)) == 30);
+	REQUIRE(rpm() == 1700.0f);
+	uint64_t const structure = world->GetStructureVersion();
+
+	// The idle lowered, then the bike reset before any step: it is made again with the new idle, as a bike made there with
+	// it, and not with the old one, which the new range would keep.
+	fixture.Ok("vehicle.set", Json::object({{"vehicle", definition}, {"fields", {{"Engine", {{"MinRPM", 1200}}}}}}));
+	REQUIRE(scene.ResetVehicle(scene.GetEntityByUUID(bike)));
+	REQUIRE(world->FindVehicleSettings(bike) != nullptr);
+	CHECK(world->FindVehicleSettings(bike)->MinRPM == 1200.0f);
+	CHECK(rpm() == 1200.0f);
+	CHECK(world->GetStructureVersion() == structure);
+	REQUIRE(play.Advance(1, Timestep(1.0f / 60.0f)) == 1);
+	CHECK(rpm() == 1200.0f);
 	play.Stop();
 }

@@ -3245,7 +3245,10 @@ wheel all of its torque).
   sets the chassis entity's transform, and the next step's sync takes the body there, keeping its velocity; the reset
   reads nothing of the pose and zeroes the velocities at once, so a teleport and a reset in one frame or fixed step, in
   either order, leave the vehicle new and at rest at the teleported place for that step. `Scene::ResetVehicle` applies the
-  physics changes not applied yet first, as every vehicle binding does, and starts the vehicle's wheel drawing again, so
+  physics changes not applied yet first, as every vehicle binding does, and an edit of the vehicle's definition or curves
+  made since the last step among them (which waits for the next step otherwise, since only the asset registry's epoch
+  tells of it), so a vehicle edited and reset with no step between is made again with the new values, as a vehicle made
+  there with them; then it starts the vehicle's wheel drawing again, so
   its wheels are drawn from its next step on (below, "Interpolated wheels"), never between the old ride and the new.
   **Where no game plays** there is no physics world and so no vehicle: a reset from a script or a graph is then a script
   error naming the member and does nothing, as the inputs and the shifts are; no automation command resets a vehicle.
