@@ -7431,8 +7431,13 @@ graphs alone keeps its best lap and its settings screen, and none exposes a path
   summary gives the state hash of step 3,600 and, with the player's `--hash-every-step`, the fold of every step's hash
   from the first to it. The three runs' are compared character for character, and nothing of the ride (a hash, a time,
   a speed) is pinned. A test run's data folder is temporary, so every run starts without a kept best lap or settings.
-  Equal folds do not show by themselves that the bike rode: the lap scene's own checks do, over its two laps (behind
-  `STRADA_LONG_RIDES=1`). `FoldedHashTests.cpp`, in the same shard, plays the option on a generated game: the fold comes
+  Equal folds do not show by themselves that the bike rode, so the case's copy of the scene also runs an odometer, a
+  graph without a body that reads the bike alone and adds its forward speed times the step's length each fixed step:
+  the meters it logs at step 3,600 are the same at the three rates and within the band the lap's design states (at
+  least half the lap's 2,638.6 m, which the autopilot rides in 1.0 to 1.25 times the racing line's 71.1 s, and less
+  than the lap). The lap scene's own checks ride its two whole laps behind `STRADA_LONG_RIDES=1`, and `MotoAgentTests`
+  (StradaEditorTests) rides the scene from the grid in the editor's play mode. `FoldedHashTests.cpp`, in the same
+  shard, plays the option on a generated game: the fold comes
   after the one-step hash, which it leaves as it was, is the same at the three rates, tells a step fewer apart, folds
   to the last step without `--hash-step`, and is absent when the step is never reached. **Exported** (the same shard):
   a copy exported as File > Build Game exports it is `Strada Moto` (`.exe` on Windows, `.app` on macOS) and carries the

@@ -18,11 +18,13 @@
 
 #include <doctest/doctest.h>
 
+#include <charconv>
 #include <chrono>
 #include <cstdint>
 #include <filesystem>
 #include <string>
 #include <string_view>
+#include <system_error>
 #include <utility>
 #include <vector>
 
@@ -31,11 +33,11 @@ using namespace Strada::RuntimeTesting;
 
 // The Moto sample as it ships, played by the player at the frame rates a player's machine runs it at: its test scene's
 // pinned checks at 1/30 and 1/144 s a frame (SampleTests.cpp plays them at 1/60), and the physics state of the first
-// minute of a ride from the grid, every fixed step of it, the same at 1/30, 1/60 and 1/144 s a frame; and as its players
-// get it, exported as "Strada Moto": the same pinned checks, and what the game keeps for its player across two runs in its
-// own data folder (Docs/Architecture.md section 15, "Moto shipped"). A ctest entry of its own (StradaRuntimeTests.Ship,
-// Shards.cmake): its test runs are on scenes without the props, and only the two runs that keep the player's data start
-// the main scene.
+// minute of a ride from the grid, every fixed step of it, the same at 1/30, 1/60 and 1/144 s a frame, with the meters the
+// bike rode in it within the lap's band; and as its players get it, exported as "Strada Moto": the same pinned checks, and
+// what the game keeps for its player across two runs in its own data folder (Docs/Architecture.md section 15, "Moto
+// shipped"). A ctest entry of its own (StradaRuntimeTests.Ship, Shards.cmake): its test runs are on scenes without the
+// props, and only the two runs that keep the player's data start the main scene.
 
 namespace
 {
@@ -50,6 +52,12 @@ namespace
 	// more of the game (15 steps), since 8,640 frames of the player's 1/144 s, a float a frame, may fall short of step 3,600.
 	constexpr std::string_view RideStep = "3600";
 	constexpr std::string_view RideTimeout = "60.25";
+	// How far the bike rides in that minute, on its odometer (MakeOdometerGraph). The lap is 2,638.6 m (Tools/Circuit.py's
+	// LENGTH) and the autopilot rides it in 1.0 to 1.25 times the racing line's 71.1 s (Tools/LapChecks.py's LAP_BAND), so a
+	// minute is less than a lap, and a minute at the band's slowest pace is 1,781 m; the start from rest costs some of that,
+	// so the least is half the lap. A bike held on the grid, or one that fell, reads far less.
+	constexpr int32_t LeastRiddenMeters = 1319;
+	constexpr int32_t MostRiddenMeters = 2638;
 
 	// The test run's summary line, passed or failed, to its end; empty without one.
 	std::string_view SummaryLine(std::string_view output)
@@ -184,24 +192,108 @@ namespace
 		return document;
 	}
 
-	// The copy's main scene with one more root entity, Kept Progress, that runs the graph: edited as its file's JSON, since
-	// loading the scene of 10,000 props to add one entity would take longer than the run.
-	void AddKeepingEntity(std::filesystem::path const& scenePath, AssetHandle graph)
+	// The bike's odometer over the ride's minute, from what it reads in the fixed steps alone: each step adds its forward speed
+	// times the step's length, and its RideStep-th step logs the whole meters ridden ("Moto's minute: the bike rode N m
+	// forward in RideStep fixed steps"). It reads the bike and no graph of the game's, and no body is added, so the scene's
+	// physics state is the one it would have without it.
+	VisualScriptDocument MakeOdometerGraph()
+	{
+		VisualScriptDocument document;
+		VisualScriptVariable meters;
+		meters.ID = 1;
+		meters.Name = "Meters";
+		meters.Type = "float";
+		meters.Value = 0.0;
+		document.Variables.push_back(meters);
+		VisualScriptVariable steps;
+		steps.ID = 2;
+		steps.Name = "Steps";
+		steps.Type = "int";
+		steps.Value = 0;
+		document.Variables.push_back(steps);
+		std::vector<VisualScriptNode>& nodes = document.Graph.Nodes;
+		std::vector<VisualScriptLink>& links = document.Graph.Links;
+		nodes.push_back(MakeNode(10, "Event.FixedUpdate"));
+		nodes.push_back(MakeNode(11, "Call:Strada.Entity.FindByName(string)", Json::object(), Json::object({{"Name", "Bike"}})));
+		nodes.push_back(MakeNode(12, "Get:Strada.VehicleComponent.ForwardSpeed"));
+		nodes.push_back(MakeNode(13, "Get:Strada.Time.FixedDeltaTime"));
+		nodes.push_back(MakeNode(14, "Variable.Get", Json::object({{"Variable", 1}})));
+		nodes.push_back(MakeNode(15, "Expression", Json::object({{"Formula", "meters + speed * dt"}})));
+		nodes.push_back(MakeNode(16, "Variable.Set", Json::object({{"Variable", 1}})));
+		nodes.push_back(MakeNode(17, "Variable.Get", Json::object({{"Variable", 2}})));
+		nodes.push_back(MakeNode(18, "Expression", Json::object({{"Formula", "steps + 1"}})));
+		nodes.push_back(MakeNode(19, "Variable.Set", Json::object({{"Variable", 2}})));
+		nodes.push_back(MakeNode(20, "Variable.Get", Json::object({{"Variable", 2}})));
+		nodes.push_back(MakeNode(21, "Expression", Json::object({{"Formula", "steps == " + std::string(RideStep)}})));
+		nodes.push_back(MakeNode(22, "Flow.Branch"));
+		nodes.push_back(MakeNode(23, "Variable.Get", Json::object({{"Variable", 1}})));
+		nodes.push_back(MakeNode(24, "Expression", Json::object({{"Formula", "int(meters)"}})));
+		nodes.push_back(MakeNode(25, "FormatString",
+		                         Json::object({{"Format", "Moto's minute: the bike rode {Meters} m forward in {Steps} fixed steps"}})));
+		nodes.push_back(MakeNode(26, "Call:Strada.Log.Info(string)"));
+		links.push_back({{10, "Then"}, {16, "Execute"}});
+		links.push_back({{16, "Then"}, {19, "Execute"}});
+		links.push_back({{19, "Then"}, {22, "Execute"}});
+		links.push_back({{22, "True"}, {26, "Execute"}});
+		links.push_back({{11, "Result"}, {12, "Target"}});
+		links.push_back({{14, "Value"}, {15, "meters"}});
+		links.push_back({{12, "Value"}, {15, "speed"}});
+		links.push_back({{13, "Value"}, {15, "dt"}});
+		links.push_back({{15, "Result"}, {16, "Value"}});
+		links.push_back({{17, "Value"}, {18, "steps"}});
+		links.push_back({{18, "Result"}, {19, "Value"}});
+		links.push_back({{20, "Value"}, {21, "steps"}});
+		links.push_back({{21, "Result"}, {22, "Condition"}});
+		links.push_back({{23, "Value"}, {24, "meters"}});
+		links.push_back({{24, "Result"}, {25, "Meters"}});
+		links.push_back({{20, "Value"}, {25, "Steps"}});
+		links.push_back({{25, "Result"}, {26, "Message"}});
+		return document;
+	}
+
+	// The meters the odometer logged, or -1 when it logged none.
+	int32_t RiddenMeters(std::string_view output)
+	{
+		std::string_view const prefix = "Moto's minute: the bike rode ";
+		size_t const start = output.find(prefix);
+		if (start == std::string_view::npos)
+		{
+			return -1;
+		}
+		std::string_view const rest = output.substr(start + prefix.size());
+		int32_t meters = -1;
+		std::from_chars_result const read = std::from_chars(rest.data(), rest.data() + rest.size(), meters);
+		return read.ec == std::errc() && std::string_view(read.ptr, rest.data() + rest.size()).starts_with(" m forward in ") ? meters : -1;
+	}
+
+	// The graph saved into the open project's Scripts folder and imported, the registry saved with it.
+	AssetHandle ImportGraph(VisualScriptDocument const& document, std::string const& fileName)
+	{
+		std::filesystem::path const graphFile = AssetManager::GetAssetDirectory() / "Scripts" / FileSystem::PathFromUtf8(fileName);
+		REQUIRE(VisualScriptSerializer::SaveToFile(document, graphFile).IsOk());
+		Result<AssetHandle> const graph = AssetManager::ImportFile(graphFile);
+		REQUIRE(graph.IsOk());
+		REQUIRE(AssetManager::SaveRegistry().IsOk());
+		return graph.GetValue();
+	}
+
+	// The copy's scene with one more root entity of that name and ID that runs the graph: edited as its file's JSON, since
+	// loading a scene (the main one holds 10,000 props) to add one entity would take longer than the run.
+	void AddGraphEntity(std::filesystem::path const& scenePath, std::string const& name, std::string const& entityID, AssetHandle graph)
 	{
 		Result<std::string> text = FileSystem::ReadTextFile(scenePath);
 		REQUIRE(text.IsOk());
 		Result<Json> parsed = ParseJson(text.GetValue());
 		REQUIRE(parsed.IsOk());
 		Json scene = parsed.TakeValue();
-		std::string const keptID = "4242424242424242";
 		for (Json const& entity : scene["Entities"])
 		{
-			REQUIRE(entity.value("ID", std::string()) != keptID);
+			REQUIRE(entity.value("ID", std::string()) != entityID);
 		}
 		scene["Entities"].push_back(
-			Json::object({{"ID", keptID},
+			Json::object({{"ID", entityID},
 		                  {"Components",
-		                   Json::object({{"Tag", Json::object({{"Tag", "Kept Progress"}})},
+		                   Json::object({{"Tag", Json::object({{"Tag", name}})},
 		                                 {"Transform", Json::object({{"Translation", Json::array({0.0, 0.0, 0.0})},
 		                                                             {"Rotation", Json::array({0.0, 0.0, 0.0, 1.0})},
 		                                                             {"Scale", Json::array({1.0, 1.0, 1.0})}})},
@@ -250,12 +342,23 @@ TEST_CASE("Runtime: the first minute of Moto's ride from the grid has the same p
 	// autopilot from the grid as the scene starts, its inputs set in its fixed steps from what the bike reads, never from a
 	// frame. Its checks report after two whole laps, so a minute of it is a test run cut by its timeout: it ends unfinished
 	// (exit code 1) with no check failed, and its summary gives the state hash of step 3,600 and the fold of every step's
-	// hash from the first to it (--hash-every-step), compared exactly between the rates. A test run's game data folder is
-	// temporary, so every run starts from no kept best lap and no settings.
+	// hash from the first to it (--hash-every-step), compared exactly between the rates. Equal states alone would hold for a
+	// bike that never left the grid, so the copy's scene also runs an odometer of the bike's own (a graph without a body,
+	// which reads no graph of the game's): the meters it logs at step 3,600 are within the band the lap's design states,
+	// and the same at the three rates. A test run's game data folder is temporary, so every run starts from no kept best
+	// lap and no settings.
 	Testing::TemporaryDirectory directory;
 	std::filesystem::path const project = CopyRepositoryProject("Moto", directory.GetPath());
+	{
+		Testing::AssetManagerScope assets;
+		Result<Ref<Project>> opened = Project::Open(project);
+		REQUIRE_MESSAGE(opened.IsOk(), (opened ? std::string() : opened.GetError()));
+		AssetHandle const odometer = ImportGraph(MakeOdometerGraph(), "Odometer.sgraph");
+		AddGraphEntity(AssetManager::GetAssetDirectory() / "Scenes" / "Lap.sscene", "Odometer", "4343434343434343", odometer);
+	}
 	Testing::IsolatedUserRoot const userRoot;
 	std::string expected;
+	int32_t expectedMeters = -1;
 	for (char const* timestep : {"0.0166666667", "0.0333333333", "0.0069444444"})
 	{
 		CAPTURE(timestep);
@@ -270,11 +373,18 @@ TEST_CASE("Runtime: the first minute of Moto's ride from the grid has the same p
 		CHECK(Contains(summary, " failed, 0 script exceptions; the scripts did not finish testing in "));
 		std::string const state(PhysicsState(run.Output));
 		REQUIRE(Contains(state, std::string(" at step ") + std::string(RideStep) + "; steps 1 to " + std::string(RideStep) + " folded "));
+		CHECK(Contains(run.Output, std::string(" m forward in ") + std::string(RideStep) + " fixed steps"));
+		int32_t const meters = RiddenMeters(run.Output);
+		CAPTURE(meters);
+		CHECK(meters >= LeastRiddenMeters);
+		CHECK(meters <= MostRiddenMeters);
 		if (expected.empty())
 		{
 			expected = state;
+			expectedMeters = meters;
 		}
 		CHECK(state == expected);
+		CHECK(meters == expectedMeters);
 	}
 }
 
@@ -353,12 +463,8 @@ TEST_CASE("Runtime: exported Strada Moto keeps its player's quality, a bus volum
 			}
 		}
 		REQUIRE(bestLapTime != 0);
-		std::filesystem::path const graphFile = AssetManager::GetAssetDirectory() / "Scripts" / "KeptProgress.sgraph";
-		REQUIRE(VisualScriptSerializer::SaveToFile(MakeKeepingGraph(bestLapTime, director), graphFile).IsOk());
-		Result<AssetHandle> const graph = AssetManager::ImportFile(graphFile);
-		REQUIRE(graph.IsOk());
-		REQUIRE(AssetManager::SaveRegistry().IsOk());
-		AddKeepingEntity(AssetManager::GetAssetDirectory() / "Scenes" / "Main.sscene", graph.GetValue());
+		AssetHandle const graph = ImportGraph(MakeKeepingGraph(bestLapTime, director), "KeptProgress.sgraph");
+		AddGraphEntity(AssetManager::GetAssetDirectory() / "Scenes" / "Main.sscene", "Kept Progress", "4242424242424242", graph);
 		game = ExportOpenProject(*opened.GetValue(), directory.GetPath() / "Export");
 	}
 
