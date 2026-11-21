@@ -29,8 +29,9 @@
 
 using namespace Strada;
 
-// Live edits of a vehicle definition's values that track EN adds (Docs/Architecture.md §8, "The engine in neutral"), beside
-// DataAssetCommandsTests' live edit of a torque curve and a shift point.
+// Live edits of a vehicle definition's values while a bike plays: the engine's damping in neutral and an edit that a reset
+// meets before the next step (Docs/Architecture.md §8, "The engine in neutral" and "The reset"), beside DataAssetCommandsTests'
+// live edit of a torque curve and a shift point.
 namespace
 {
 	// An editor model with every command of the editor registered and a project open.

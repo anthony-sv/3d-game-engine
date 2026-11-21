@@ -15,8 +15,9 @@
 #include <optional>
 #include <string>
 
-// What the vehicle cases of track EN share (PhysicsVehicleNeutralTests.cpp, PhysicsVehicleResetTests.cpp): a flat ground, a
-// bike's chassis and a world to ride it in, as PhysicsVehicleTests.cpp makes them.
+// What the cases of the engine's damping in neutral and of a vehicle's reset share (PhysicsVehicleNeutralTests.cpp,
+// PhysicsVehicleResetTests.cpp): a flat ground, a bike's chassis and a world to ride it in, as PhysicsVehicleTests.cpp makes
+// them.
 namespace Strada::Testing
 {
 	inline constexpr float VehicleRideStep = 1.0f / 60.0f;
