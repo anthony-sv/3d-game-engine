@@ -95,6 +95,7 @@ namespace Strada
 			SceneRunnerSettings settings;
 			settings.Runtime = MakeSceneRuntimeSettings(game.GetSettings());
 			settings.Runtime.PhysicsHashStep = specification.Test ? specification.HashStep : 0;
+			settings.Runtime.FoldPhysicsHashes = specification.Test && specification.FoldHashes;
 			settings.IsEditor = false;
 			settings.PlayerDefaults = MakePlayerSettingsDefaults(game.GetSettings().Window);
 			// A run without a window keeps the window settings a game changes without applying them.
@@ -502,14 +503,25 @@ namespace Strada
 	std::string RuntimeLayer::DescribePhysicsState() const
 	{
 		Scene const& scene = *m_Runner.GetScene();
+		uint64_t const step = m_Specification.HashStep == 0 ? scene.GetFixedStepCount() : m_Specification.HashStep;
+		std::string physics;
 		if (m_Specification.HashStep == 0)
 		{
-			return fmt::format("physics state {:016x} at step {}", scene.ComputePhysicsStateHash(), scene.GetFixedStepCount());
+			physics = fmt::format("physics state {:016x} at step {}", scene.ComputePhysicsStateHash(), step);
 		}
-		if (std::optional<uint64_t> const hash = scene.GetRecordedPhysicsHash())
+		else if (std::optional<uint64_t> const hash = scene.GetRecordedPhysicsHash())
 		{
-			return fmt::format("physics state {:016x} at step {}", *hash, m_Specification.HashStep);
+			physics = fmt::format("physics state {:016x} at step {}", *hash, step);
 		}
-		return fmt::format("no physics state at step {}: the run ended at step {}", m_Specification.HashStep, scene.GetFixedStepCount());
+		else
+		{
+			return fmt::format("no physics state at step {}: the run ended at step {}", step, scene.GetFixedStepCount());
+		}
+		// None before the first step: a run of no step has nothing to fold.
+		if (std::optional<uint64_t> const folded = scene.GetFoldedPhysicsHash(); m_Specification.FoldHashes && folded)
+		{
+			physics += fmt::format("; steps 1 to {} folded {:016x}", step, *folded);
+		}
+		return physics;
 	}
 }

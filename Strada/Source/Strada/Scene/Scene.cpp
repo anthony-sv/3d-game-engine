@@ -587,6 +587,7 @@ namespace Strada
 		m_RuntimeTime = 0.0;
 		m_FixedStepCount = 0;
 		m_RecordedPhysicsHash.reset();
+		m_FoldedPhysicsHash = HashBuilder();
 		m_RuntimeSettings = settings;
 		// The sequence of the UUIDs of entities made while running starts from the scene's own entities, so that two scenes
 		// make different ones and every run of a scene the same.

@@ -312,6 +312,9 @@ namespace Strada
 			.AddOption("timestep", "seconds", "Advance the game by this time each frame (default: the frame's real time; 1/60 in tests)")
 			.AddOption("hash-step", "count",
 		               "End the test summary with the physics state hash after this fixed step (default: after the last one)")
+			.AddFlag("hash-every-step",
+		             "End the test summary with the physics state hashes of every fixed step up to --hash-step's (or the last), "
+		             "folded into one, as well: runs whose folds are equal are equal at each of those steps")
 			.AddFlag("headless", "Run without a window, rendering or sound")
 			.AddFlag("temporary-data",
 		             "Keep the game's saves and settings in a new folder removed at exit, not in its own (a check of the game, "
@@ -374,6 +377,11 @@ namespace Strada
 		if (hashStep && !test)
 		{
 			return fail("--hash-step applies to test runs (--test)");
+		}
+		bool const hashEveryStep = arguments.HasFlag("hash-every-step");
+		if (hashEveryStep && !test)
+		{
+			return fail("--hash-every-step applies to test runs (--test)");
 		}
 		std::optional<double> const timeout = arguments.GetDouble("timeout");
 		if (timeout && !(*timeout > 0.0 && *timeout <= 86400.0))
@@ -511,6 +519,7 @@ namespace Strada
 			runtime.Layer.FixedTimestep = static_cast<float>(seconds);
 			runtime.Layer.TestFrameLimit = static_cast<uint64_t>(std::ceil(timeout.value_or(DefaultTestTimeout) / seconds));
 			runtime.Layer.HashStep = static_cast<uint64_t>(hashStep.value_or(0));
+			runtime.Layer.FoldHashes = hashEveryStep;
 		}
 		else
 		{

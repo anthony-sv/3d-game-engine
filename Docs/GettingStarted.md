@@ -242,6 +242,7 @@ them. Prism Break has no C# scripts and runs at once.
 | `--timeout <seconds>` | Game time a test run may take (default 60; only with `--test`) |
 | `--timestep <seconds>` | Advance the game by this time each frame (default: the frame's real time; 1/60 in tests) |
 | `--hash-step <count>` | End the test summary with the physics state hash after this fixed step instead of the last one, so runs at different time steps compare (only with `--test`). Steps are counted in the scene the run ends in: loading another scene starts the count again |
+| `--hash-every-step` | Go on after that hash with the physics state hashes of every fixed step from the first to that one (or to the last), folded into one (`steps 1 to <n> folded <hash>`), so two runs whose folds are equal ran the same at every step, not only at the last (only with `--test`) |
 | `--headless` | Run without a window, rendering or sound |
 | `--temporary-data` | Keep the game's saves and settings in a new folder removed at exit, not in the game's own data folder (or a project's `.strada/PlayData`), so the run reads none of a player's and leaves none: the editor's smoke test runs exported games so. Test runs always do |
 | `--frames <count>` | Exit after this many frames |

@@ -1832,9 +1832,15 @@ namespace Strada
 			}
 		}
 		m_FixedStepCount++;
-		if (m_FixedStepCount == m_RuntimeSettings.PhysicsHashStep)
+		uint64_t const hashStep = m_RuntimeSettings.PhysicsHashStep;
+		if (m_FixedStepCount == hashStep)
 		{
 			m_RecordedPhysicsHash = ComputePhysicsStateHash();
+		}
+		if (m_RuntimeSettings.FoldPhysicsHashes && (hashStep == 0 || m_FixedStepCount <= hashStep))
+		{
+			ST_PROFILE_SCOPE("Scene.FoldPhysicsHash");
+			m_FoldedPhysicsHash.AddUInt64(m_FixedStepCount == hashStep ? *m_RecordedPhysicsHash : ComputePhysicsStateHash());
 		}
 		// Last: the step's row reads what the step produced (Docs/Architecture.md section 4.5). Work the step gains goes
 		// before this call.
@@ -2074,6 +2080,16 @@ namespace Strada
 		return hash.GetHash();
 	}
 
+	std::optional<uint64_t> Scene::GetFoldedPhysicsHash() const
+	{
+		uint64_t const hashStep = m_RuntimeSettings.PhysicsHashStep;
+		if (!m_RuntimeSettings.FoldPhysicsHashes || m_FixedStepCount == 0 || m_FixedStepCount < hashStep)
+		{
+			return std::nullopt;
+		}
+		return m_FoldedPhysicsHash.GetHash();
+	}
+
 	Result<ScenePhysicsSnapshot> Scene::SavePhysicsState()
 	{
 		if (!m_IsRunning || !m_Physics)
@@ -2087,6 +2103,7 @@ namespace Strada
 		snapshot.m_Accumulator = m_PhysicsAccumulator;
 		snapshot.m_IsDrawnBetweenSteps = m_IsDrawnBetweenSteps;
 		snapshot.m_IDSequence = m_RuntimeIDSequence;
+		snapshot.m_FoldedPhysicsHash = m_FoldedPhysicsHash;
 		std::vector<entt::entity> const& bodies = GetBodyOrder();
 		snapshot.m_Bodies.reserve(bodies.size());
 		for (entt::entity const handle : bodies)
@@ -2153,6 +2170,8 @@ namespace Strada
 		m_IsDrawnBetweenSteps = snapshot.m_IsDrawnBetweenSteps;
 		// Entities made from here on take the IDs they took then (GenerateUniqueID skips one an entity made since still holds).
 		m_RuntimeIDSequence = snapshot.m_IDSequence;
+		// The steps after the snapshot's are folded again as they run again.
+		m_FoldedPhysicsHash = snapshot.m_FoldedPhysicsHash;
 		// The entities exactly as they were, drawn as they were, so the next syncs see neither edits nor moves.
 		m_DrawnBodies.clear();
 		for (size_t i = 0; i < bodies.size(); i++)

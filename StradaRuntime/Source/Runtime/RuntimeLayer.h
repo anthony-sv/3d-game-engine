@@ -33,6 +33,9 @@ namespace Strada
 		// The fixed step whose physics state hash the test summary prints (SceneRuntimeSettings::PhysicsHashStep); 0 prints
 		// the hash after the run's last step.
 		uint64_t HashStep = 0;
+		// The test summary also gives the state hashes of every fixed step up to HashStep (or to the last), folded into one
+		// (SceneRuntimeSettings::FoldPhysicsHashes): equal folds are equal simulations at each of those steps.
+		bool FoldHashes = false;
 		// Seconds each frame advances the game; 0 advances it by the real frame time.
 		float FixedTimestep = 0.0f;
 		// Saves the window's contents to this file in the first frame drawn at or after the given one (empty: no
@@ -97,7 +100,8 @@ namespace Strada
 		void FailAudioCapture(std::string const& failure);
 		// Reports the test run, sets the exit code and closes the player.
 		void FinishTestRun();
-		// The end of the test summary: the running scene's physics state hash and the fixed step it was taken after.
+		// The end of the test summary: the running scene's physics state hash and the fixed step it was taken after, then,
+		// with FoldHashes, the fold of every step's hash up to it.
 		std::string DescribePhysicsState() const;
 		// A profiled run (--profile) says at which quality preset its frames were rendered, so that its medians say what they
 		// measured.

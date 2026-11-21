@@ -212,7 +212,8 @@ Profiler panel, the `profiler.*` commands and `StradaRuntime --profile` read its
     §9.8), `Scene.UpdateParticles`, `Scene.Destroy`; in
     `Scene.UpdatePhysics`, `Scene.ReturnToSteps` before the frame's steps and `Scene.Interpolate` after them (§8); in
     each fixed step `Scene.FixedUpdateScripts`, `Scene.SyncToPhysics`, `Physics.Step` and `Scene.SyncFromPhysics`,
-    and `Scene.Telemetry` while telemetry records, with `Telemetry.Collect` inside it (§4.5);
+    and `Scene.Telemetry` while telemetry records, with `Telemetry.Collect` inside it (§4.5), and
+    `Scene.FoldPhysicsHash` in the steps whose state hashes the scene folds (§8, "The state hash");
     `Scene.SyncPhysicsMaterials` only in the frames after a data asset changed, where the bodies take the new values of
     their physics materials, and `Scene.SyncVehicles` there too, where the vehicles take their definitions', and in the
     frames where a `Vehicle` component or a chassis's body changed, where the scene makes or updates the vehicles (§8);
@@ -3080,7 +3081,12 @@ count it holds a different remainder at each frame rate, which is what the hash 
 `SceneRuntimeSettings::PhysicsHashStep` set to n, the scene records its hash right after step n, inside the frame that
 runs it (`Scene::GetRecordedPhysicsHash`); the player's test summary prints it (`--hash-step`), or the hash after the
 run's last step. The count, the hash and the recorded step are the running scene's: a scene that loads another starts
-it at step 0, so a test run that moves on to another scene reports the hash and steps of the scene it ends in.
+it at step 0, so a test run that moves on to another scene reports the hash and steps of the scene it ends in. With
+`SceneRuntimeSettings::FoldPhysicsHashes` the scene also folds the hash of every step, taken right after it, from the
+first to `PhysicsHashStep` (to the latest when that is 0) into one FNV-1a hash of those values in order
+(`Scene::GetFoldedPhysicsHash`, under the zone `Scene.FoldPhysicsHash`; the player's `--hash-every-step`): equal folds
+are equal simulations at every one of those steps. A snapshot holds the fold of the steps before it and a restore puts
+it back, so the steps run again are folded once; off, no step takes a hash it does not record.
 
 **Snapshots.** `Scene::SavePhysicsState` keeps a running scene's simulation in memory: everything Jolt's state recorder
 saves (`PhysicsSystem::SaveState` in full: the last step's length and gravity, the bodies' positions, rotations,
@@ -6112,7 +6118,10 @@ asset directory and the script assembly relative to the game's directory (`Proje
   physics state hash (§8) and the fixed step it was taken at: after the run's last step, or after step n with
   `--hash-step n` (taken inside the frame that runs it, so runs at different `--timestep`s compare; a run that ends
   before step n says so), which makes two test runs of one game comparable step for step. The steps are counted in the
-  scene the run ends in: a scene load starts the count again.
+  scene the run ends in: a scene load starts the count again. With `--hash-every-step` the summary goes on with every
+  step's hash from the first to that step folded into one (`steps 1 to n folded <hash>`,
+  `SceneRuntimeSettings::FoldPhysicsHashes`), so two runs whose folds are equal ran the same simulation at every one
+  of those steps, not only at the last; a run that ends before the step has neither.
 
 `GameExporter` (Project module) exports a project for the host platform; the editor's File > Build Game and
 `project.export` run it on a worker thread:
@@ -6466,8 +6475,11 @@ graphs alone keeps its best lap and its settings screen, and none exposes a path
   a function library and broadcasts to two entities, development-only nodes the project runs and the exported game
   skips, command-line errors, a windowed run's presented image, its screenshot and its `--resolution`). ctest runs it as
   shards defined in `Tests/StradaRuntimeTests/Shards.cmake`: `StradaRuntimeTests.Samples` (`SampleTests.cpp`: the
-  sample projects, each played several times), `.Templates` (`TemplateTests.cpp`: a project made from each template)
-  and `.Core` (every other file), with `StradaRuntimeTests.Partition`; the helpers they share are in
+  sample projects, each played several times), `.Templates` (`TemplateTests.cpp`: a project made from each template),
+  `.Ride` (`MotoRideTests.cpp`: Moto's ride, flow and lap test scenes), `.Ship` (`MotoShipTests.cpp`: Moto's test scene
+  at 1/30 and 1/144 s a frame and the first minute of its ride at three frame rates; `FoldedHashTests.cpp`: the
+  player's fold of every step's physics state hash) and `.Core` (every other file), with
+  `StradaRuntimeTests.Partition`; the helpers they share are in
   `RuntimeTestUtilities.h`.
 - `StradaToolTests` (xUnit): the strada command line, instance files and editor discovery, the MCP server against a
   stand-in editor, Poly Haven downloads against a stand-in server, and MCP sessions with the real editor started
@@ -7403,6 +7415,26 @@ graphs alone keeps its best lap and its settings screen, and none exposes a path
   them; the HUD's live delta is the ghost graph's `Delta`), the settings' assists and the riding graph (the flow scene's
   settings check), the director's `AttractStarted` and `RaceStarted` and the camera director (this case), and the pause
   and the audio director (the flow scene's pause check and `PlayModeTests`' Moto case).
+
+  **Moto shipped**: the game as its players get it. **Its identity** (the `identity` part, `Tools/Author.py`, which
+  writes it into `Moto.sproj`): the product "Strada Moto" and no company, so that the exported game keeps its players'
+  saves and settings in `<per-user root>/Strada Moto/` (§13.1) and its macOS bundle identifier is
+  `org.strada.Strada-Moto`, whatever the project is called (a company named after the engine would be kept apart from
+  the engine's folder as `Strada_`). `SampleProjectsTests` (StradaTests) renames the project in a copy of its file and
+  finds the same folder. **At other frame rates** (`MotoShipTests.cpp`, the shard `StradaRuntimeTests.Ship`):
+  `Tests.sscene` passes its 24 checks at 1/30 and 1/144 s a frame (`SampleTests.cpp` plays it at 1/60, twice), and the
+  first minute of a ride from the grid is the same simulation at every fixed step at 1/30, 1/60 and 1/144 s a frame.
+  The ride is the lap test scene's: the autopilot rides the bike from the grid as the scene starts, its inputs set in
+  the fixed steps from what the bike reads, the race director idle, no props. Its checks report after two whole laps,
+  so a minute of it is a test run cut by its timeout, 60.25 s of the game (8,640 frames of 1/144 s, added up in floats,
+  may fall short of step 3,600 by one): it ends unfinished (exit code 1, no check failed, no script exception), and its
+  summary gives the state hash of step 3,600 and, with the player's `--hash-every-step`, the fold of every step's hash
+  from the first to it. The three runs' are compared character for character, and nothing of the ride (a hash, a time,
+  a speed) is pinned. A test run's data folder is temporary, so every run starts without a kept best lap or settings.
+  Equal folds do not show by themselves that the bike rode: the lap scene's own checks do, over its two laps (behind
+  `STRADA_LONG_RIDES=1`). `FoldedHashTests.cpp`, in the same shard, plays the option on a generated game: the fold comes
+  after the one-step hash, which it leaves as it was, is the same at the three rates, tells a step fewer apart, folds
+  to the last step without `--hash-step`, and is absent when the step is never reached.
 - The Showcase's **Graph Garden**: chimes played by six visual scripts (`Scripts/GraphGarden`; `Tools/GraphGarden.py`
   authors them and `Tools/Author.py --exhibit GraphGarden` rebuilds the exhibit in place, with a hash guard that names
   any file outside the exhibit that changed), whose score is a Timeline; seven of the Showcase's 68 checks look at it.

@@ -7,7 +7,7 @@
 		"Name": "Strada Moto",
 		"Identity": {
 			"Company": "",
-			"Product": ""
+			"Product": "Strada Moto"
 		},
 		"AssetDirectory": "Assets",
 		"ScriptModule": "Scripts/Binaries/Game.dll",
