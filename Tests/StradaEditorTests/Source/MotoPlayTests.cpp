@@ -19,6 +19,7 @@
 #include "Strada/Asset/AssetManager.h"
 #include "Strada/Core/FileSystem.h"
 #include "Strada/Core/Input.h"
+#include "Strada/Core/UUID.h"
 #include "Strada/Renderer/QualityPresets.h"
 #include "Strada/Scene/Components.h"
 #include "Strada/Scene/Entity.h"
@@ -407,6 +408,14 @@ TEST_CASE("MotoPlay: Moto's title opens the settings by the gamepad, clicks step
 	moto.Click("Window Upper");
 	CHECK(moto.GetText("Window Value") == "FULLSCREEN");
 
+	// The linked brakes' ">" turns them off, and the menus give the setting to their rider, the main scene's bike: its riding
+	// graph's LinkedBrakes goes from on, as a new player's bike has it, to off.
+	CHECK(moto.GetText("Linked Brakes Value") == "ON");
+	CHECK(moto.ReadOut("Bike", "LinkedBrakes").GetBool());
+	moto.Click("Linked Brakes Upper");
+	CHECK(moto.GetText("Linked Brakes Value") == "OFF");
+	CHECK_FALSE(moto.ReadOut("Bike", "LinkedBrakes").GetBool());
+
 	// The throttle's keyboard button listens; E, the key of ShiftUp, answers: the throttle takes it, and the screen names the
 	// conflict.
 	moto.Click("Throttle Key");
@@ -455,6 +464,9 @@ TEST_CASE("MotoPlay: Moto's title opens the settings by the gamepad, clicks step
 	CHECK(moto.GetText("Window Value") == "FULLSCREEN");
 	CHECK(moto.GetText("Throttle Key Text") == "E");
 	CHECK(moto.GetText("Throttle Pad Text") == "PAD RIGHTTRIGGER");
+	// The kept linked brakes' setting reaches the bike as the scene starts: the menus give it to their rider.
+	CHECK(moto.GetText("Linked Brakes Value") == "OFF");
+	CHECK_FALSE(moto.ReadOut("Bike", "LinkedBrakes").GetBool());
 
 	// The mouse opens the settings, and steps the window back to a window. The lean's keyboard binding is two keys: it listens for the
 	// left, then the right; a pad button given for the right is refused, the binding given back with its new left key, and the right asked
@@ -561,8 +573,16 @@ TEST_CASE("MotoPlay: the race director's AttractStarted puts the camera director
 	};
 	CHECK(moto.ReadOut("Trackside", "Mode").GetInt32() == 1);
 	int32_t const attract = moto.ReadOut("Trackside", "Active").GetInt32();
-	CHECK(attract >= 1);
-	CHECK(attract <= 7);
+	REQUIRE(attract >= 1);
+	REQUIRE(attract <= 7);
+	// Active is the camera's place among the director's children (the trackside cameras in the lap's order, then the chase
+	// camera): that camera alone shows and hears the scene.
+	Entity const director = moto.Find("Trackside");
+	std::vector<UUID> const cameras = director.GetComponent<RelationshipComponent>().Children;
+	REQUIRE(cameras.size() >= static_cast<size_t>(attract));
+	Entity const attractCamera = director.GetScene()->GetEntityByUUID(cameras[static_cast<size_t>(attract) - 1]);
+	REQUIRE(attractCamera);
+	CHECK(shows(attractCamera.GetName()));
 	CHECK_FALSE(shows("Main Camera"));
 	CHECK_FALSE(shows("Chase Camera"));
 

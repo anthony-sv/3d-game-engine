@@ -2668,6 +2668,11 @@ TEST_CASE("PlayCommands: play mode flies the Moto sample's camera tour, a graph'
 	pad(Json::object({{"buttons", Json::object({{"LeftBumper", false}})}}));
 	fixture.Ok("play.advance", Json::object({{"frames", 1}}));
 	CHECK(ridden()["gear"] == 0);
+	// The ride took the bike across the start and finish line, 9 m past the grid: the race director, idle (its title off
+	// above), times no lap, but its Subject is the main scene's bike, whose crossing of the line's plane it counts, and the
+	// line's gate told it that the bike entered its trigger.
+	CHECK(readVariable("Race", "Crossings").GetInt32() >= 1);
+	CHECK(readVariable("Race", "Entries").GetInt32() >= 1);
 	pad(nullptr);
 	CHECK(fixture.Ok("play.stop")["state"] == "edit");
 	CHECK(bikeAt() == grid);
