@@ -3225,8 +3225,8 @@ wheel all of its torque).
   so the reads between the reset and that step show no contact; the lean target, the lean spring's integral and the
   applied lean impulse at 0 (`MotorcycleController.h:110-116`); the applied inputs at 0 until the next step applies the
   latest. **The latest inputs stay**, as a vehicle made again keeps them: the next step applies what a script last gave,
-  before or after the reset, so a reset and the inputs given in the same frame or fixed step make the same step whichever
-  order the scripts and graphs run in. **The chassis's linear and angular velocities are set to zero** once it is made
+  before or after the reset, so a reset and the inputs given in the same fixed step (with no physics step between them)
+  make the same step whichever order the scripts and graphs run in. **The chassis's linear and angular velocities are set to zero** once it is made
   again, as `SetLinearVelocity` and `SetAngularVelocity` set them (which wakes the chassis); its position, rotation, sleep
   test and contacts with other bodies stay. Then the world takes every vehicle's constraint and every joint out of Jolt's
   list and adds them again in UUID order, as after any change (above), so the vehicle's constraint takes the place it
@@ -3237,14 +3237,18 @@ wheel all of its torque).
   saved as any vehicle is. **When it applies**: at the call, on the main thread, between steps (no script runs inside
   one), so from `OnFixedUpdate` it is in place for the step that follows and from `OnUpdate` for the next frame's first.
   A reset touches its own vehicle alone and the constraints go back into UUID order after each, so several resets in one
-  frame or fixed step leave the same world in whatever order they come: the one trace of their order is the order in
+  fixed step (with no physics step between them) leave the same world in whatever order they come: the one trace of their order is the order in
   which they wake sleeping chassis, and Jolt's list of active bodies has no order a simulation depends on (it is filled
   from several threads, Jolt's `Docs/Architecture.md:811`; what decides an update is the binary state before it, `:852`),
   which a case shows with two sleeping vehicles reset in both orders. A sleeping vehicle that is reset wakes, rides on as
   one made there does, and falls asleep again. **With `Teleport`**: `RigidBodyComponent.Teleport`
   sets the chassis entity's transform, and the next step's sync takes the body there, keeping its velocity; the reset
-  reads nothing of the pose and zeroes the velocities at once, so a teleport and a reset in one frame or fixed step, in
-  either order, leave the vehicle new and at rest at the teleported place for that step. `Scene::ResetVehicle` applies the
+  reads nothing of the pose and zeroes the velocities at once, so a teleport and a reset in one fixed step (with no
+  physics step between them), in either order, leave the vehicle new and at rest at the teleported place for that step.
+  One frame is not enough: a frame of two steps (30 frames a second) runs a step between a teleport from `OnUpdate` and a
+  reset from its second `OnFixedUpdate`, which rides the vehicle at its old speed from the teleported place (and the other
+  way round, as new from the old place), so a return that must not depend on the frame rate makes both calls in one
+  `OnFixedUpdate` or `Event.FixedUpdate`. `Scene::ResetVehicle` applies the
   physics changes not applied yet first, as every vehicle binding does, and an edit of the vehicle's definition or curves
   made since the last step among them (which waits for the next step otherwise, since only the asset registry's epoch
   tells of it), so a vehicle edited and reset with no step between is made again with the new values, as a vehicle made
@@ -3257,8 +3261,9 @@ wheel all of its torque).
   the wheels still and straight, the lean as new, and the chassis's velocity and angular velocity at zero. The inputs
   last given stay, so the next physics step applies them; give others after this call to change them. It takes effect
   at once, before the next physics step, and keeps where the body stands: to put the vehicle somewhere else as well,
-  Teleport its RigidBodyComponent in the same frame, before or after. Without a simulated vehicle it is logged and does
-  nothing."), a method and so an impure node, **Reset Vehicle** (`Call:Strada.VehicleComponent.ResetVehicle()`), beside
+  Teleport its RigidBodyComponent in the same fixed step (both from OnFixedUpdate, or a graph's Event.FixedUpdate), before
+  or after; a physics step between the two rides the vehicle at its old speed from the new place, or as new from the old
+  one. Without a simulated vehicle it is logged and does nothing."), a method and so an impure node, **Reset Vehicle** (`Call:Strada.VehicleComponent.ResetVehicle()`), beside
   Shift Up and Shift Down; its binding (`VehicleComponent_ResetVehicle`) calls `Scene::ResetVehicle` after the check the
   inputs' binding makes.
 - **The threads.** `PhysicsSystem::Update` locks every body and constraint (`PhysicsSystem.cpp:241-246`) and in each

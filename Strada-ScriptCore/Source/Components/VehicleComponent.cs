@@ -96,8 +96,10 @@ public sealed unsafe class VehicleComponent : Component
 	/// neutral with no shift under way or asked for, the wheels still and straight, the lean as new, and the chassis's
 	/// velocity and angular velocity at zero. The inputs last given stay, so the next physics step applies them; give others
 	/// after this call to change them. It takes effect at once, before the next physics step, and keeps where the body
-	/// stands: to put the vehicle somewhere else as well, Teleport its <see cref="RigidBodyComponent"/> in the same frame,
-	/// before or after. Without a simulated vehicle it is logged and does nothing.</summary>
+	/// stands: to put the vehicle somewhere else as well, Teleport its <see cref="RigidBodyComponent"/> in the same fixed step
+	/// (both from OnFixedUpdate, or a graph's Event.FixedUpdate), before or after; a physics step between the two rides the
+	/// vehicle at its old speed from the new place, or as new from the old one. Without a simulated vehicle it is logged and
+	/// does nothing.</summary>
 	public void ResetVehicle()
 	{
 		InternalCalls.VehicleComponent_ResetVehicle(Entity.ID);
