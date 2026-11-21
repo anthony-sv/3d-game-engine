@@ -7434,7 +7434,43 @@ graphs alone keeps its best lap and its settings screen, and none exposes a path
   Equal folds do not show by themselves that the bike rode: the lap scene's own checks do, over its two laps (behind
   `STRADA_LONG_RIDES=1`). `FoldedHashTests.cpp`, in the same shard, plays the option on a generated game: the fold comes
   after the one-step hash, which it leaves as it was, is the same at the three rates, tells a step fewer apart, folds
-  to the last step without `--hash-step`, and is absent when the step is never reached.
+  to the last step without `--hash-step`, and is absent when the step is never reached. **Exported** (the same shard):
+  a copy exported as File > Build Game exports it is `Strada Moto` (`.exe` on Windows, `.app` on macOS) and carries the
+  scripting API in `Scripts/` and no game assembly. Its `Game.sgame` names `Scripts/Game.dll`, the assembly a game of
+  graphs alone would have: the player reads that path only for its folder, where it finds the scripting API, and loads
+  no assembly when the file is absent, so nothing is repaired and the case pins it. The exported game's test run passes
+  `Tests.sscene`'s 24 checks and logs into `<per-user root>/Strada Moto/Logs/`, keeping nothing else there (a test
+  run's data folder is temporary). **What it keeps for its player**: a graph the case adds to a copy's main scene
+  reads, five frames in (once the race director has read its slot), the player's quality, the `Engine` bus's volume,
+  the throttle's first binding, the director's `BestLapTime` and the title's best-lap line; then it sets the quality
+  Low, the bus at -6 dB and the throttle on T, saves the settings, and keeps a lap of 83.25 s in the director's
+  `BestLap` slot, as the settings screen and the race's results do. Two runs of the exported game without a window
+  share one per-user root, as two runs on a player's machine do: the first reads the game's defaults (High, 0 dB, W,
+  no best lap) and leaves `Settings.json`, `Input/Moto.sinput.json` and `Saves/bestlap.ssave` in `Strada Moto/`; the
+  second reads them back through the player (its settings, one changed binding), the director and the title
+  (`BEST LAP 1:23.250`). **As a copy** (`MotoCopyTests.cpp`, StradaEditorTests): Moto copied as the start screen copies
+  an example (the project copy's rules, its root `.gitignore` left behind) holds `Assets/` and `Moto.sproj` alone,
+  what `SampleTests.cpp`'s Moto case copies by hand: no `Tools/`, and no `Scripts/`, so no script project for an SDK
+  to build; the editor opens it and plays its title over the attract mode, the ghost riding. `SampleProjectsTests`
+  (StradaTests) holds such a copy under 20 MB (20,000,000 bytes): it weighs 16.5 MB, of which the main scene with its
+  props is 6.8 MB. The export adds the player, the runtime libraries and the scripting API: 27.5 MB in 147 files on
+  Windows. **How a lap is measured**: a copy of the project whose main scene runs one more graph, which presses RACE on
+  the title by an action override (`Confirm`) ten frames in and sends the `Ride` entity `StartAutopilot` at the
+  director's `RaceStarted`, so that the race runs as a player starts it, the HUD shown and the chase camera on, with
+  the props and the sound (to the null device); `StradaRuntime --profile` in Release at 1920 by 1080 on the High
+  preset, `--no-vsync`, 1/60 s a frame, in four runs ending at frames 1,500, 2,700, 3,900 and 5,100, each profile its
+  last 600 frames (10 s of the game), so that together they sample the first lap every 20 s. Each run logs the frame's
+  median and 99th percentile, the medians of the subsystems, the zones and the GPU passes, and the draws
+  (`Game/DrawCalls`, `Game/ShadowDrawCalls`, `Game/Batches`, `Game/Instances`). The player records no telemetry: it
+  records only while the editor's panel is open or `telemetry.start` runs. Provisional figures, from one sitting with
+  the 10,000-instance gauge out of band (`Renderer.Submit` plus `Renderer.Prepare` 1.52 to 3.36 ms): the frame's median
+  4.45 to 5.16 ms (99th percentile 5.3 to 9.3 ms) against 16.6 and 20 ms; 232 to 248 draws at the median (156 to 169 of
+  them in the shadow pass), 226 to 242 batches and 4,986 to 6,189 instances, against 400 draws; `Renderer` 2.36 to 3.72
+  ms a frame (`Renderer.Submit` 0.83 to 1.45 ms, `Renderer.Prepare` 0.54 to 0.97 ms), `Scene` 0.88 to 1.11 ms, the
+  graphs (`Graph`) 0.36 to 0.49 ms against 1.0 ms, `Physics` 0.13 to 0.15 ms against 1.5 ms, of which the vehicle
+  (`Physics.Vehicles`) 0.032 to 0.036 ms, a step a frame, against 0.05 ms, and `Audio` 0.01 to 0.02 ms; on the GPU
+  ambient occlusion 1.56 to 2.09 ms, opaque 1.10 to 1.52 ms, shadows 0.54 to 0.62 ms and bloom 0.21 to 0.23 ms. The
+  targets are judged in idle sittings, the gauge in band.
 - The Showcase's **Graph Garden**: chimes played by six visual scripts (`Scripts/GraphGarden`; `Tools/GraphGarden.py`
   authors them and `Tools/Author.py --exhibit GraphGarden` rebuilds the exhibit in place, with a hash guard that names
   any file outside the exhibit that changed), whose score is a Timeline; seven of the Showcase's 68 checks look at it.

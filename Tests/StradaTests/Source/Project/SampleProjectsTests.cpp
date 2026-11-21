@@ -6,6 +6,7 @@
 #include "Strada/Core/FileSystem.h"
 #include "Strada/Core/GameData.h"
 #include "Strada/Project/Project.h"
+#include "Strada/Project/ProjectCopy.h"
 #include "Strada/Scene/Components.h"
 #include "Strada/Scene/Entity.h"
 #include "Strada/Scene/Scene.h"
@@ -33,7 +34,8 @@ using namespace Strada;
 
 // The documents that name the sample projects (AGENTS.md's repository map, README.md's layout and the visual scripting
 // guide's table of Prism Break's graphs) name exactly what the repository holds, Moto's collision meshes import as the
-// physics needs them, its bike has the proportions the vehicle and the rider build on, and its identity names its game.
+// physics needs them, its bike has the proportions the vehicle and the rider build on, its identity names its game, and a
+// copy of it weighs under 20 MB.
 namespace
 {
 	std::string ReadDocument(char const* path)
@@ -280,4 +282,20 @@ TEST_CASE("Project: Moto's identity names its game Strada Moto, whose data folde
 	std::filesystem::path const root = directory.GetPath() / "Root";
 	CHECK(UserDataLocations::MakeGameDirectory(root, identity.GetValue(), UserDataPlatform::Windows) == root / "Strada Moto");
 	CHECK(UserDataLocations::MakeGameDirectory(root, identity.GetValue(), UserDataPlatform::MacOS) == root / "Strada Moto");
+}
+
+TEST_CASE("Project: a copy of Moto, everything but its tools, weighs under 20 MB")
+{
+	// What a copy holds by the project copy's rules (ProjectCopy: no Tools/, build output or caches), the files Moto plays
+	// from, against 20 MB (20,000,000 bytes), the most a copy of it may weigh.
+	constexpr uint64_t MaxBytes = 20'000'000;
+	Testing::TemporaryDirectory directory;
+	std::filesystem::path const copy = directory.GetPath() / "Moto";
+	Result<ProjectCopyResult> const copied = ProjectCopy::Copy(FileSystem::PathFromUtf8(STRADA_SAMPLE_PROJECTS_DIR) / "Moto", copy);
+	REQUIRE_MESSAGE(copied.IsOk(), (copied ? std::string() : copied.GetError()));
+	CHECK(copied.GetValue().Warnings.empty());
+	CHECK_FALSE(FileSystem::Exists(copy / "Tools"));
+	CAPTURE(copied.GetValue().Bytes);
+	CHECK(copied.GetValue().Bytes > 0);
+	CHECK(copied.GetValue().Bytes < MaxBytes);
 }

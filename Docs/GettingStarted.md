@@ -628,6 +628,11 @@ save refused; [Scripting.md](Scripting.md#saves-and-settings) shows the scriptin
 Playing the game in the editor never touches that folder: play mode uses the project's `.strada/PlayData` folder
 instead, and a test run a temporary one ([Editor.md](Editor.md#where-an-exported-game-keeps-its-data) has the details).
 
+Moto exported is **Strada Moto**, whose identity is that product and no company, so whatever the project is called it
+keeps its data in `%APPDATA%\Strada Moto` on Windows, `~/Library/Application Support/Strada Moto` on macOS and
+`~/.local/share/strada moto` on Linux: its best lap with the ghost's samples in `Saves/bestlap.ssave`, the settings
+screen's choices in `Settings.json` and the controls the player rebound in `Input/Moto.sinput.json`.
+
 ## Work with an AI agent
 
 Every editor operation is an automation command, and `strada mcp` serves them as Model Context Protocol tools: an AI

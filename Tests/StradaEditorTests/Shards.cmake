@@ -10,9 +10,10 @@ set(STRADA_EDITOR_TEST_PANEL_FILES
     "*StradaEditorTests?Source?VisualScript*Panel*Tests.cpp,*VisualScriptCanvasPerformanceTests.cpp,*VisualScriptEditorsTests.cpp,*VisualScriptHeadlessCanvasTests.cpp,*VisualScriptPanesTests.cpp,*VisualScriptRenderTests.cpp,*VisualScriptWindowTests.cpp")
 set(STRADA_EDITOR_TEST_GRAPH_FILES "*GraphCommandsTests.cpp,*GraphDebugCommandsTests.cpp,*GraphEditFuzzTests.cpp")
 
-# The Moto sample played in the editor: its debugger, telemetry, menus, shift light and camera director cases and M1's
-# sixth step (an agent's live edit while the autopilot rides), each opening the sample's copy.
-set(STRADA_EDITOR_TEST_MOTO_FILES "*MotoPlayTests.cpp,*MotoAgentTests.cpp")
+# The Moto sample played in the editor: its debugger, telemetry, menus, shift light and camera director cases, M1's
+# sixth step (an agent's live edit while the autopilot rides) and its first (a copy made as an example's is, played), each
+# opening the sample's copy.
+set(STRADA_EDITOR_TEST_MOTO_FILES "*MotoPlayTests.cpp,*MotoAgentTests.cpp,*MotoCopyTests.cpp")
 
 set(STRADA_TEST_SHARDS AutomationFuzz Graph VisualScriptPanels VisualScriptModel Moto Core)
 
