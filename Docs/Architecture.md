@@ -5299,8 +5299,8 @@ once. Without .NET a document still loads, saves and shows in the editor; analys
   - *What still grows with a list*: one comparison of its elements per draw in the runtime and one in the inspector, and
     in a frame in which the list changed, its read and its conversion. `InspectorPanel.ReadBack` and
     `InspectorPanel.ScriptValues` (§4.4) time the two halves, and `InspectorPanel::GetDrawStatistics` and
-    `FieldEditor::GetDrawStatistics` count the values read back and converted and the rows drawn and clipped, which the
-    headless tests hold to the rows in view. The field editor counts one `Draw` (from zero at its start; a struct drawer's
+    `FieldEditor::GetDrawStatistics` count the values read back, converted and shown mixed and the rows drawn and
+    clipped, which the headless tests hold to the rows in view. The field editor counts one `Draw` (from zero at its start; a struct drawer's
     table inside it adds to it); the inspector, which draws every section through one field editor, sums its sections'
     counts over its frame (`InspectorPanel::GetFieldDrawStatistics`), so a list's rows drawn and clipped add up to its
     length.

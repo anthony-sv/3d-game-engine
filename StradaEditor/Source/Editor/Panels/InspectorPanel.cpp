@@ -399,6 +399,7 @@ namespace Strada
 			section.Mixed = ComponentInspection::FindMixedFields(section.Values);
 		}
 		m_DrawStatistics.ValuesConverted += converted;
+		m_DrawStatistics.ValuesMixed += section.Mixed.size();
 	}
 
 	void InspectorPanel::OnImGuiRender(EditorOperations& operations, bool& open)

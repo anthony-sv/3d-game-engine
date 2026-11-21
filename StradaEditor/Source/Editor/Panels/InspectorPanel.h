@@ -32,6 +32,8 @@ namespace Strada
 		// RefreshVisualScriptVariables), and stored values converted into the field editor's values.
 		size_t ValuesReadBack = 0;
 		size_t ValuesConverted = 0;
+		// Fields and public variables shown as differing between the selected entities.
+		size_t ValuesMixed = 0;
 	};
 
 	// Edits the selected entities: name, the components they all have (fields generated from the component registry, one

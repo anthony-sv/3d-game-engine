@@ -31,6 +31,7 @@
 #include <cstddef>
 #include <cstdint>
 #include <functional>
+#include <initializer_list>
 #include <optional>
 #include <string>
 #include <utility>
@@ -514,6 +515,12 @@ TEST_CASE("Inspector: a list that grows and shrinks while it is shown is drawn a
 		view.Frame();
 		CHECK(view.Panel.GetFieldDrawStatistics().ArrayRowsDrawn == 12);
 		CHECK(view.Panel.GetFieldDrawStatistics().ArrayRowsClipped == 0);
+		// Emptied while shown: no row, and nothing clipped.
+		resize(0);
+		view.Frame();
+		CHECK(view.Panel.GetFieldDrawStatistics().ArrayRowsDrawn == 0);
+		CHECK(view.Panel.GetFieldDrawStatistics().ArrayRowsClipped == 0);
+		CHECK(ScriptEngine::GetInstanceFields(writer).GetValue().at("Samples").GetElements().empty());
 		resize(static_cast<int32_t>(LongList));
 		view.ScrollTo(0.0f);
 		view.CheckRowsInView(LongList);
@@ -537,10 +544,116 @@ TEST_CASE("Inspector: a list that grows and shrinks while it is shown is drawn a
 		resize(20);
 		CHECK(view.Panel.GetFieldDrawStatistics().ArrayRowsDrawn == 20);
 		CHECK(view.Panel.GetFieldDrawStatistics().ArrayRowsClipped == 0);
+		resize(0);
+		CHECK(view.Panel.GetFieldDrawStatistics().ArrayRowsDrawn == 0);
+		CHECK(view.Panel.GetFieldDrawStatistics().ArrayRowsClipped == 0);
 		resize(1000);
 		view.CheckRowsInView(1000);
 	}
 	CHECK(context.GetHistory().GetUndoCount() == 0);
+	play.Stop();
+}
+
+TEST_CASE("Inspector: the lists of two selected graphs are shown mixed while they differ, and an element edit writes each running list "
+          "with the element changed")
+{
+	Testing::ScriptRuntimeScope scripting;
+	Testing::AssetManagerScope const assets;
+	HeadlessImGui imgui;
+	EditorContext context;
+	EditorOperations operations(context);
+	EditorScripts scripts(context, FileSystem::GetExecutableDirectory() / "Strada.ScriptCore.dll");
+	PlayMode play(context, scripts);
+	AssetHandle const graph = AssetManager::AddMemoryAsset(CreateRef<VisualScriptAsset>(MakeClockDocument()), "Clock");
+	auto const create = [&operations, graph](std::string name, float start)
+	{
+		return Create(
+			operations, std::move(name),
+			Json::object({{"VisualScript", Json::object({{"Graph", graph.ToString()}, {"Variables", StoredSamples(LongList, start)}})}}));
+	};
+	UUID const first = create("First", 0.0f);
+	UUID const second = create("Second", 1000.0f);
+	REQUIRE(play.Start(EditorPlayState::Play, 640, 480).IsOk());
+	Scene& scene = context.GetScene();
+	InspectorView view(imgui, operations, "VisualScript", "##variables");
+	std::array<UUID, 2> const selection = {first, second};
+	REQUIRE(operations.Select(selection).IsOk());
+	play.Advance(1, Timestep(FrameTime));
+
+	// Each entity's Samples, Clock and Steady are read and converted; the clocks run alike, the lists differ.
+	InspectorDrawStatistics const& statistics = view.Panel.GetDrawStatistics();
+	view.Frame();
+	CHECK(statistics.ValuesReadBack == 6);
+	CHECK(statistics.ValuesConverted == 6);
+	CHECK(statistics.ValuesMixed == 1);
+	view.CheckRowsInView(LongList);
+	view.Frame();
+	CHECK(statistics.ValuesConverted == 0);
+	CHECK(statistics.ValuesMixed == 1);
+
+	// One entity's running list changed (as its graph or an edit would change it), and that alone decides.
+	auto const setSamples = [&scene, &play, &view](UUID entity, ScriptFieldValue samples)
+	{
+		scene.GetEntityByUUID(entity).GetComponent<VisualScriptComponent>().Variables["Samples"] = std::move(samples);
+		scene.ApplyVisualScriptVariableChanges();
+		play.Advance(1, Timestep(FrameTime));
+		view.Frame();
+	};
+	setSamples(second, MakeSamples(LongList, 0.0f));
+	CHECK(statistics.ValuesMixed == 0);
+	setSamples(first, MakeSamples(LongList, 5.0f));
+	CHECK(statistics.ValuesMixed == 1);
+	setSamples(first, MakeSamples(LongList, 0.0f));
+	CHECK(statistics.ValuesMixed == 0);
+	setSamples(first, MakeSamples(10, 0.0f));
+	CHECK(statistics.ValuesMixed == 1);
+	setSamples(first, MakeSamples(0, 0.0f));
+	CHECK(statistics.ValuesMixed == 1);
+	setSamples(first, MakeSamples(LongList, 0.0f));
+	CHECK(statistics.ValuesMixed == 0);
+	setSamples(second, MakeSamples(LongList, 1000.0f));
+	CHECK(statistics.ValuesMixed == 1);
+	CHECK(context.GetHistory().GetUndoCount() == 0);
+
+	// An element of the first entity's list dragged: each entity's list as its game holds it, the element set alike.
+	constexpr int Edited = 15;
+	ImVec2 const point = view.FindElementValue(Edited);
+	ImGuiIO& io = ImGui::GetIO();
+	io.AddMousePosEvent(point.x, point.y);
+	view.Frame();
+	io.AddMouseButtonEvent(ImGuiMouseButton_Left, true);
+	view.Frame();
+	for (int step = 1; step <= 3; step++)
+	{
+		play.Advance(1, Timestep(FrameTime));
+		io.AddMousePosEvent(point.x + 15.0f * static_cast<float>(step), point.y);
+		view.Frame();
+	}
+	io.AddMouseButtonEvent(ImGuiMouseButton_Left, false);
+	view.Frame();
+	view.Frame();
+	CHECK(context.GetHistory().GetUndoCount() == 1);
+	ListOwner const owner{true};
+	ScriptFieldValue const edited = owner.ReadRunning(first, "Samples");
+	ScriptFieldValue const other = owner.ReadRunning(second, "Samples");
+	REQUIRE(edited.GetElements().size() == LongList);
+	REQUIRE(other.GetElements().size() == LongList);
+	float const value = edited.GetElements()[Edited].GetFloat();
+	CHECK(value > static_cast<float>(Edited));
+	CHECK(other.GetElements()[Edited] == ScriptFieldValue::FromFloat(value));
+	for (size_t i : {size_t{0}, size_t{Edited - 1}, size_t{Edited + 1}, LongList - 1})
+	{
+		CAPTURE(i);
+		CHECK(edited.GetElements()[i] == ScriptFieldValue::FromFloat(static_cast<float>(i)));
+		CHECK(other.GetElements()[i] == ScriptFieldValue::FromFloat(1000.0f + static_cast<float>(i)));
+	}
+	CHECK(owner.GetStored(scene, first).at("Samples") == edited);
+	CHECK(owner.GetStored(scene, second).at("Samples") == other);
+
+	// Undone, each holds its own element again.
+	REQUIRE(operations.Undo().IsOk());
+	CHECK(owner.ReadRunning(first, "Samples").GetElements()[Edited] == ScriptFieldValue::FromFloat(static_cast<float>(Edited)));
+	CHECK(owner.ReadRunning(second, "Samples").GetElements()[Edited] == ScriptFieldValue::FromFloat(1000.0f + static_cast<float>(Edited)));
 	play.Stop();
 }
 
