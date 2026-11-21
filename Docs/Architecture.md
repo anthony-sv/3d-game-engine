@@ -3180,7 +3180,8 @@ wheel all of its torque).
   vehicle moves the world's structure version, so a snapshot of another structure is refused; changing its values in place
   (`SetVehicleSettings`) does not. The chassis's centre of mass and inertia are its colliders' alone, as any dynamic body's
   are: a bike that must carry its mass low places its chassis collider low, and the vehicle adds no offset of its own.
-  The colliders also give the chassis its roll inertia, which the lean spring needs: Jolt applies the spring's impulse at
+  How far a bike leans into its turns depends on its wheels' widths as much as on its chassis: a wheel's `Width` is the
+  width of its cast against the ground, round only up to 0.1 m (below, "The wheels' cast"). The colliders also give the chassis its roll inertia, which the lean spring needs: Jolt applies the spring's impulse at
   every velocity iteration of the solver against what it applied before (`MotorcycleController.cpp:218-226`), so its
   damping term changes the roll rate by `LeanSpringDamping` times the collision step over the roll inertia about the
   front at each iteration, and the iterations settle only while that ratio is below 1 (for the default damping of 1,000
@@ -3230,8 +3231,8 @@ wheel all of its torque).
   `:487-488`) through Jolt's allocator, which is thread-safe; that time is inside the vehicle's budget below.
   ThreadSanitizer runs the vehicles' cases with workers under the `PhysicsScene:` prefix (`tsan.yml`'s selection).
 - **The wheel tests.** Each wheel casts its cylinder down its suspension, as Jolt's `VehicleCollisionTesterCastCylinder`
-  does (`VehicleCollisionTester.cpp:241-329`, with half the wheel's width as its convex radius, as Jolt's motorcycle
-  sample, `MotorcycleTest.cpp:129`), on the chassis's object layer with the project's layer pairs and past the chassis's own
+  does (`VehicleCollisionTester.cpp:241-329`, asking for half the wheel's width as its convex radius, as Jolt's motorcycle
+  sample, `MotorcycleTest.cpp:129`; below, "The wheels' cast", for the radius the cast gets), on the chassis's object layer with the project's layer pairs and past the chassis's own
   body. Jolt's testers skip sensor bodies only (`VehicleCollisionTester.cpp:290`), and a Strada trigger is a collider of a
   body, not a body, so the engine's tester (a subclass of Jolt's cylinder tester whose `Collide` makes the same cast with
   the shape filter that refuses trigger colliders, the one the queries and characters use) passes through triggers: a trigger volume never carries a wheel, and a
@@ -3240,6 +3241,20 @@ wheel all of its torque).
   tests, active and inactive, stay at their default of 1, `VehicleConstraint.h:174`, `:182`): a predicted contact keeps the
   sub-shape of an earlier test, which Jolt's snapshot does not save (`VehicleConstraint.cpp:646-671` saves the contact
   body, not its sub-shape), and the wheel's surface is found from that sub-shape.
+- **The wheels' cast.** A wheel's `Width` is the width of the cylinder it casts against the ground along its suspension,
+  not a tyre's drawn width: the cast asks for its edges rounded by half the width (by the radius when that is smaller),
+  but it takes the cylinder's support function without its convex radius (`ConvexShape.cpp:269-273`), which caps that
+  radius at Jolt's `cDefaultConvexRadius` of 0.05 m (`CylinderShape.cpp:164-174`, `ScaleHelpers.h:30`). So only a wheel
+  up to 0.1 m wide (`MaxRoundVehicleWheelWidth`, asserted against Jolt's constant in `VehicleWorld.cpp`) is round across
+  its width; a wider one rides on a flat bottom whose contact lies half its width less 0.05 m off the wheel's plane even
+  upright. The ground's force then misses the center of mass at the lean the controller aims for, the lean spring holds a
+  standing torque, and the linear impulse Jolt pairs with every roll impulse (`MotorcycleController.cpp:228-247`) carries
+  the turn in the tyres' place: **a motorcycle leans less into its turns the wider its wheels are**, and on round wheels
+  it leans less as their width grows too. A case of the engine's tests bands it on a steady circle: the test bike (26 kg
+  m²) at 15 m/s with its lean input set to the steering that balances a lean of 25° leans 0.78 of the angle that
+  balances the circle it rides on wheels 0.05 m wide, and 0.006 on wheels 0.2 m wide, nearly upright (read alike in Debug
+  and Release; it asserts at least 0.66, 85 % of that, and at most 0.3). A bike drawn with wide tyres casts narrower wheels than it draws (Moto's, §15), and the
+  scene warns of a vehicle that leans on a wider one (below, "The wide wheel's warning").
 - **Grip and rolling drag from the surface under each wheel.** A physics material gains `TyreGrip` (at least 0, default
   1), read by vehicles alone; `ColliderSurface` carries it with the material's `RollingResistance`, given by
   `SetMaterialValues` like the other values. An edit that changes these two alone wakes no body but the chassis of each
@@ -3472,7 +3487,9 @@ wheel all of its torque).
   step reaches it, so a ride compared across frame rates sets its inputs in the fixed step as a function of the
   simulation. Every member is a node: the methods impure but `GetWheelState`, a `[PureNode]` query, and the getters
   pure. The node coverage runs them on a chassis of FeatureTest's proportions (250 kg, the 0.25 by 0.5 by 0.6 m box)
-  with FeatureTest's definition, in a scene with physics (`MemberTypeRecipes`). The `Vehicle` asset class reads the
+  with FeatureTest's definition, in a scene with physics (`MemberTypeRecipes`, whose entry allows the warning that the
+  definition's wheels, 0.12 and 0.18 m wide, are wider than a round cast: below, "The wide wheel's warning"). The
+  `Vehicle` asset class reads the
   definition (`TransmissionMode`, `GearCount`, `GetGearRatio(gear)`, `FinalDrive`, `MaxTorque`, `MinRPM`, `MaxRPM`,
   `ShiftUpRPM`, `ShiftDownRPM`, `MaxLeanAngle`, `GetWheelName(index)`) from the runtime's copy of its values
   (`Vehicle_Read`, `VehicleCache`, read again when the asset's version changes, §6.4).
@@ -3514,6 +3531,14 @@ wheel all of its torque).
   entity, the inertia, the damping, the collision step and the damping below which the spring settles it. It warns once
   each time the vehicle comes to that: not again while it stays there, and again after an edit or a body that settled it
   is undone. It changes no value of the author's. FeatureTest's chassis clears it (26 kg m² against 800 times 1/60 s).
+- **The wide wheel's warning** (`Scene::CheckVehicleWheelWidths`). When a vehicle that leans (its `MaxLeanAngle` above 0;
+  at 0 the lean controller holds it upright) is made, or its values change, with a wheel wider than 0.1 m (above, "The
+  wheels' cast"), the scene warns that it leans less than its turns balance, naming the entity, the wheel and its width
+  and the width up to which a wheel's cast is round. It warns once for each wheel and width: not again for an edit that
+  leaves the wheel as it was or for a body made again, and again when that wheel takes another width above the bound,
+  comes back above it, or the vehicle is made again after it was none. It changes no value and runs only when the
+  vehicle changes, never in a step. FeatureTest's bike (wheels 0.12 and 0.18 m wide) is warned of; Moto's casts 24 and
+  40 mm.
 - **Profiler zones** (§4.4): `Physics.Vehicles` around the world's step listener, once per collision step on the thread
   that runs it; the inputs and shifts reach the controllers inside `Physics.Step`; `Scene.SyncVehicles` only in the frames
   after a data asset changed or a vehicle's component or body changed; the wheels are recorded inside `Scene.SyncFromPhysics`, drawn inside `Scene.Interpolate` and
@@ -6405,7 +6430,7 @@ graphs alone keeps its best lap and its settings screen, and none exposes a path
   entry each, defined once in `Tests/StradaEditorTests/Shards.cmake` as doctest source-file filters:
   `StradaEditorTests.AutomationFuzz`, `.Graph` (the graph and debug command tests and `GraphEditFuzzTests`),
   `.VisualScriptPanels` (the visual script editor's panels, panes, windows and canvases), `.VisualScriptModel` (the rest
-  of the visual script editor), `.Moto` (the Moto sample played in the editor, `MotoPlayTests.cpp`) and `.Core` (every
+  of the visual script editor), `.Moto` (the Moto sample played in the editor, `MotoPlayTests.cpp` and `MotoAgentTests.cpp`) and `.Core` (every
   other file). `StradaEditorTests.Partition` lists the test cases
   unfiltered and through each shard's filters and fails when one is in no shard or in two, or when a shard selects
   nothing; a shard that passes 450 s on CI's Windows MSVC Debug job that runs the suite is split again by source-file
@@ -6618,7 +6643,7 @@ graphs alone keeps its best lap and its settings screen, and none exposes a path
   screenshots at 1920 by 1080 pixels (`--resolution`) from a fixed list of cameras (`Tools/Captures.py`: the bike on the
   grid close up and in profile, Turn 1 and Turn 6 with the bike leaned at mid and far range, Sector Gate 1, the
   footbridge, an aerial, the rider's view, and two adjacent frames of the tour along the fences, with the ghost hidden;
-  and the four trackside cameras, where the camera director starts the game and turns them to the ghost, set out so that
+  and four of the trackside cameras, where the camera director starts the game and turns them to the ghost, set out so that
   the picture catches it 0.2 s before it passes closest, about a seventh of the frame's height, which the tool asserts),
   each from a copy of the project outside the repository whose main scene puts the camera and the bike there, with a
   per-user root of its own, and fails a view whose picture is missing or of another size after three runs. With
@@ -6683,9 +6708,9 @@ graphs alone keeps its best lap and its settings screen, and none exposes a path
   sources lie on a circle of its length and its filters run round it twice), and every run measures each file and fails
   on a broken promise: a peak of at most -1 dBFS, a seam whose step and bend are no larger than the largest inside the
   loop and whose level lies among the levels inside it, a one-shot that starts and ends in silence, an engine layer that
-  repeats each engine cycle and not each turn of the crank (the twin pulse), 3 MB in all (the twenty files weigh 1.2 MB;
+  repeats each engine cycle and not each turn of the crank (the twin pulse), 3 MB in all (the twenty-one files weigh 1.3 MB;
   with them, the curves, the graphs and the scenes, the project's files outside `Tools/`, what a copy of it takes, weigh
-  12.8 MB). `Tools/Sound.py` is the mixer (`Audio/Moto.smixer`, named by `Moto.sproj`): `Master`, with a limiter at -1
+  13.8 MB). `Tools/Sound.py` is the mixer (`Audio/Moto.smixer`, named by `Moto.sproj`): `Master`, with a limiter at -1
   dBFS, over `Engine`, `Tyres`, `Ambience`, `Interface` and `Reverb`, which carries a reverb's tail alone (dry at -80
   dB) for the footbridge's zone and lifts it by 18 dB, since a reverb gives back far less than it takes in; every bus
   but `Interface` runs a low-pass standing open at 20 kHz, which the `Paused` snapshot closes to 650 Hz while it lowers
@@ -6710,32 +6735,37 @@ graphs alone keeps its best lap and its settings screen, and none exposes a path
   `Heading` after `Lean` (`Quaternion.AngleAxis` twice, multiplied), counts a lap when the timeline's time comes round
   past the line, keeps the read-outs `LapTime`, `EngineSpeed` and `Load`, and sets its engine sound's `EngineSpeed` and
   `Load` (the child that runs `EngineSound.sgraph`, found when the scene starts); `StartAt` says where on the lap it
-  sets out. **The engine's sound** (`Tools/EngineSound.py`, the `ghost` part) is the `Engine Sound` entity under the
-  ghost, with sixteen children, each an `AudioSource` looping one layer on the `Engine` bus, spatial with doppler (the
+  sets out. **The engine's sound** (`Tools/EngineSound.py`; the `sound` part writes its graph and curves, the `ghost`
+  part the ghost's entity) is the `Engine Sound` entity under the ghost, with sixteen children, each an `AudioSource` looping one layer on the `Engine` bus, spatial with doppler (the
   graph's `DopplerLevel`, given to every voice when the scene starts), playing from the start at volume 0. Its graph
   (`Scripts/EngineSound.sgraph`) takes its inputs as public variables, `EngineSpeed` and `Load`, which whoever runs the
-  engine sets (the ghost now, a ridden bike later), and every update sets each voice's volume and pitch: the volume is
+  engine sets (the ghost, and for the ridden bike the audio director, below), and every update sets each voice's volume
+  and pitch: the volume is
   the layer's fade by where the engine speed lies from it in layers (`log(speed / layer's speed) / log(1.346)`, read
   through the curve asset `Curves/EngineLayerFade.scurve`, cos(πx/2) from -1 to 1, held at 0 below the lowest layer and
   above the highest) times the load's gain (`EngineOnLoad.scurve`, sin(πL/2), for the on-load voices;
-  `EngineOffLoad.scurve`, cos(πL/2), for the off-load ones) times `Volume`, and 0 while `EngineSpeed` is 0 (an engine
-  that does not turn, or one not set yet: the ghost and its child update in no stated order). Both crossfades are of
-  equal power, so the voices' volumes squared sum to `Volume` squared at any speed and load (the curves are cubics
-  through the functions' keys every 0.125 with their slopes: within 0.00023 of 1 from 1,000 to 17,000 rpm, which the
-  tool's `check()` asserts). The pitch plays the layer at the engine's speed over the speed it was recorded at (the
+  `EngineOffLoad.scurve`, 0.501 cos(πL/2), for the off-load ones, which sound 6 dB under the on-load ones: an engine
+  braking on a closed throttle is quieter than one pulling, retuned in slice 4 from MO3's cos(πL/2)) times `Volume`, and 0
+  while `EngineSpeed` is 0 (an engine that does not turn, or one not set yet: the ghost and its child update in no stated
+  order). Both crossfades are of equal power, so the on-load voices' volumes squared sum to `Volume` squared times
+  sin²(πL/2) and the off-load ones' to it times 0.251 cos²(πL/2), and the first sum and the second over 0.251 add up to
+  `Volume` squared at any speed and load (the curves are cubics through the functions' keys every 0.125 with their slopes:
+  each sum within 0.00023 of its figure from 1,000 to 17,000 rpm, which the tool's `check()` asserts). The pitch plays the layer at the engine's speed over the speed it was recorded at (the
   generator's exact figure, kept in the graph's `LayerSpeeds`), held within a layer's step either way, where its fade
   ends. Sixteen voices mix whether they sound or not (§9.3: below the engine's limit of 64 every voice mixes). **The
-  trackside cameras** (`Tools/Trackside.py`, the `trackside` part) are four children of the `Trackside` entity, in the
-  order the cuts go round: at the start line (80 m before it, across the road from the grandstands), on the insides of
-  Turns 1 and 6 at their apexes, and 35 m before the footbridge on the side the racing line passes it, each 5 m up on a
+  trackside cameras** (`Tools/Trackside.py`, the `trackside` part) are children of the `Trackside` entity, seven since
+  slice 4 in the order of the lap from the start line (the order the cuts go round), then the chase camera (the
+  directors, below): at the start line (80 m before it, across the road from the grandstands), on the insides of Turns
+  1, 3, 6, 7 and 9 at their apexes, and 35 m before the footbridge on the side the racing line passes it, each 5 m up on a
   mast 1.5 m behind the catch fence, with a field of view of 35°, moved along the lap (a meter at a time, either way)
   until no prop stands within 1.5 m of it, nor a tall one within 6 m. Each has a camera that is not primary and a
   listener that is off. `Trackside` runs the camera director (`Scripts/CameraDirector.sgraph`): `TourCamera` (the main
   camera) and `Subject` (the ghost) are its public variables; when the scene starts it cuts to `StartCamera` (0, the
-  tour, by default; a number that names no camera, which its range of 0 to 4 does not stop a scene file or an agent from
-  holding, is logged as a warning and the tour shows); the `NextCamera` action sends it the custom event `NextCamera`,
-  which cuts to the next trackside camera (round to the first), and `ResetCamera` sends it `ResetCamera`, which cuts
-  back to the tour, which flew on meanwhile. A cut (its function `Cut`) makes one camera primary and its listener the
+  tour, by default; 1 to 7 a trackside camera, 8 the chase camera; a number that names no camera, which its range of 0
+  to 8 does not stop a scene file or an agent from holding, is logged as a warning and the tour shows); the `NextCamera`
+  action sends it the custom event `NextCamera`, which cuts to the next trackside camera (round to the first), and
+  `ResetCamera` sends it `ResetCamera`, which cuts back to the tour, which flew on meanwhile (in the race, to the chase
+  camera). A cut (its function `Cut`) makes one camera primary and its listener the
   one that hears, and every other camera and listener off: the scene renders and hears from that camera (a cut gets no
   doppler in its update, §9.8, since the listener is another entity). The camera cut to is turned towards the subject
   before it shows (its function `Face`), 0.9 m above its origin (the director stands at the origin unturned, so its
@@ -6746,18 +6776,18 @@ graphs alone keeps its best lap and its settings screen, and none exposes a path
   the `Reverb` bus and fading out over 8 m round it, so the ghost's pass under the deck (about 190 km/h) sends for about
   0.4 s and leaves its tail ringing, heard over the engine (at the footbridge camera the pass with the zone is 5 to 7
   dB louder than without it in the half second under the deck and the one after); the `Audio Director` runs its graph,
-  `Scripts/AudioDirector.sgraph`, to which the `Pause` action sends `TogglePause`: it blends the mix to the `Paused`
-  snapshot over `Seconds` (0.5), or back to the mixer's own values, and keeps the read-out `Paused`; with `StartPaused`
-  on it sends itself `TogglePause` when the scene starts (a game that opens paused; the sound test below starts muffled
-  that way); the race director's pause, which stops the game, reads the action too and keeps the mix where it puts it
-  ("The race" below). **The input actions** (`Tools/Controls.py`, the `input` part; `Input/Moto.sinput`,
+  `Scripts/AudioDirector.sgraph`, whose custom event `TogglePause` (which the race director's pause sends, "The race"
+  below) blends the mix to the `Paused` snapshot over `Seconds` (0.5), or back to the mixer's own values, and keeps the
+  read-out `Paused`; with `StartPaused` on it sends itself `TogglePause` when the scene starts (a game that opens paused;
+  the sound test below starts muffled that way). It reads no action (the `Pause` action is the race director's) and
+  plays the ridden bike's sounds and the crowd's (the directors, below). **The input actions** (`Tools/Controls.py`, the `input` part; `Input/Moto.sinput`,
   named by `Moto.sproj`): `Throttle` (an axis: W, the right trigger), `FrontBrake` and `RearBrake` (axes: S and the left
   trigger, Space and the gamepad's X), `Lean` (A and D, the left stick's X), `ShiftUp` and `ShiftDown` (E and Q, the
   bumpers), `Pause` (Escape, Start), `NextCamera` (C, Y), `ResetCamera` (R, Back), and the menus' `Confirm` (Enter, A),
   `Back` (Backspace, B) and `MenuUp`, `MenuDown`, `MenuLeft` and `MenuRight` (the arrow keys, the directional pad), each
   on the keyboard and any gamepad and no control bound twice, in a group per graph that reads them (`Controls.py`'s
-  `GROUPS`, one line each); the audio and camera directors use `Pause`, `NextCamera` and `ResetCamera`, the race director
-  `Pause`, the menus `Confirm`, `Back` and the four `Menu` actions, the bike's riding graph the others.
+  `GROUPS`, one line each); the camera director uses `NextCamera` and `ResetCamera`, the race director `Pause`, the menus
+  `Confirm`, `Back` and the four `Menu` actions, the bike's riding graph the others.
   A player's profile that still names `Brake` (from before the two
   brakes) loses that entry, with one log line, as the actions load (§7.4, "Rebinding"). **The test scene**
   (`Scenes/Tests.sscene`, the main scene without its props, which
@@ -6775,13 +6805,15 @@ graphs alone keeps its best lap and its settings screen, and none exposes a path
   line and to the corner's inside, is within 0.1 m of where the line puts it at three moments of its lap, facing along
   it within 2° (each read with its own `LapTime` of the same update, the line's point carried on by its velocity over
   the frame between), and crosses the start and finish line onto its next lap, on the line again; the engine's sixteen
-  voices all play on the `Engine` bus at the ghost's engine speed, their volumes squared sum to 1 within 0.02 and each
-  that sounds plays within its layer's band; sent the events its actions send, the camera director cuts to the first
+  voices all play on the `Engine` bus at the ghost's engine speed, the on-load voices' volumes squared and the off-load
+  ones' over 0.251 sum to 1 within 0.02 and each that sounds plays within its layer's band; sent the events its actions send, the camera director cuts to the first
   trackside camera (it alone shows and hears, turned to the ghost within 2°), to the second, and back to the tour's
   camera; and sent `TogglePause` twice, the audio director blends the mix to the `Paused` snapshot
   (`Audio.CurrentSnapshot` reads it) and back. They wait in seconds of the game, with tolerances for a frame of the
   slowest test run, so they pass at 1/60 and 1/30 s a frame; `StradaRuntimeTests` runs them twice at 1/60 s (the same
-  summary each time) and once at 1/30 s, and plays the main scene, refusing any line from a visual script.
+  summary each time) and once at 1/30 s, and plays the main scene, refusing any line from a visual script. The scene
+  turns the camera director's `Directs` and the audio director's `RideSounds` off, so that it plays as Moto did before
+  the race and the ridden bike (the directors, below).
   `MotoSoundTests.cpp` (StradaRuntimeTests) hears the ghost pass the footbridge camera through the player's
   `--audio-capture`, as the differences between captures of the same 320 frames at 1/60 s that differ in one setting
   (the ghost's engine speed changes along the straight, so a falling pitch alone would prove nothing): the ghost set out
@@ -6801,8 +6833,9 @@ graphs alone keeps its best lap and its settings screen, and none exposes a path
   dB) and over four times the cutoff by 8 dB more, a bound left wide of the captures' 16-bit floor (-37.9 dB; with the
   snapshot's frequency on the `Reverb` bus's high-pass in place of its low-pass, it reads -10.0 dB and fails).
   `PlayModeTests` (StradaEditorTests) plays the main scene in the editor's play mode, where the camera leaves the home
-  view, the actions `NextCamera`, `Pause` and `ResetCamera` injected through `input.set` cut to the start line's camera,
-  blend the mix to the `Paused` snapshot and back and cut back to the tour, and stopping brings the camera back; a
+  view, the actions `NextCamera` and `ResetCamera` injected through `input.set` cut to the start line's camera and back
+  to the tour while `Pause` leaves the mix as it is (no graph of this tree reads it until the race director's), and
+  stopping brings the camera back; a
   `StartCamera` of 9 is warned of once and the tour's camera shows and hears, and one of 2 opens on the Turn 1 camera
   looking at the ghost (within 0.5°), which it follows (within 2° 120 frames later) while the cameras that do not show
   stand as the scene placed them. Every build ends by dropping spheres, in play mode's copy of the scene, on the road, a
@@ -6810,12 +6843,12 @@ graphs alone keeps its best lap and its settings screen, and none exposes a path
   checking every graph (no diagnostic, every node in one box, every box arranged), by a test run that must pass every
   check, by playing the main scene for 10 s in play mode, where the camera must be on the tour's path and the ghost on
   its line, and by refusing any warning in the log.
-  **The ridden bike** (slice 4's VH2). The grid bike is a vehicle ridden with the actions: the `bike` part gives the
+  **The ridden bike**. The grid bike is a vehicle ridden with the actions: the `bike` part gives the
   `Bike` root a dynamic body of `RacingLine.py`'s 262 kg (rider included), a chassis box low between the wheels (not the
   wheels: a wheel entity has no collider, §8 "Vehicles") whose roll inertia of 9.82 kg m² clears the lean spring's bound
   of 6.67, and `Vehicle` on `Assets/Vehicles/Moto.svehicle`; `Front Wheel` and `Rear Wheel` get `VehicleWheel`.
   `Tools/Vehicle.py` writes the definition from `Bike.py`'s geometry (wheelbase 1.485 m, rake 24°, trail 98 mm, tyres of
-  0.2999 and 0.3259 m radius, 120 and 200 mm wide) and `RacingLine.py`'s figures (150 kW at the wheel at 14,000 rpm, the
+  0.2999 and 0.3259 m radius, drawn 120 and 200 mm wide, whose contacts are 24 and 40 mm wide since the feel pass) and `RacingLine.py`'s figures (150 kW at the wheel at 14,000 rpm, the
   gears 2.714 to 1.304 behind a primary of 1.80 and a final drive of 2.5625, so overall ratios of 12.52 in first to 6.01
   in sixth; idle 1,700 rpm, red line 16,000), in `Manual` mode: the bike waits in neutral, and the rider shifts with
   `ShiftUp` and `ShiftDown`. Its curve (`EngineTorque.scurve`) lives in `Assets/Vehicles/`, and its `check()` asserts the
@@ -6842,38 +6875,312 @@ graphs alone keeps its best lap and its settings screen, and none exposes a path
   into the gravel trap outside Turn 6 at the speed it had, facing along the lap with its wheels turning on, for 1 s more;
   then back onto the main straight, 3 m right of its center line, first gear up to 15 m/s, the coast, and a lean of -0.5 for
   1 s. At the end it is teleported back onto the grid at rest, braked until it stops, and left in neutral with no input:
-  the ride writes nothing more, for the checks that join the scene later. It takes about 1,875 steps (31 s), and about
-  15 s more when a brake never stops the bike (a stop gives up after 900 steps). A module whose checks join
-  `Ride.sscene` (a line of `MODULES` naming `Ride`) runs them after the seven, from about step 1,875, with the bike on
-  the grid in neutral and `Driver` still 2, and raises the scene's test timeout (60 s, in `Checks.SCENES` and in
-  `MotoRideTests.cpp`'s `--timeout`) by what they add; a check's wait (`BikeChecks.WAIT`) stays below it. A module that
+  the ride writes nothing more, for the checks that join the scene later. It takes 1,865 steps in Release and 1,866 in
+  Debug (31 s), and about 15 s more when a brake never stops the bike (a stop gives up after 900 steps). A module whose
+  checks join `Ride.sscene` (a line of `MODULES` naming `Ride`) runs them after the seven, from about step 1,865, with the bike on
+  the grid in neutral and `Driver` still 2, and raises the scene's test timeout (200 s since the best lap's checks joined, in
+  `Checks.SCENES` and in `MotoRideTests.cpp`'s `--timeout`) by what they add; a check's wait (`BikeChecks.WAIT`) stays
+  below it. Since the assists' and the autopilot's checks joined after the seven (the ride in graphs, below), a module
+  registered after theirs starts its ride when their ride's phase (`AssistPhase`) is `Done`, at about step 5,040, the
+  bike again on the grid at rest in neutral, `Driver` 2 and the assists off; since the best lap's checks joined after
+  those, one registered after them starts when `GhostPhase` is `Done`, at about step 9,505, the bike left the same way. A
+  module that
   needs the bike from the grid at the first step (a ride compared across frame rates from the start) registers a test
   scene of its own instead, one line of `SCENES`: it too is the main scene without its props, its runner runs only the
-  modules that name it, the ride is not in it, and the riding graph's `Driver` is what that module's `prepare` sets (0,
-  the player's, unless it sets one). The registration is the ride's switch: the runner graph has no public one. Seven
+  modules that name it, and the ride is in it only when the scene names `BikeChecks` too (the flow test scene does: the
+  same ride, with the race's checks beside it from the first step); without it the riding graph's `Driver` is what that
+  module's `prepare` sets (0, the player's, unless it sets one). The registration is the ride's switch: the runner graph
+  has no public one. Seven
   checks, each a band drawn from the figures
   `Vehicle.py`'s `ride_figures()` gives (closed forms from the definition), with the room each form leaves:
   (1) the speed 3 s after the launch, 18.92 m/s by the form, in 0.9 to 1.3 times it (the form takes the spinning rear tyre at its
-  sliding friction throughout, where it grips up to its peak whenever it spins less), read 20.58; (2) the front brake
+  sliding friction throughout, where it grips up to its peak whenever it spins less), read 20.45 (20.43 in Release); (2) the front brake
   alone from 20 m/s, 24.17 m, in 0.85 to 1.25 times it (the form moves the weight to the front at once, where the
-  springs' pitch moves it over the first tenths of a second), read 25.47 (25.52 in Release); (3) the rear brake alone from 20 m/s, 50.04 m,
-  in the same room and longer than the front's, read 52.75; (4) upright with no lean asked over the launch and the
-  asphalt's coast, within 3°, read 1.65° at most; (5) the coast in the gravel losing more than the one on the asphalt by
-  the forms' 2.28 m/s (rolling resistance 0.25 against 0.015), in 0.75 to 1.25 times it, read 2.69 against 0.51 m/s;
+  springs' pitch moves it over the first tenths of a second), read 25.62 (25.61 in Release); (3) the rear brake alone from 20 m/s, 50.04 m,
+  in the same room and longer than the front's, read 52.75 (52.78 in Release); (4) upright with no lean asked over the launch and the
+  asphalt's coast, within 3°, read 0.12° at most; (5) the coast in the gravel losing more than the one on the asphalt by
+  the forms' 2.28 m/s (rolling resistance 0.25 against 0.015), in 0.75 to 1.25 times it, read 2.68 against 0.51 m/s;
   (6) each of the five `ShiftUp`s (from neutral four times, from first once) one gear up, exactly, counted 10 steps after
   each; (7) the lean to the left leaning the bike more than 5° to the left and turning its heading more than 5° to the
-  left, read -10.95° and 46.4° (-10.81° and 46.3° in Release; the steering turns the bike before the lean builds). Release
+  left, read -27.86° and 49.2° (the same in Release). Release
   reads within 1.3 % of Debug, and each the same at every frame rate. The graph logs every reading in one line ("Moto's ride: ..."). `MotoRideTests.cpp` (the shard
   `StradaRuntimeTests.Ride`) plays the scene at 1/60 and at 1/30 s a frame and requires the same line and the same physics
   state at step 1,750, after both teleports; behind `STRADA_LONG_RIDES=1`, with a timeout of 10 minutes, it also plays it at
   1/144 s a frame. The scene has no props, so the shard's two starts of the player stay well within its 200 s on CI's
   macOS runners, where one start on Moto with its props costs about 25 s. `Tests.sscene` keeps its 24 checks and gains no
-  ride. `PlayModeTests` rides the main scene's bike on an injected gamepad (`input.set`'s `gamepads`): the right bumper
-  shifts it into first, the right trigger takes it more than 8 m off the grid at over 8 m/s in 2 s (it reads 13.5), the
-  left stick leans it to the left and then to the right (the input applied and the lean's sign), the left trigger alone
-  slows it by more than 2 m/s in 1 s still in gear, then the X button alone slows it on, the left bumper shifts it into
-  neutral, and stopping brings it back to the grid.
-  **The race** (slice 4's GF): the gates, the race director, the HUD, the pause and the menus, all graphs.
+  ride. `PlayModeTests` rides the main scene's bike on an injected gamepad (`input.set`'s `gamepads`) with the rider
+  assists a new player has (the ride in graphs, below): the right trigger alone takes it out of neutral into first and
+  more than 8 m off the grid at over 8 m/s in 2 s (it reads 13.5), the left stick asks for a lean to the left and then to
+  the right (the steering applied and the lean's sign), the left trigger slows it by more than 2 m/s in 1 s still in
+  gear on the linked brakes (the rear at 0.3 of the front), then the X button alone (the front off) slows it on, the left
+  bumper shifts it into neutral, and stopping brings it back to the grid.
+  **The ride in graphs**. The bike's graphs make the ridden bike a rider's: the riding graph
+  (`Scripts/Bike.sgraph`, `Tools/Vehicle.py`) stays the one writer of `SetDriverInput` and the shifts and gives every
+  driver (`Driver` 0 the player's actions, 1 the autopilot, 2 a test) its **rider assists**, each a public switch on by
+  default that a settings screen writes and keeps (`Settings.Set` of its name, section 13.1):
+  - `LeanAssist`: the `Lean` input is a lean asked for, a share of the lean limit (50.2°), and the assist gives the vehicle
+    the steering that holds that lean at the bike's speed. Jolt's motorcycle turns on a radius of wheelbase /
+    (sin(steer) cos(caster)) and balances at atan(v² / (g R)) (`MotorcycleController.cpp:141-147`, whose steering limit is
+    this mapping at the lean limit), so the assist steers by sin(steer) = wheelbase g tan(lean) / (v² cos(caster)) over
+    the 28° lock, with Jolt's wheelbase (1.5033 m between the suspensions' farthest reach), cos(caster) 0.9135 and the
+    speed taken at 4 m/s at least, so a request at a crawl turns the bars by its share and no further. Off, `Lean` is the
+    steering itself (−1 to 1 of the lock), as the vehicle takes it.
+  - `LinkedBrakes` and `LinkedBrakeShare` (0.3): the front lever also applies the rear brake by the share of its input, and
+    both brakes are eased by the lean as Jolt's motorcycle sample eases them, (1 − sin|lean|)² (`MotorcycleTest.cpp:179-186`):
+    adopted, since the stock tyre friction limits forward and sideways grip apart, so a tyre braking hard while leaned
+    pulls the bike off its line rather than giving up its grip. The share is the largest under which the lightened rear
+    tyre rolls on through the front's hardest stop (0.3 × 300 N m on 0.326 m is 276 N, against 442 N the rear holds at its
+    peak at that deceleration), so one trigger stops the bike from 20 m/s in 20.1 m (9.46 m/s², `Vehicle.ride_figures()`)
+    where the front alone takes 24.2 m. Off, each lever is its own brake, as the vehicle takes it. What the brakes will not
+    do stays as section 8 says: a locked rear wheel keeps its sideways grip, and trail braking and rear-brake slides as a
+    simulation has them are not promised.
+  - `AutoShift`: the riding graph shifts the `Manual` gearbox itself (a new player's default; off, only the rider shifts,
+    on `ShiftUp` and `ShiftDown`, which shift with it on as well): out of neutral once the throttle opens, up at the
+    definition's `ShiftUpRPM`, down below its `ShiftDownRPM` while the gear below stays 1,000 rpm under `ShiftUpRPM`, never
+    into neutral, and none within 12 steps of the last shift. It reads the engine's speed at the road's speed in the gear
+    (the rear wheel's radius, the gear's ratio and the final drive), which a rear tyre spinning on a full throttle or a
+    slipping clutch does not raise. An assist over the `Manual` gearbox rather than the definition's `Automatic` mode, so
+    that the player turns it off in a settings screen while the definition stays one file, and an edit of the shift
+    speeds (`vehicle.set`) moves the shifts at once. A closed throttle stays exactly 0 (the clutch rule of section 8).
+  The graph rides in `Event.FixedUpdate`, so the assists are a function of the simulation (rule of the rides compared
+  across frame rates); with the three off it gives the vehicle exactly the driver's values, so the ridden bike's seven
+  checks above ride the raw vehicle (the ride scene starts with them off). **The rider's pose**, in its `Event.Update`
+  from the bike as drawn: the rigid rider (a child of the bike, so he leans with it) hangs off to the inside, his hips
+  0.12 m and his body 10° further over at the lean limit and in proportion below it, and tucks in from 20 to 45 m/s (a
+  smoothstep: 0.09 m lower, 0.08 m towards the bars, 14° forward); the fork turns about the steering axis by the front
+  wheel's steer, read from the wheel as the vehicle drew it (its axle against the bike's), a frame late at most, and the
+  vehicle draws the wheel in the fork's space, so turning the fork moves the wheel nowhere. The riding graph finds the
+  rider, the fork and the front wheel among the bike's children at its start (public read-outs `Rider`, `Fork`,
+  `FrontWheel`). **The graph library** `Scripts/MotoLib.sgraph` (`Tools/MotoLib.py`, written with the riding graph,
+  which calls it): `AssistSteer`, `CurvatureLean` (the lean request whose lean turns on a curvature), `BrakeEase`,
+  `LineDistance` (a point's foot on a stretch of the line, along the lap) and `Kmh`, each the formula of a figure the
+  tools state. **The ride** (the `ride` part, `Tools/Ride.py`): the `Ride` root runs `Scripts/Ride.sgraph`, which holds the
+  racing line as private arrays (`Line`, its 1,306 points every 2 m of its 2,612 m; `LineDistance`, the center line's
+  lap distance at each; `LineSpeed`, the autopilot's speeds; `LineCurvature`), none public, so the inspector, which reads
+  a selected entity's public lists back whole on every draw while a game plays, never copies them. Each fixed step,
+  whoever rides, it follows the line's point nearest the bike (on from the last, up to three a step, and the whole line
+  again only when the bike moved more than 5 m in a step: placed elsewhere), publishes `Distance` (meters along the lap's center line from the start and finish line, where the
+  gates are) and `Offset` (meters right of the line), and while the editor records telemetry, records **`Ride.Distance`**,
+  `Ride.Speed` (km/h) and `Ride.Offset`. **The autopilot** (`Autopilot`, off: Moto starts as it did, the player riding;
+  the events `StartAutopilot` and `StopAutopilot`) rides by the simulation alone from that fixed step: it sets the riding
+  graph's `Driver` to 1 and writes its public inputs, never `SetDriverInput`, and the assists steer, brake and shift for
+  it. It steers onto a curvature, the line's own 0.3 s ahead times 1.15 (the bike's turn builds behind its steering, so it
+  asks for more than the line's curvature: found by probing the ride), less its heading's error from the line's over 0.4 s of its speed, the heading it aims for bringing
+  it back from its offset over 1.2 s (at most 0.3 rad); it asks the assist for the lean that turns on that curvature. It
+  holds the speed of the line 0.5 s ahead: `LineSpeed` is the line's corners at 0.75 g, slowed for at 4 m/s² besides the
+  drag, never faster than the line's own point mass, times `Pace` (1); the throttle opens by 0.5 for each m/s below it
+  (exactly 0 at or above), the front lever by 0.4 for each m/s above it past 0.5, at most 0.45 (the linked brakes add the
+  rear). A hard front lever at speed sets the bike weaving until it falls (the feel pass, below), which is why the
+  autopilot brakes gently and early; a lap at its speeds is 84.6 s against the line's 71.1 s (its point mass's), and
+  whole laps ride within 1 to 1.25 times the line's (the feel pass, below). **The best lap's ghost**
+  (`Tools/Ghost.py`, the `ghost` part, in regions of the ghost's graph of their own, so that the graph without them is
+  slice 3's ghost on the racing line). The ghost's public `Bike` is the ridden bike (the `ghost` part follows the `bike`
+  part). From the race director's `LapStarted(Lap)` the ghost records the bike at 10 samples a second (a sample
+  every 6 fixed steps of 1/60 s, the first in the step `LapStarted` arrives in), into private arrays: its position, its
+  rotation, its engine's speed and its applied throttle as the load; a lap of up to 4,096 samples (409.5 s) fits one list.
+  At `LapFinished(Lap, Time, Best)` of that lap with `Best`, it keeps them as its best lap, public arrays of a value per
+  sample (`BestLapPositions`, `Strada.Vector3[]`; `BestLapRotations`, `Strada.Quaternion[]`; `BestLapEngineSpeeds` and
+  `BestLapLoads`, `float[]`) with `BestLapTime` (seconds, 0 while there is none), and rides it from then on (`RidesBestLap`
+  reads true; the racing line's timeline stops): every update it stands where the samples put it at its time on the lap,
+  the position between two samples linear and the rotation spherical (`Quaternion.Slerp`), from the last sample back to the
+  first over what is left of the lap, sets `LapTime`, `EngineSpeed`, `Load` and its engine's sound from them, sets out on
+  the lap again beside the bike at each `LapStarted` and goes round it without end otherwise (the attract mode). A lap of
+  more samples than its public `MaxSamples` (4,096 by default) is timed but not kept: a best lap the ghost cannot hold
+  clears the one it had (no `Delta`, the racing line ridden again), so nothing compares the race with a lap that is not its
+  best. While a lap is recorded and a best lap is held, each fixed step sets `Delta`, the lap's time so far less the best
+  lap's time at the same place, negative when ahead: the place is the bike's foot on the polyline of the best lap's
+  positions, the segment from the sample nearest it (followed on from the last, up to three samples a step) or the one
+  before it when the bike has not reached that sample yet, and its time the samples' between. A lap's last stretch, from
+  its last sample to its end, is shorter than a sample period and holds no sample: past the last sample the foot lies on
+  the last segment run on at its own speed for what is left of `BestLapTime`, so that `Delta` at a lap's end is the laps'
+  difference (stopping at the last sample read the stretch too slow, by up to 0.1 s). So the samples need no distance
+  along the lap, and a lap need not end where it began. A game that keeps the best lap (the race's save slot) writes the four arrays and `BestLapTime`
+  back and sends the ghost `BestLapLoaded`: it rides them from their start when they hold one lap (as many values in each,
+  2 to 4,096, and a time their count fits: from 1.5 samples' time short of the last sample to a sample's time past the
+  next) and otherwise clears them and rides the line; a scene that starts with them set is ridden the same way. A slot
+  holds numbers, vectors and quaternions, and lists of them of up to 4,096 elements (`SavedValueCodec.cs`, section 13.1),
+  and a graph reads another's public array and sets it whole (the interpreter's remote Get and Set pass the array), so the
+  race's graph saves the samples with `SaveSlot.Set` of each array and loads them back the same way. The inspector reads a
+  selected entity's public lists back whole on every draw while a game plays: with the ghost selected that is four lists
+  of about 800 samples a lap. **The camera
+  director** (`Tools/Trackside.py`, the `trackside` part) grows from slice 3's (`Cut`, `Face`, `NextCamera`, `ResetCamera`
+  and `StartCamera` stay; the trackside cameras follow `Followed`, the subject or the bike) with a public `Bike` and the
+  start switch `Directs` (on; the test scene turns it off): the race director's broadcasts start it, `AttractStarted` and
+  `RaceStarted`, custom events of no parameters (its read-out `Mode`: 0 cuts when told, 1 the attract mode, 2 the race).
+  In the **attract mode** the trackside cameras follow the `Subject` (the ghost) and the director cuts to the trackside
+  camera nearest the point 40 m ahead of it along its heading on the level, at once and then whenever that is another
+  camera and the one showing has shown `Hold` seconds (3). Along the racing line the rule gives each camera one stretch of
+  the lap, in the lap's order, the shortest 8.5 s (the tool's `check()` asserts it and its `plan()` gives the cuts: at 0 s
+  of the ghost's lap the start line's camera, then Turn 1's at 3.2 s, Turn 3's at 16.3, the footbridge's at 24.8, Turn
+  6's at 33.7, Turn 7's at 44.5, Turn 9's at 53.4 and the start line's at 65.2). In the **race** the trackside cameras
+  follow the bike and the director cuts to the chase camera, the last child: every update it stands 6.5 m behind the
+  bike on the level and 2.2 m above it, looking at the point 1 m above the bike's origin; the bike's lean never moves it,
+  and its heading follows the bike's on the level, eased by 4 a second (exponentially: the same share of the turn a second
+  at any frame rate), jumping with the bike when it is cut to and when the bike moved more than 20 m in a frame (placed
+  elsewhere). Every cut moves the listener with the camera: the camera cut to alone is primary and hears, as slice 3's
+  cuts are. **The audio director** (`Tools/Sound.py`, the `sound` part, which since slice 4 also writes
+  `EngineSound.sgraph` and its curves) plays the ridden bike and the crowd from its public `Bike`, behind the start switch
+  `RideSounds` (on; the test scene turns it off). Its first child, `Bike Sounds`, stands where the bike is drawn every
+  update (the director stands at the origin unturned, and the bike is a root) and holds the bike's own engine (`Bike
+  Engine`, the engine sound's graph with sixteen voices of priority 220 over the ghost's 200, fed the vehicle's
+  `EngineSpeed` and its applied `Throttle` as the `Load`), the tyre squeal and the gravel's crunch (the `Tyres` bus), the
+  wind (`Ambience`) and the shift blip (`Engine`, a one-shot). The squeal sounds by the more of the two wheels' slides,
+  each on the ground off the gravel and the grass, the larger of its slip ratio's share from 0.15 to 0.6 and its slip
+  angle's from 4° to 10° (smoothsteps), times a smoothstep of the bike's speed from 3 to 8 m/s: a probe of the ride read
+  slip ratios of 0.002 to 0.005 and angles under 1° rolling, the front locked (1) under a full front brake and the rear
+  spinning (1 and more) under a full throttle in first, and below about 4 m/s slips that change from one step to the
+  next (an angle of 0, then 17°, at 0.3 m/s), which the speed keeps out. The crunch sounds half for each wheel rolling on
+  gravel, in full from 15 m/s, its pitch rising with speed; both ease towards what they sound with (0.04 s rising, 0.15 s
+  falling). The wind is 0.6 times the square of the speed's share of 60 m/s, its pitch rising with it; the blip plays on
+  every frame whose gear differs from the last frame's (`PlayOneShot`, counted by the read-out `Blips`). The `Crowd`, its
+  second child, is a voice at the middle of each of the four grandstands Props.py places, murmuring from the scene's
+  start, full within 5 m and quieter by the inverse of the distance out to 2 km, so that from the footbridge's camera,
+  490 m from the nearest stand, it lies 17 dB under the ghost riding by (a probe of the sound test's captures read the
+  crowd at -62.7 dBFS against the ghost's -45.5 at its quietest window; with a near distance of 30 m it read -45.8 and
+  the sound test's autocorrelation fell under its bound). The voices mixed are the ghost's sixteen, the bike's sixteen and
+  its three loops, and the crowd's four: 39, with one or two more while blips ring (the blip's source plays two at once),
+  below the engine's 64, so every voice mixes, silent ones included. The audio director reads no action: the game's pause is the race director's, which sends
+  it `TogglePause`. **The checks** join `Ride.sscene` as a module
+  (`Tools/RideChecks.py`, after the bike's seven; the test runner's one `Event.FixedUpdate` calls each module's ride in
+  turn, `Checks.Suite.steps`): from the bike's ride's end, the assists on, (8) the throttle alone puts it in first gear
+  20 steps later; (9) from 20 m/s in neutral the front lever with the linked brakes stops it within 0.85 to 1.25 times
+  the 20.1 m (read 21.3 m) and shorter than the front brake alone in the same run (25.6 m), the rear applied at the
+  share eased by the lean (0.287 to 0.3; read 0.299); (10) a lean request of −0.4 (20.1°) held 1.5 s from 20 m/s turns
+  the bike, over its last 0.5 s, at 0.6 to 1.25 times the rate at which that lean balances the turn at the speed then,
+  g tan(lean) / v (read 8.5°/s against 8.3). The lean itself is read and logged, not checked: −12.2° at the end, where
+  20.1° balances the turn (the bike as drawn read −0.9°, before the feel pass); (11) at over 47 m/s the rider stands where the
+  pose puts him tucked, within 1 cm; (12) leaned over 5° he hangs to its side where the pose puts him, within 1 cm, the
+  fork's axle within 0.5° of the front wheel's; (13, 14) the autopilot from the grid at rest for 20 s and then 15 s more
+  covers 0.75 to 1.15 times the lap distance a point mass riding `LineSpeed` covers (`Ride.predict`: 676 and 401 m at
+  the feel pass's 0.75 g; the point mass takes each speed at once, where the autopilot's throttle and brake follow by their
+  gains, so the ride covers less, or a little more, never much more; read 638.5 and 430.6), never more than 3 m off the
+  line (read 1.9 and 1.9), with no step of a wheel on gravel or grass, never leaned past the line's 52° (read 31.2° and
+  32.5°), and through Turns 1 and 2 leaned 24.9° at least, 80 % of the weaker of the Debug and the Release readings (31.4°
+  and 31.2°; the bike as drawn read 9.2°), so that a bike that takes Turn 1 upright again fails on every platform. Then the
+  ride stops the autopilot, puts the riding graph on its test driver with the assists still on and the bike on the main
+  straight at 20 m/s in the gear the autopilot left, and stops it on the front lever alone, held 30 steps more while its
+  wheels stop; (15) let go, every input 0, for 120 steps, the bike waits in first gear (the automatic shifts took it down
+  as it slowed and never into neutral) under 0.1 m/s and at most 5 cm from where it was let go (read first gear, 4e-5 m/s
+  and 11 mm, 10 mm in Debug): an engine idling in gear that
+  pushed it, as Jolt's held at its idle speed does with the clutch closed, would move it meters. Then the ride turns the
+  assists off, puts the bike on the grid, brakes it to rest into neutral and enters `Done`. The ride logs every reading in one line ("Moto's assists and autopilot: ..."), which
+  `MotoRideTests.cpp` requires the same at 1/60 and 1/30 s a frame (and at 1/144 behind `STRADA_LONG_RIDES=1`). **The
+  directors' checks** (`Tools/DirectorChecks.py`, a module of the ride scene after these) ride nothing: the runner
+  graph's one `Event.Update` (`Checks.Suite.frames`, beside the fixed steps' `steps`) reads every frame what the directors
+  set while both rides go on, from the scene's start to `AssistPhase` `Done`, and stands in for the race director,
+  broadcasting `AttractStarted` at 0.5 s of the game and `RaceStarted` at 40 s. The readings are of frames, so no line
+  compared across frame rates holds them, and where a reading compares what a director set with what the bike reads it
+  takes the nearer of the bike's reading in the frame and in the last (graphs update in no stated order). (16) In the
+  attract mode the camera that shows is in every frame the one `plan()` gives for the ghost's time on its lap within
+  0.6 s either side, and the director cuts exactly as often as the plan (5 times: the first cut and four changes); (17)
+  in the race the chase camera shows in every frame, within 0.02 m of its place and 0.5° of its aim, and at most 15°
+  round from straight behind the bike (read 3e-5 m, 0.03° and 7.5° to 8.0° at 1/30, 1/60 and 1/144 s a frame); (18) in every frame of both the camera that shows is
+  the one camera whose listener hears, as `Active` names it; (19) the bike's engine voices are fed the vehicle's engine
+  speed and throttle (exactly, within the frame), all sixteen play on `Engine`, their powers balance within 0.02 (read
+  0.0002), and through the launch in first gear, from its 90th step to its end, the engine speed is the rear wheel's
+  turning through the gearbox within 3 % (read 1.1 % to 1.3 %); (20) the squeal sounds at 0.7 of its level or more while the front
+  wheel slides locked above 8 m/s (read 0.8, its level) and at 0.02 of it at most while the bike rolls on the asphalt
+  (read 9e-7); (21) the director plays a blip on every change of gear, at least the bike's ride's nine (read 18 changes,
+  18 blips); (22) the crunch sounds at 0.6 of its level or more after 15 steps rolling in the gravel trap (read 0.73) and
+  not on the asphalt (0); (23) `Audio.ActiveVoiceCount` is 39 or more in every frame and never more than 41, those and the
+  blip's two (`Sound.most_voices()`), so that a voice that never ends fails it. A blip lasts its clip's 0.42 s of the
+  mix's time, which a test run's null device advances in real time, so how many frames one spans depends on how fast the
+  frames run, and the count between 39 and 41 with it (test runs read 39 to 41 or 40 to 41, a run paced at 60 frames a
+  second 39 to 41); (24) the wind at 23.7 m/s against 15 m/s is the speeds' ratio squared within 10 %, and the four crowd voices play
+  at their level. A line "Moto's directors: ..." logs the readings. **The best lap's checks** (`Tools/GhostChecks.py`, a
+  module of the ride scene after the directors') stand in for the race director's `LapStarted` and `LapFinished`, sent from
+  the fixed step a lap starts or ends, `Best` when the lap is shorter than all before it. Their laps are short stretches
+  (whole laps stay behind `STRADA_LONG_RIDES=1`, below): each begins as the assists' ride ends, the riding graph on its test
+  driver and the bike placed on the grid, braked into neutral at rest, then starts the autopilot and `LapStarted` in one
+  step and ends 660 m along the lap, past Turn 1, its time the steps since. Laps 1, 2 and 3 ride at a `Pace` of 0.8, 1 and
+  0.9, then lap 4, of 180 steps, rides while the ghost's `MaxSamples` is 20. (25) Lap 4, the race's best, is longer than
+  the ghost keeps: timed, not kept, the ghost's best lap cleared and the racing line ridden. (26) The ghost keeps lap 1, then
+  lap 2 in its place, and not lap 3 (read 24.63, 21.03 and 22.58 s), its `BestLapTime` the kept lap's, lap 2's samples
+  within one of its time's count, each the bike's position at its step within 10 µm: the ghost's first sample is in its
+  first fixed step at or after `LapStarted`, the step the lap starts in or the next as the scene orders the graphs within a
+  step, so the module takes the bike's samples from both and compares the ghost's with the grid they lie on (read
+  from the start step, 0 m apart). (27) `Delta` at the end of each lap, read in its last step before
+  `LapFinished`: 0 while no best lap is held (lap 1), and within two fixed steps (0.033 s) of the laps' difference,
+  negative for lap 2 and positive for lap 3 (read −3.601 against −3.600 and 1.540 against 1.550; −3.601 and 1.534
+  against 1.533 in Debug): `Delta` is a step old when the module reads it before the ghost's graph runs in the step, and the bike ends a
+  lap up to a step's ride past where the best lap ended. (28) In every frame of lap 3 from its fourth step on
+  the ghost stands, at its own `LapTime`, where lap 2's samples of the bike put it (between the two round that time, at
+  the share the time gives) within 1 cm, and its `LapTime` is the race's lap clock within 0.04 s (the ghost's time runs by
+  frames, the race's by fixed steps; over 300 frames at least). (29) The samples written back
+  with their time and `BestLapLoaded` sent are ridden; with the rotations emptied, `BestLapLoaded` is refused and the ghost
+  rides the line. Then the ride stands the bike on the grid in neutral, as the assists' ride left it, and
+  enters `Done` (`GhostPhase`). Their readings of the fixed steps are logged in one line ("Moto's ghost: ..."), which
+  `MotoRideTests.cpp` requires the same at 1/60 and 1/30 s a frame (and at 1/144 behind `STRADA_LONG_RIDES=1`). The scene
+  holds 29 checks in about 9,500 frames, within its timeout of 200 s (in `Checks.SCENES` and `MotoRideTests.cpp`, whose two
+  runs have a process timeout of 5 minutes of their own: a slow runner's Debug run of 9,500 frames passes the two minutes
+  `RunProgram` gives). `PlayModeTests` reads the recorded `Ride.Distance` and `Ride.Speed` against the bike's own distance
+  and speed. Every authoring run plays the raw vehicle's launch and stops with the assists off.
+  **Whole laps** (`Tools/LapChecks.py`, the lap test scene `Scenes/Lap.sscene`, a line of `Checks.SCENES`: the main scene
+  without its props, its `Ride` with `Autopilot` on and its ghost recording the bike): the autopilot rides two laps from
+  the grid while the scene's graph stands in for the race director, sending `LapFinished` and `LapStarted` in the step the
+  bike's `Distance` crosses the start and finish line, each lap's time its steps since the crossing that began it. Its
+  four checks: each lap within 1 to 1.25 times the racing line's 71.1 s (read 82.53 and 79.28 s; 82.57 and 79.28 in Debug); never more than 3 m off
+  the line, no step of a wheel on gravel or grass, never leaned past 52° (read 2.26 m, 0 steps, 39.1°); the ghost
+  keeping the faster lap, with its `Delta` at the second's end within 0.033 s of the laps' difference (read −3.253 s against
+  −3.250; −3.290 against −3.283 in Debug);
+  and the bike leaning into its corners: ten times a second the lean that balances the turn, atan(v × the heading's rate
+  since the last sample / g), and where that passes 10° the bike's lean over it; the samples' mean at least 0.57, 85 % of
+  the weaker of the Debug and the Release readings (0.671 and 0.676 over about 1,110 samples; the bike as drawn read 0.07). A line
+  "Moto's laps: ..." logs the readings. `MotoRideTests.cpp` plays it behind `STRADA_LONG_RIDES=1` with a process timeout of
+  10 minutes (about 10,000 frames). **The feel pass** found why the bike rode its corners upright and gave it contacts of
+  its own. As drawn, its wheels cast cylinders 120 and 200 mm wide against the ground (the definition's `Width`), and the
+  bike leaned 0.07 of the lean that balances its turns (35 to 39° balance Turn 1; it leaned 9 to 11°). The engine rounds a
+  cast's edges by half its width (`VehicleWorld.cpp`, as Jolt's own tester does, `VehicleCollisionTester.cpp:261`), but the
+  support function every cast goes through caps a convex radius at 0.05 m (`ScaleHelpers.h:30`, from
+  `CylinderShape::GetSupportFunction`, reached from `ConvexShape.cpp:269-273`), so a wheel wider than 0.1 m rides on a flat
+  bottom: upright its contact sits half its width less 0.05 m off the wheel's plane (a probe read 52 mm for the 200 mm rear,
+  none at 100 mm or less). The ground's force then misses the center of mass at the lean Jolt's controller aims for, the
+  lean spring holds a standing torque, and the linear impulse Jolt pairs with every roll impulse
+  (`MotorcycleController.cpp:228-247`) carries the turn in the tyres' place. On steady circles at 25 m/s the bike leaned
+  0.064, 0.27, 0.45, 0.60, 0.75 and 0.85 of the balance with its wheels' widths scaled 1, 0.8, 0.6, 0.4, 0.2 and 0.1;
+  Jolt's own sample body, made in this engine, 0.82 to 0.89 on its 50 mm wheels and 0.43 to 0.47 on wheels three times as
+  wide. A lower center of mass or a larger roll inertia on the wide contacts fell or left the road in every probe, and the
+  engine has no field for either (a chassis's mass and inertia are its colliders', section 8). So `Vehicle.py` gives the
+  wheels contact widths of their own, 24 and 40 mm (at most 0.1 m, which its `check()` asserts, and above which the
+  engine warns of a vehicle that leans, section 8, "The wide wheel's warning"), while `Bike.py` draws the tyres 120 and
+  200 mm wide; the lean spring goes from 5,000 to 10,000 with its damping held at 400 (a stiffer spring with
+  the damping held leans the bike deeper and faster: on these contacts Turn 1's peak roll rate read 31, 38, 43 and 61°/s
+  at 5,000, 7,500, 10,000 and 15,000; a damping raised with the spring, towards the roll inertia's bound of 589, slows the
+  lean instead); and the autopilot takes `LineSpeed`'s corners at 0.75 g with an understeer of 1.15 (on the narrow contacts
+  the upright bike's 0.8 g and 1.3 ran exits onto the grass). The tune was chosen by its margin: it rides the lap and ride
+  scenes clean in Debug and Release, and so does each one-notch change of it on the lap scene in Release (the grip by
+  ±0.025, the understeer by ±0.05, each contact width by ±10 %, the spring by ±10 %: first laps of 81.72 to 83.33 s, 1.97 to
+  2.51 m off the line at most, no step off the road, 0.66 to 0.69 of the balancing lean). The lean is pinned: the lap
+  scene's fourth check and the ride scene's Turn 1 bound above. The drawn tyres stand on narrower contacts: from the
+  geometry (a round tread of half the drawn width about the contact's), the drawn edge lies below the road by (half the
+  drawn width less half the contact's) times (1 − cos lean), 18 mm for the rear and 11 mm for the front at the laps'
+  deepest 39°. **By measurement**, with the assists off in neutral from 20 m/s, the front brake stops the bike in 25.6 m at
+  its 750 N m (its wheel locks at once and its tyre slides), 26.2 m at 600, 30.9 m at 500 and 37.9 m at 400: a brake that
+  does not lock stops longer, so it stays at 750. **Under a hard front lever at speed the bike weaves** and leaves the
+  road: with the linked brakes on, a full lever from about 58 m/s and a lever of 0.8 from about 62 m/s (it falls from 64
+  to 66), while a lever of 0.6 rides to about 70 m/s and one of 0.45 to 78 m/s at least; a player at full throttle reaches
+  about 76 m/s at the end of the main straight. Braking moves the load forward, and a tyre's side grip is its curve times
+  its load, the same curve front and rear (`WheeledVehicleController.h:191-196`), so the braking bike oversteers, the
+  faster the harder it brakes; Jolt's motorcycle steers by its input alone, nothing steers against the yaw
+  (`MotorcycleController.cpp:155-182`), and the yaw rate departs first, the lean after it. Not the cause: the contact
+  widths, the fixed step, the fork's rake, the lean spring, its damping and smoothing, the gear and a locking front. The
+  riding graph does not damp the yaw yet (a probe found that a damper of the yaw rate beyond what the steer asks for rides
+  every case), so the autopilot's brake ramps on gently and stays at 0.45. A fall from 58 m/s at a lever of 0.45, first
+  taken for a weave, was the test scene's own Asphalt Slider, which a bike ridden straight there meets 358 m into the lap.
+  In neutral the engine winds down from its red line by 80 rpm a second (Jolt's engine damping, 0.005 of its speed a
+  second, which also takes its share of the power at every speed). Neither is tuned here. **M1's sixth step** (`MotoAgentTests.cpp`, StradaEditorTests): in the lap
+  test scene, the autopilot riding from the grid, an agent rides twice through Turn 1's turn-in, `vehicle.set` editing
+  the definition a second into each ride: the first raises the shift point and the red line by 1,000 rpm, the second
+  raises them the same and doubles the lean spring, its damping left as it was (the definition is set back between the
+  two). The rides differ by the spring alone, so the bike turns in at the same speed in both and the quicker roll is the
+  spring's. The riding vehicle takes the spring in place before its next step and rides on; `telemetry.read` of the
+  vehicle's channels shows the first upshift at a road speed whose engine speed in first gear is above the old shift
+  point by more than 500 rpm (read 16,505 rpm at 45.0 m/s), the engine past the old red line (read 17,000 rpm, the new
+  one: the rear tyre's drive slip holds the road's speed a little under the shift point while the engine runs at its
+  limit), and a quicker roll into Turn 1: from the turn-in (the first step past 500 m along the lap leaned 2°) to 10° of
+  lean, 0.650 s in the first ride and 0.517 s in the second (0.650 and 0.533 in Release), on either side of the case's
+  0.59 s; and `profiler.capture` of the frames writes a capture whose subsystems hold `Physics`.
+  **The race**: the gates, the race director, the HUD, the pause and the menus, all graphs.
   **The gates** (`Tools/Race.py`, the `race` part, which makes the `Race` root; the circuit part's solid arches and its
   `Sector Gate` entities stay as they are): `Line` at the start and finish line under the gantry, `Gate 1` and `Gate 2` at
   the two sector arches (`Circuit.SECTOR_GATES`, 896.0 and 1,792.7 m), each a static body whose `BoxCollider` is a
@@ -6904,7 +7211,8 @@ graphs alone keeps its best lap and its settings screen, and none exposes a path
   race's times are steps since the start signal times the fixed step. The trigger events count the subject's entries
   (`Entries`), and tell any other graph that a body met a gate. **The race director** (`Scripts/RaceDirector.sgraph`, on
   `Race`): its `State` is `Idle` (as the scene starts while its start switch `TitleOnStart` is off, as Moto started
-  before it had a race; the test scenes set it so, `Checks.SWITCHES`), `Title` (the title over the attract mode; it
+  before it had a race; the test scenes set it so, `Checks.SWITCHES`, and a test scene's own switches keep off what else
+  would act by itself as it starts and its checks do not read), `Title` (the title over the attract mode; it
   broadcasts `AttractStarted`), `Countdown` (`Countdown` seconds, 3, counted in fixed steps; `Holding` reads true, for
   the riding graph to hold the bike on the grid, and a crossing of the line counts for nothing), `Racing` (`RaceStarted` at the signal; lap 1 begins at the first
   crossing of the line after it, the grid standing 9 m before the line) and `Results` (after the crossing that finishes
@@ -6930,10 +7238,9 @@ graphs alone keeps its best lap and its settings screen, and none exposes a path
   show (a frame updates its scripts before its steps, so never in a fixed step), or as a race that made one is left
   without its results (`AbandonRace`, which the pause screen's QUIT TO TITLE sends) or started again (`StartRace`),
   only when the race made a new best lap, with the ghost's arrays when the ghost kept them and without them otherwise.
-  `Race.GHOST_GRAPH` is `Scripts/GhostStandIn.sgraph`, which declares what the director reads and writes of a ghost with
-  the names of the ride's ghost (the arrays, `BestLapTime`, `Delta` and `BestLapLoaded`) and which the ride test scene's
-  stand-in ghost runs; the main
-  scene's ghost rides the racing line and runs none of it, so the main scene keeps the best lap's time and splits alone.
+  `Race.GHOST_GRAPH` is the ghost's own graph (`Scripts/Ghost.sgraph`, the ride in graphs above): the main scene's
+  director keeps the samples the ghost kept of the best lap and gives them back to it as the scene starts, and the
+  ghost rides them when they hold one lap.
   **The HUD** (`Tools/Hud.py`, the `hud` part, which makes the `Screen` root: a `UICanvas` of 1920 by 1080 reference
   units running `Scripts/Hud.sgraph`, and the track map's image, `Textures/Hud/TrackMap.png`, the circuit's center line
   from `Circuit.py` seen from above with the line's and the sector gates' ticks) reads the grid bike's vehicle (`Bike`)
@@ -6990,28 +7297,35 @@ graphs alone keeps its best lap and its settings screen, and none exposes a path
   (`Settings.Save`, which waits for the disk: a menu's, never while the bike is ridden); the bindings are the input
   system's profile, written as each rebind ends. The assists' three values are given to the riding graph of the
   menus' `Rider` (the bike) as the scene starts and after each step (a value the player never set leaves the
-  rider's own), through `Menu.ASSIST_GRAPH`, which declares them:
-  `Scripts/AssistsStandIn.sgraph` until the bike's riding graph gets the rider assists, and the ride test scene's stand-in
-  rider runs it. `ShowMenus` off shows no screen: `Captures.py`'s copies set it, with the HUD's `ShowHud` off and the
+  rider's own), through `Menu.ASSIST_GRAPH`, the bike's riding graph (`Scripts/Bike.sgraph`), whose public
+  `LinkedBrakes`, `LinkedBrakeShare` and `AutoShift` they are; its `LeanAssist` is no setting the screen offers.
+  `ShowMenus` off shows no screen: `Captures.py`'s copies set it, with the HUD's `ShowHud` off and the
   director's `TitleOnStart` off (so no attract mode moves a camera), and the pictures of the circuit stay as they
   were. Each screen draws in two batches when shown (its rectangles and buttons, then its texts). **The
   race's checks**
-  (`Tools/RaceChecks.py`, a module of the tests part) join `Ride.sscene` and report after the ride's seven; what they
+  (`Tools/RaceChecks.py`, a module of the tests part) join the flow test scene, `Scenes/Flow.sscene` (the main scene
+  without its props, with the `Flow Tests` entity running `Scripts/FlowTests.sgraph`), a scene apart from `Ride.sscene`
+  because they run the race director, whose broadcasts the ride scene's checks send in its place there (the ride in
+  graphs, above): the bike's ride and its seven checks come first, as in the ride scene (`BikeChecks.py`'s
+  `prepare` turns the rider assists off in both, its bands being the raw vehicle's), and the camera director cuts only
+  when told and the audio director plays no ride there (the scene's own start switches); what they
   read is taken from the scene's first step, beside the ride, by a graph of their own (`Scripts/RaceTests.sgraph`, on
   the `Race Tests` entity, registered by a line of `Checks.MODULE_GRAPHS`) from its `Event.FixedUpdate`, as a function of
   its own count of steps and of what the director reads, by about step 480. Its entities: the `Gate Probe`, a box of
   0.5 m with no gravity and no damping, which is the director's `Subject` there from the first pass on (so the ridden
-  bike crosses nothing the race counts), the `Ghost Stand-In`, the director's `Ghost` as the scene starts, and the
+  bike crosses nothing the race counts), the scene's `Ghost`, the director's `Ghost` as in the main scene (its graph,
+  `Scripts/Ghost.sgraph`, its `Bike` cleared there: the scripted races are no laps of the bike, so it records none), and the
   `Race Marker`, a child of the race that is no gate, put first among its children with the line moved last (so the
   gates' numbers, not their order, time them); the scene's director counts down 1 s. Six passes send the probe through the gates: the line at 10 m/s, `Gate 1` at 30,
   `Gate 2` at 60, then each at the top speed, from 12 m before the plane, 1.2 m over the road, parked 60 m over the grid
   when out of the gate. Then two races: `StartRace` is sent, and once the countdown has run twelve crossings are sent
   the director one a step, as the gates send them (three laps, one crossing out of order and one after the finish); when
-  a lap is the best, the stand-in's arrays are filled with its samples, ten a second, as the ghost keeps a lap; a
+  a lap is the best, the ghost's arrays are filled with its samples, ten a second, as the ghost keeps a lap, once the
+  crossing's `Send` has returned (the ghost, which recorded none, clears its best lap at the `LapFinished` broadcast); a
   crossing of the line sent in the countdown's first step counts for nothing; the slot is opened again five steps after
   each finish, past the frame that saves it at every frame rate. The
   first race (laps of 99.008, 93.487 and 96.258 s) is run with the probe as the director's `Ghost`, which runs no graph
-  of a ghost, so its best lap is saved without samples; the second (90.008, 84.988 and 87.508 s) with the stand-in
+  of a ghost, so its best lap is saved without samples; the second (90.008, 84.988 and 87.508 s) with the scene's ghost
   again, so its best lap is saved with them. Then a third race, in which the probe is sent through the line at the top
   speed once the race runs, and which is abandoned once it is out of the gate. Nine checks: (1) each crossing the
   director timed within 0.5 ms of the analytic one, from where the probe's speed puts the plane past a position the
@@ -7031,7 +7345,8 @@ graphs alone keeps its best lap and its settings screen, and none exposes a path
   development runs of the scene of 560 frames with one per-user root, which keep their game data in the project's
   `.strada/PlayData` where a
   test run's is temporary, show the first saving the best lap and the second loading it as the scene starts, giving
-  the ghost its time and telling it once, and keeping it without a save. **The HUD's and the pause's checks** (`Tools/HudChecks.py`, after the race's): the
+  the ghost its samples and its time and sending it `BestLapLoaded`, the ghost riding them (its `RidesBestLap`, read before the first
+  race), and keeping it without a save. **The HUD's and the pause's checks** (`Tools/HudChecks.py`, after the race's): the
   `Hud Tests` entity's graph (`Scripts/HudTests.sgraph`) presses `Pause` by an action override in the ridden bike's
   launch (the riding graph's `Throttle` open, the bike past 10 m/s, the director still idle and the HUD's riding group
   shown). A frame's time step is scaled as the frame begins, before the press reaches the director, so the frame of the
@@ -7042,8 +7357,9 @@ graphs alone keeps its best lap and its settings screen, and none exposes a path
   still reads `STEADY` the next frame, the game still standing (the HUD writes a text only when its value changes); and
   paused, time scale 0, the `Paused` snapshot,
   the director's `Paused` and the pause screen together with the bike's speed held to the bit, then two frames after the
-  second press time scale 1, the mixer's own values and the screen hidden. Two more drive a fourth race against the
-  stand-in ghost, its lap 1 begun by a crossing of the line sent the director: with the stand-in's `BestLapTime` 90 s
+  second press time scale 1, the mixer's own values and the screen hidden (the mix through the race director's
+  `TogglePause` to the audio director). Two more drive a fourth race against the scene's ghost, its lap 1 begun by a
+  crossing of the line sent the director: with the ghost's `BestLapTime` 90 s
   and its `Delta` -1.25 s, then 0.4321 s, the HUD's delta reads `-1.250`, then `+0.432`; with no best lap on the ghost,
   a crossing of `Gate 1` 2,006 steps after the line reads the split against the second scripted race's best split as the
   lap began, `+0.608`; then the race is abandoned. The pause inserts frames without fixed steps, so the ride's and the
@@ -7056,20 +7372,21 @@ graphs alone keeps its best lap and its settings screen, and none exposes a path
   crossings sent the director, and the results read `LAP 1   1:35.000` to `LAP 3   1:37.000`, `TOTAL 4:48.000` and
   the best lap, then `Confirm` presses CONTINUE, back to the title; (3) SETTINGS clicked, the screen's buttons step the
   quality down twice, the size up, the master volume and the `Engine` bus a tenth down, the linked brakes off, their
-  share a tenth up and the automatic shifts off: `Settings` reads each back, the stand-in rider has the three, the
+  share a tenth up and the automatic shifts off: `Settings` reads each back, the bike's riding graph has the three, the
   screen shows them, and BACK saves once (a test run's game data folder is temporary, so nothing reaches the next run;
   the window's mode is not stepped: a test run takes no display); (4) the throttle's keyboard button listens and says so, and a cancel keeps `W` and names it;
   (5) `MenuDown` selects SETTINGS, `Confirm` presses it, `MenuRight` steps the selected quality up, `MenuUp` goes round
   to BACK and `Back` saves and leaves; (6) `Pause` shows the pause screen with time standing still, and `Confirm`
   presses RESUME while it does; (7) RACE clicked, a lap 1 of 83 s sent the director, faster than the best, then `Pause`
   and QUIT TO TITLE clicked before the race's end: the director, which saved nothing while racing, saves once as it
-  goes back to the title, and the slot opened again holds the lap. The scene runs 31 checks in 2,165 frames at 1/60 s
+  goes back to the title, and the slot opened again holds the lap. The scene runs 31 checks in 2,159 frames at 1/60 s in Release and 2,160 in Debug (the bike's ride, as in the ride scene,
+  ends at step 1,865 in Release and 1,866 in Debug)
   (its timeout is 60 s). **In the
   editor** (`MotoPlayTests.cpp`, StradaEditorTests): a conditional breakpoint `Lap == 3` on the director's `LapStarted`
-  broadcast in `BeginLap`, playing the ride test scene, is reached at each lap's start and holds at the first scripted
+  broadcast in `BeginLap`, playing the flow test scene, is reached at each lap's start and holds at the first scripted
   race's third; `graph.step` with `Into` goes into each receiver of the broadcast in turn (the race checks' graph first)
   and into the HUD's `LapStarted`, delivered from the director with lap 3. The race's telemetry marks, recorded with
-  `telemetry.start` while the ride test scene plays ten seconds of the game at 1/60, 1/30 and 1/144 s a frame, sit on
+  `telemetry.start` while the flow test scene plays ten seconds of the game at 1/60, 1/30 and 1/144 s a frame, sit on
   the same rows at the three rates (the scripted races' laps and sectors and the box's real crossing). And the main
   scene, played: its title opens the settings by the directional pad and A, a click of the quality's `<` steps it to
   Medium and one of the window's `>` to fullscreen (kept, never applied to the editor's window), the throttle's keyboard
@@ -7078,7 +7395,14 @@ graphs alone keeps its best lap and its settings screen, and none exposes a path
   (`Settings.json`, `Input/Moto.sinput.json`) and steps the window back. Each of the telemetry case's three plays
   starts with `.strada/PlayData` removed, so that no best lap one saved is loaded by the next. And the main scene,
   played with the director's `TitleOnStart` off: `vehicle.set` lowers the definition's shift speeds below the idling
-  engine's, and the HUD's shift light is lit from the next frame, and off again once they are back.
+  engine's, and the HUD's shift light is lit from the next frame, and off again once they are back. And the main scene as
+  it opens, its title on: the director's `AttractStarted` puts the camera director in its attract mode (`Mode` 1, a
+  trackside camera showing and hearing the scene), which goes on through the countdown Enter starts from the title's
+  RACE, and its `RaceStarted` cuts it to the chase view (`Mode` 2, `Active` 8, the chase camera alone showing). Where the
+  ride's graphs and the race's meet, each pair is played on the real graphs: the director's loader and the ghost (the flow scene's keeping runs: the ghost takes the samples and rides
+  them; the HUD's live delta is the ghost graph's `Delta`), the settings' assists and the riding graph (the flow scene's
+  settings check), the director's `AttractStarted` and `RaceStarted` and the camera director (this case), and the pause
+  and the audio director (the flow scene's pause check and `PlayModeTests`' Moto case).
 - The Showcase's **Graph Garden**: chimes played by six visual scripts (`Scripts/GraphGarden`; `Tools/GraphGarden.py`
   authors them and `Tools/Author.py --exhibit GraphGarden` rebuilds the exhibit in place, with a hash guard that names
   any file outside the exhibit that changed), whose score is a Timeline; seven of the Showcase's 68 checks look at it.

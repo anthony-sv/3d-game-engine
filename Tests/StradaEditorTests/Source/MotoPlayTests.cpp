@@ -19,6 +19,7 @@
 #include "Strada/Asset/AssetManager.h"
 #include "Strada/Core/FileSystem.h"
 #include "Strada/Core/Input.h"
+#include "Strada/Core/UUID.h"
 #include "Strada/Renderer/QualityPresets.h"
 #include "Strada/Scene/Components.h"
 #include "Strada/Scene/Entity.h"
@@ -45,7 +46,8 @@ using namespace Strada;
 // The Moto sample in the editor, played as M1 shows it (Docs/Architecture.md section 15, "The race"): a conditional
 // breakpoint on its race director stepped into the HUD across a broadcast, the race's telemetry marks recorded at three
 // frame rates, its menus driven by an injected gamepad, the mouse and the keyboard, their settings and bindings kept for
-// the next play, and the HUD's shift light following a live edit of the bike's definition.
+// the next play, the HUD's shift light following a live edit of the bike's definition, and the camera director following
+// the race director from the title's attract mode to the race's chase view.
 
 namespace
 {
@@ -212,9 +214,9 @@ namespace
 		CommandRegistry m_Registry;
 	};
 
-	// The ride test scene (Scenes/Ride.sscene): its race checks' graph (Tools/RaceChecks.py) sends the race director two
+	// The flow test scene (Scenes/Flow.sscene): its race checks' graph (Tools/RaceChecks.py) sends the race director two
 	// scripted three-lap races and a third that a box's crossing of the line begins, all by about step 480.
-	constexpr std::string_view RideScene = "Scenes/Ride.sscene";
+	constexpr std::string_view FlowScene = "Scenes/Flow.sscene";
 	constexpr std::string_view Director = "asset://Scripts/RaceDirector.sgraph";
 	constexpr std::string_view Definition = "asset://Vehicles/Moto.svehicle";
 
@@ -244,7 +246,7 @@ TEST_CASE("MotoPlay: a conditional breakpoint Lap == 3 on the race director stop
           "goes across the broadcast into the HUD's LapStarted")
 {
 	MotoPlay moto;
-	moto.Ok("scene.open", Json::object({{"path", RideScene}}));
+	moto.Ok("scene.open", Json::object({{"path", FlowScene}}));
 	int32_t const broadcast = FindLapStartedBroadcast(moto);
 	moto.Ok("graph.breakpoints",
 	        Json::object({{"graph", Director}, {"add", Json::array({Json::object({{"node", broadcast}, {"condition", "Lap == 3"}})})}}));
@@ -311,10 +313,10 @@ TEST_CASE("MotoPlay: a conditional breakpoint Lap == 3 on the race director stop
 TEST_CASE("MotoPlay: the race's telemetry marks sit on the same rows at 30, 60 and 144 frames a second")
 {
 	// The race director marks its laps and sectors at the crossings it times in fixed steps (Docs/Architecture.md section
-	// 4.5), so each mark sits on the row of its step whatever the frame rate: the ride test scene's races, the box's real
+	// 4.5), so each mark sits on the row of its step whatever the frame rate: the flow test scene's races, the box's real
 	// crossing of the line among them, recorded at three rates for ten seconds of the game each.
 	MotoPlay moto;
-	moto.Ok("scene.open", Json::object({{"path", RideScene}}));
+	moto.Ok("scene.open", Json::object({{"path", FlowScene}}));
 	moto.Ok("telemetry.start");
 	// The frames of ten seconds at each rate run a few steps fewer than 600 (the step's accumulator starts empty): the marks
 	// are compared up to the last step all three sessions reached.
@@ -406,6 +408,14 @@ TEST_CASE("MotoPlay: Moto's title opens the settings by the gamepad, clicks step
 	moto.Click("Window Upper");
 	CHECK(moto.GetText("Window Value") == "FULLSCREEN");
 
+	// The linked brakes' ">" turns them off, and the menus give the setting to their rider, the main scene's bike: its riding
+	// graph's LinkedBrakes goes from on, as a new player's bike has it, to off.
+	CHECK(moto.GetText("Linked Brakes Value") == "ON");
+	CHECK(moto.ReadOut("Bike", "LinkedBrakes").GetBool());
+	moto.Click("Linked Brakes Upper");
+	CHECK(moto.GetText("Linked Brakes Value") == "OFF");
+	CHECK_FALSE(moto.ReadOut("Bike", "LinkedBrakes").GetBool());
+
 	// The throttle's keyboard button listens; E, the key of ShiftUp, answers: the throttle takes it, and the screen names the
 	// conflict.
 	moto.Click("Throttle Key");
@@ -454,6 +464,9 @@ TEST_CASE("MotoPlay: Moto's title opens the settings by the gamepad, clicks step
 	CHECK(moto.GetText("Window Value") == "FULLSCREEN");
 	CHECK(moto.GetText("Throttle Key Text") == "E");
 	CHECK(moto.GetText("Throttle Pad Text") == "PAD RIGHTTRIGGER");
+	// The kept linked brakes' setting reaches the bike as the scene starts: the menus give it to their rider.
+	CHECK(moto.GetText("Linked Brakes Value") == "OFF");
+	CHECK_FALSE(moto.ReadOut("Bike", "LinkedBrakes").GetBool());
 
 	// The mouse opens the settings, and steps the window back to a window. The lean's keyboard binding is two keys: it listens for the
 	// left, then the right; a pad button given for the right is refused, the binding given back with its new left key, and the right asked
@@ -540,5 +553,55 @@ TEST_CASE("MotoPlay: a live edit of the bike's shift point moves the HUD's shift
 	moto.Ok("vehicle.set", Json::object({{"vehicle", Definition}, {"fields", Json::object({{"Transmission", transmission}})}}));
 	moto.Advance(2);
 	CHECK_FALSE(lit());
+	moto.Stop();
+}
+
+TEST_CASE("MotoPlay: the race director's AttractStarted puts the camera director in its attract mode on a trackside camera, and "
+          "its RaceStarted cuts it to the chase view behind the bike")
+{
+	// The main scene as the game opens it: the race director on its title, which broadcasts AttractStarted, and the camera
+	// director (Tools/Trackside.py) cutting by itself (its Directs on): its Mode 1, a trackside camera (1 to 7) the one
+	// that shows and hears the scene.
+	MotoPlay moto;
+	moto.Start();
+	moto.Advance(3);
+	REQUIRE(moto.ReadOut("Race", "State").GetString() == "Title");
+	auto const shows = [&moto](std::string_view name)
+	{
+		Entity const camera = moto.Find(name);
+		return camera.GetComponent<CameraComponent>().Primary && camera.GetComponent<AudioListenerComponent>().Active;
+	};
+	CHECK(moto.ReadOut("Trackside", "Mode").GetInt32() == 1);
+	int32_t const attract = moto.ReadOut("Trackside", "Active").GetInt32();
+	REQUIRE(attract >= 1);
+	REQUIRE(attract <= 7);
+	// Active is the camera's place among the director's children (the trackside cameras in the lap's order, then the chase
+	// camera): that camera alone shows and hears the scene.
+	Entity const director = moto.Find("Trackside");
+	std::vector<UUID> const cameras = director.GetComponent<RelationshipComponent>().Children;
+	REQUIRE(cameras.size() >= static_cast<size_t>(attract));
+	Entity const attractCamera = director.GetScene()->GetEntityByUUID(cameras[static_cast<size_t>(attract) - 1]);
+	REQUIRE(attractCamera);
+	CHECK(shows(attractCamera.GetName()));
+	CHECK_FALSE(shows("Main Camera"));
+	CHECK_FALSE(shows("Chase Camera"));
+
+	// Enter presses the title's RACE: the countdown, in which the attract mode goes on; at its end the director broadcasts
+	// RaceStarted, and the camera director cuts to the chase camera (its Active 8), which alone shows and hears the scene.
+	moto.Press("Enter");
+	moto.Advance(1);
+	REQUIRE(moto.ReadOut("Race", "State").GetString() == "Countdown");
+	CHECK(moto.ReadOut("Trackside", "Mode").GetInt32() == 1);
+	// The countdown is 3 s of fixed steps: 180 frames at 1/60 s, with room.
+	for (int32_t frame = 0; frame < 240 && moto.ReadOut("Race", "State").GetString() == "Countdown"; frame++)
+	{
+		moto.Advance(1);
+	}
+	REQUIRE(moto.ReadOut("Race", "State").GetString() == "Racing");
+	moto.Advance(2);
+	CHECK(moto.ReadOut("Trackside", "Mode").GetInt32() == 2);
+	CHECK(moto.ReadOut("Trackside", "Active").GetInt32() == 8);
+	CHECK(shows("Chase Camera"));
+	CHECK_FALSE(shows("Main Camera"));
 	moto.Stop();
 }

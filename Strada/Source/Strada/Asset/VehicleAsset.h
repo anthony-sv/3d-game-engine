@@ -62,7 +62,11 @@ namespace Strada
 				.AsAngle()
 				.Doc("The largest steering angle in degrees: above 0 for the front wheel, 0 for the rear."),
 			Field("Radius", &VehicleWheelDefinition::Radius).Range(0.01, 10.0).Doc("The tyre's radius in meters."),
-			Field("Width", &VehicleWheelDefinition::Width).Range(0.0, 10.0).Doc("The tyre's width in meters."),
+			Field("Width", &VehicleWheelDefinition::Width)
+				.Range(0.0, 10.0)
+				.Doc("The width in meters of the cylinder the wheel casts against the ground along its suspension, its edges "
+		             "rounded by half the width and by 0.05 m at most: a wheel wider than 0.1 m rides on a flat bottom, and a "
+		             "motorcycle leans less the wider its wheels are."),
 			Field("Inertia", &VehicleWheelDefinition::Inertia)
 				.Range(0.001, 1.0e3)
 				.Doc("The wheel's moment of inertia around its axle in kg m² (half its mass times the radius squared for a disc)."),

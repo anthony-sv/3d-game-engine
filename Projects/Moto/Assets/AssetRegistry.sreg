@@ -90,6 +90,11 @@
 			"Path": "Audio/Engine/On8.wav"
 		},
 		{
+			"Handle": "14480744749171279876",
+			"Type": "AudioClip",
+			"Path": "Audio/GravelCrunch.wav"
+		},
+		{
 			"Handle": "16475335016188520105",
 			"Type": "Mixer",
 			"Path": "Audio/Moto.smixer"
@@ -445,6 +450,16 @@
 			"Path": "Meshes/TrackCollision.gltf"
 		},
 		{
+			"Handle": "9504884622191510363",
+			"Type": "Scene",
+			"Path": "Scenes/Flow.sscene"
+		},
+		{
+			"Handle": "5636800973075558202",
+			"Type": "Scene",
+			"Path": "Scenes/Lap.sscene"
+		},
+		{
 			"Handle": "1594086459268679014",
 			"Type": "Scene",
 			"Path": "Scenes/Main.sscene"
@@ -458,11 +473,6 @@
 			"Handle": "758468017170119869",
 			"Type": "Scene",
 			"Path": "Scenes/Tests.sscene"
-		},
-		{
-			"Handle": "4174439098207623822",
-			"Type": "VisualScript",
-			"Path": "Scripts/AssistsStandIn.sgraph"
 		},
 		{
 			"Handle": "15368667258106452273",
@@ -490,6 +500,11 @@
 			"Path": "Scripts/EngineSound.sgraph"
 		},
 		{
+			"Handle": "4065679986339522670",
+			"Type": "VisualScript",
+			"Path": "Scripts/FlowTests.sgraph"
+		},
+		{
 			"Handle": "6905308179307172376",
 			"Type": "VisualScript",
 			"Path": "Scripts/Gate.sgraph"
@@ -498,11 +513,6 @@
 			"Handle": "10119309049923292088",
 			"Type": "VisualScript",
 			"Path": "Scripts/Ghost.sgraph"
-		},
-		{
-			"Handle": "17826225481884949757",
-			"Type": "VisualScript",
-			"Path": "Scripts/GhostStandIn.sgraph"
 		},
 		{
 			"Handle": "17597274584587810305",
@@ -515,9 +525,19 @@
 			"Path": "Scripts/HudTests.sgraph"
 		},
 		{
+			"Handle": "10225443518624490051",
+			"Type": "VisualScript",
+			"Path": "Scripts/LapTests.sgraph"
+		},
+		{
 			"Handle": "11597766254884018974",
 			"Type": "VisualScript",
 			"Path": "Scripts/Menu.sgraph"
+		},
+		{
+			"Handle": "9787406575040700368",
+			"Type": "VisualScript",
+			"Path": "Scripts/MotoLib.sgraph"
 		},
 		{
 			"Handle": "12016132572530095741",
@@ -528,6 +548,11 @@
 			"Handle": "13834839178695237625",
 			"Type": "VisualScript",
 			"Path": "Scripts/RaceTests.sgraph"
+		},
+		{
+			"Handle": "5784894381786492430",
+			"Type": "VisualScript",
+			"Path": "Scripts/Ride.sgraph"
 		},
 		{
 			"Handle": "4025246513693565950",

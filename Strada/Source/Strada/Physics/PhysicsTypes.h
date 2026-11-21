@@ -509,6 +509,11 @@ namespace Strada
 	// The most points a VehicleCurve holds (a curve asset sampled at its keys and 15 points between each two).
 	inline constexpr size_t MaxVehicleCurvePoints = 16384;
 
+	// The widest wheel whose cast is round across its whole width (meters): a wheel's cast rounds its edges by half its width,
+	// but by Jolt's largest convex radius at most (cDefaultConvexRadius, 0.05 m, which VehicleWorld.cpp asserts), so a wider
+	// wheel rides on a flat bottom and a motorcycle on it leans less than its turns balance (Scene warns of it).
+	inline constexpr float MaxRoundVehicleWheelWidth = 0.1f;
+
 	// A wheel of a vehicle, in the chassis's local space without its scale (meters), angles in radians.
 	struct VehicleWheelDesc
 	{
@@ -523,6 +528,8 @@ namespace Strada
 		float SuspensionDamping = 0.5f;
 		float MaxSteerAngle = 0.0f;
 		float Radius = 0.31f;
+		// The width of the cylinder the wheel casts against the ground, round only up to MaxRoundVehicleWheelWidth
+		// (VehicleWheelDefinition::Width).
 		float Width = 0.05f;
 		float Inertia = 0.9f;
 		float AngularDamping = 0.2f;

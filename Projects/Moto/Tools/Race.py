@@ -38,10 +38,9 @@ started, takes the best lap from it and, when the ghost runs GHOST_GRAPH, writes
 (BestLapTime) into the ghost and sends it GHOST_LOADED. A lap that beats the best is the best at once (the title, the HUD
 and the ghost use it) and is kept in memory until a screen: the director saves the slot in its update of the frame after
 the results show (never in a fixed step: a save waits for the disk), or when a race that made one ends without results
-(AbandonRace: the pause screen's QUIT TO TITLE) or is started again (StartRace). GHOST_GRAPH is the graph
-GhostStandIn.sgraph, which declares that interface with the ghost's names (the arrays, BestLapTime, Delta and
-GHOST_LOADED) and is run by the ride test scene's stand-in ghost; the main scene's ghost (the racing line's) runs none
-of it, so the main scene keeps the best lap's time and splits alone.
+(AbandonRace: the pause screen's QUIT TO TITLE) or is started again (StartRace). GHOST_GRAPH is the ghost's own graph
+(Ghost.py: the arrays, BestLapTime, Delta and GHOST_LOADED, which it takes when the samples hold one lap and rides), so
+the main scene's ghost rides the best lap the slot gave it, and the director saves the samples the ghost kept.
 
 The pause. The director owns the Pause action, in every state: it stops the game (Time.TimeScale 0: from the next frame,
 whose time step is scaled as it begins, no fixed step runs and the clocks, the countdown and the bike stand still) or
@@ -61,6 +60,7 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import Bike  # noqa: E402  (the grid)
 import Circuit  # noqa: E402  (the layout)
 import Graphs  # noqa: E402  (writing graphs)
+import Ghost  # noqa: E402  (the ghost, whose best lap's samples the director keeps)
 import RacingLine  # noqa: E402  (the engine's red line)
 import Sound  # noqa: E402  (the audio director the pause tells)
 import Vehicle  # noqa: E402  (the ridden bike: its gearing and its chassis)
@@ -69,7 +69,6 @@ from Graphs import EFFECTS, ENTITY, EVENTS, RULES, private, public  # noqa: E402
 ROOT = "Race"
 DIRECTOR = Graphs.script("RaceDirector")
 GATE = Graphs.script("Gate")
-GHOST_STAND_IN = Graphs.script("GhostStandIn")
 
 # --- The gates ------------------------------------------------------------------------------------------------------------
 
@@ -134,10 +133,12 @@ SAMPLE_RATE = 10.0
 MAX_SAMPLES = 4096
 # What the director reads and writes of the ghost: the graph, the public arrays of its best lap's samples (each saved under
 # its own name) and the event that tells it they were loaded.
-GHOST_GRAPH = GHOST_STAND_IN
+GHOST_GRAPH = Ghost.GHOST
 GHOST_SAMPLES = (("BestLapPositions", "Strada.Vector3[]"), ("BestLapRotations", "Strada.Quaternion[]"),
                  ("BestLapEngineSpeeds", "float[]"), ("BestLapLoads", "float[]"))
 GHOST_LOADED = "BestLapLoaded"
+assert GHOST_SAMPLES == tuple((name, type_id) for name, type_id, _ in Ghost.BEST_LAP) and GHOST_LOADED == Ghost.LOADED[0], \
+    "the director reads and writes the ghost's arrays and event by the ghost's names"
 # The events the director broadcasts, with their parameters.
 BROADCASTS = {
     "AttractStarted": (),
@@ -147,6 +148,8 @@ BROADCASTS = {
     "LapFinished": (("Lap", "int"), ("Time", "float"), ("Best", "bool")),
     "RaceFinished": (("Total", "float"),),
 }
+assert all(BROADCASTS[name] == parameters for name, parameters in (Ghost.LAP_STARTED, Ghost.LAP_FINISHED)), \
+    "the director broadcasts the lap events the ghost receives, with their parameters"
 FLOAT_ARRAY = "float[]"
 VECTOR = "Strada.Vector3"
 SAVE_SLOT = "Strada.SaveSlot"
@@ -183,17 +186,6 @@ def check():
 # --- The graphs ---------------------------------------------------------------------------------------------------------------
 
 def declare(author):
-    author.declare(GHOST_STAND_IN, "What the race director keeps of the ghost: its best lap's samples, ten a second, as public "
-                   "arrays the director saves with the best lap and writes back when the scene starts, the ghost's Delta, and "
-                   "BestLapLoaded, which tells the ghost the arrays were loaded. The ride test scene's stand-in ghost runs it.",
-                   variables=tuple(public(name, type_id, [], f"The best lap's {label} at each sample, ten a second")
-                                   for (name, type_id), label in zip(GHOST_SAMPLES, ("positions", "rotations", "engine speeds",
-                                                                                   "loads"))) + (
-        public("BestLapTime", "float", 0.0, "The time of the best lap the ghost rides (seconds; 0 while it has none, when no "
-               "delta is shown)"),
-        public("Delta", "float", 0.0, "The current lap against the best at the same place (seconds, negative when ahead)"),
-        public("Loaded", "int", 0, "How many times the best lap's samples were loaded (a read-out)"),
-    ), events=((GHOST_LOADED, ()),))
     author.declare(GATE, "A timing gate: its trigger tells the race director when a body meets it.", variables=(
         public("Gate", "int", 0, "Which gate this is: 0 the start and finish line, 1 and 2 the sector gates", (0, 2)),
     ))
@@ -285,10 +277,6 @@ def is_state(b, state):
     """Whether the director is in a state (strings compare through Equal: an Expression has no strings)."""
     return b.once(("state", state), lambda: b.equal(b.var("State"), b.lit("string", state)))
 
-
-def write_stand_in(author):
-    with author.region(GHOST_STAND_IN, "Loaded: the best lap's samples were written into the arrays", EVENTS) as b:
-        b.chain(b.custom(GHOST_LOADED), b.set("Loaded", b.expr("loaded + 1", loaded=b.var("Loaded"))))
 
 
 def write_gate(author):
@@ -599,6 +587,5 @@ def write_functions(author):
 
 
 def write(author):
-    write_stand_in(author)
     write_gate(author)
     write_director(author)

@@ -4,7 +4,12 @@ registered by one line of MODULES (the scene it joins and the module's name): a 
 written, the scene's entities its checks look at, its own entities and its helper functions (a Suite). SCENES has the
 test scenes, one line each. A module whose checks read a graph of its own (which drives what they read from an entity of
 the scene) registers it by one line of MODULE_GRAPHS. Every test scene sets the start switches of SWITCHES, one line each,
-so that a director starts as Moto started before it had one, and a scene's checks turn on what they need.
+so that a director starts as Moto started before it had one, and a scene's own switches (its TestScene's switches) turn off
+what else would act by itself as the scene starts and its modules do not read: each test scene turns on what its checks
+need and nothing else. Modules that speak for a director keep a test scene apart from the modules that run it: the ride's
+(Ride.sscene, with the bike's, the assists', the directors' and the best lap's checks, which send the race director's
+events in its place) and the race's flow (Flow.sscene, with the bike's ride again and the race's, the HUD's and the
+menus' checks, which run the race director itself), so that neither hears the other's broadcasts.
 
 The first module is this one's (CORE): Scenes/Tests.sscene and its checks: the main scene as it is without its props
 (they stand clear of all it checks and have no colliders), with a crate to drop on the road, two blocks that slide off along the asphalt and along a gravel trap, a second entity running the tour
@@ -30,10 +35,13 @@ as its timeline plays the line's keys: leaned into Turn 6 as the line leans ther
 layout gives), where the line puts it at three moments of its lap and facing the way the line runs (each read with the
 ghost's own LapTime in the same update, the line's point carried on by its velocity for the moments between), and
 across the start and finish line onto its next lap. Its engine's sound plays every voice, driven by the ghost's engine
-speed, their volumes squared summing to 1 within EngineSound.POWER_BAND (the crossfades are equal-power) and each that
+speed, the on-load voices' volumes squared and the off-load voices' over EngineSound.OFF_LOAD_GAIN squared summing to 1
+within EngineSound.POWER_BAND (the crossfades are equal-power, the off-load voices quieter by their gain) and each that
 sounds pitched within its layer's band, on the Engine bus. The camera director, sent the events its actions send, cuts to the first trackside camera, then the second,
 each the one camera that shows and hears the scene and turned to the ghost, then back to the tour's camera. The audio
-director, sent TogglePause twice, blends the mix to the Paused snapshot and back.
+director, sent TogglePause twice, blends the mix to the Paused snapshot and back. The scene turns the directors' own
+cuts and the ride's sounds off (prepare_scene: the camera director's Directs and the audio director's RideSounds), so that
+it plays as Moto did before the race and the ridden bike.
 """
 import importlib
 import math
@@ -45,31 +53,37 @@ import Circuit  # noqa: E402  (the layout)
 import EngineSound  # noqa: E402  (the engine's sound)
 import Ghost  # noqa: E402  (the ghost bike)
 import Graphs  # noqa: E402  (writing graphs)
+import Hud  # noqa: E402  (the screen, which a scene whose checks read no screen keeps hidden)
+import Menu  # noqa: E402  (the menus, likewise)
 import RacingLine  # noqa: E402  (the line the ghost rides)
 import Sound  # noqa: E402  (the mix and the audio director)
 import Tour  # noqa: E402  (the camera tour)
 import Trackside  # noqa: E402  (the trackside cameras and their director)
-from Graphs import CHECK, ENTITY, private, public  # noqa: E402
+from Graphs import CHECK, ENTITY, EVENTS, private, public  # noqa: E402
 
 CHECKS = Graphs.script("Checks")
 TESTS = Graphs.script("Tests")
 RIDE_TESTS = Graphs.script("RideTests")
+FLOW_TESTS = Graphs.script("FlowTests")
+LAP_TESTS = Graphs.script("LapTests")
 LIBRARIES = (CHECKS,)
 VECTOR = "Strada.Vector3"
 
 
 class TestScene:
     """A test scene: its name (Scenes/<name>.sscene), its runner entity and graph, the runner graph's description (with
-    {count}, the number of its checks), how long a test run of it may take (seconds) and the main scene's roots it leaves
-    out."""
+    {count}, the number of its checks), how long a test run of it may take (seconds), the main scene's roots it leaves
+    out, and its own start switches, set after SWITCHES: (the main scene's entity, at any depth, its graph's public
+    variable, the value)."""
 
-    def __init__(self, name, runner, graph, about, timeout, left_out=("Props",)):
+    def __init__(self, name, runner, graph, about, timeout, left_out=("Props",), switches=()):
         self.name = name
         self.runner = runner
         self.graph = graph
         self.about = about
         self.timeout = timeout
         self.left_out = left_out
+        self.switches = switches
 
     @property
     def path(self):
@@ -89,9 +103,16 @@ class Suite:
     - make(create): makes them, create(name, components) returning the new entity's ID;
     - prepare(session, found): adjusts the scene's entities (found: their IDs by name) before the runner is made;
     - events: regions of the runner graph's event graph it adds beside the start, which runs the checks: (title of its
-      box, its colour, write(b)), such as a ride driven from Event.FixedUpdate whose readings its checks report."""
+      box, its colour, write(b)), for events other than Event.FixedUpdate (a graph handles each event once);
+    - steps: functions of the runner graph its one Event.FixedUpdate calls each fixed step, every module's in the order
+      MODULES registers them: (name, title of its box, write(b)), such as a ride driven from the fixed step whose readings
+      its checks report; declared after the helpers, which they may call;
+    - frames: functions of the runner graph its one Event.Update calls each frame, after the steps' and the same way, such
+      as readings of what the graphs set every update (sounds, cameras), which no ride compared across frame rates may
+      take."""
 
-    def __init__(self, checks, write, entities=(), variables=(), helpers=(), own=(), make=None, prepare=None, events=()):
+    def __init__(self, checks, write, entities=(), variables=(), helpers=(), own=(), make=None, prepare=None, events=(),
+                 steps=(), frames=()):
         self.checks = checks
         self.write = write
         self.entities = entities
@@ -101,15 +122,30 @@ class Suite:
         self.make = make
         self.prepare = prepare
         self.events = events
+        self.steps = steps
+        self.frames = frames
 
 
+OFF = {"Type": "Bool", "Value": False}
+# The screens a scene whose modules read none keeps hidden: the HUD (ShowHud) and the menus (ShowMenus).
+NO_SCREENS = ((Hud.ROOT, "ShowHud", OFF), (Menu.ROOT, "ShowMenus", OFF))
+# The directors that a scene whose modules read none of what they do keep as Moto had them before the ridden bike: the
+# camera director cutting only when told (Directs), the audio director playing no ride (RideSounds).
+NO_RIDE_DIRECTORS = ((Trackside.ROOT, "Directs", OFF), (Sound.DIRECTOR, "RideSounds", OFF))
 # The test scenes, one line each.
 SCENES = (
     TestScene("Tests", "Tests", TESTS, "The test scene's checks: {count} checks of Moto's circuit, its camera tour and its ghost "
               "bike, one after another, each a latent function that acts or waits for its moment, then reports it.",
               math.ceil(Tour.LENGTH) + 30),
-    TestScene("Ride", "Ride Tests", RIDE_TESTS, "The ride test scene's checks: {count} checks of the ridden bike, the race, the "
-              "HUD, the pause and the menus, each a latent function that waits for its reading, then reports it.", 60),
+    TestScene("Ride", "Ride Tests", RIDE_TESTS, "The ride test scene's checks: {count} checks of the ridden bike, its rider "
+              "assists, its autopilot, the directors and the best lap's ghost, each a latent function that waits for a reading "
+              "the ride takes, then reports it.", 200, switches=NO_SCREENS),
+    TestScene("Flow", "Flow Tests", FLOW_TESTS, "The flow test scene's checks: {count} checks of the ridden bike, the race, the "
+              "HUD, the pause and the menus, each a latent function that waits for its reading, then reports it.", 60,
+              switches=NO_RIDE_DIRECTORS),
+    TestScene("Lap", "Lap Tests", LAP_TESTS, "The lap test scene's checks: {count} checks of whole laps the autopilot rides from "
+              "the grid and the ghost that keeps the best of them, each a latent function that waits for a reading the laps take "
+              "in their fixed steps, then reports it.", 240, switches=NO_SCREENS),
 )
 # The modules whose checks the test scenes run, one line each, in the order their checks run: (the scene they join, the
 # module that holds them, by its name). A module's Suite is its SUITE; it is imported when the checks are written, so a
@@ -117,9 +153,14 @@ SCENES = (
 MODULES = (
     ("Tests", "Checks"),
     ("Ride", "BikeChecks"),
-    ("Ride", "RaceChecks"),
-    ("Ride", "HudChecks"),
-    ("Ride", "MenuChecks"),
+    ("Ride", "RideChecks"),
+    ("Ride", "DirectorChecks"),
+    ("Ride", "GhostChecks"),
+    ("Flow", "BikeChecks"),
+    ("Flow", "RaceChecks"),
+    ("Flow", "HudChecks"),
+    ("Flow", "MenuChecks"),
+    ("Lap", "LapChecks"),
 )
 # The start switches every test scene sets, one line each: (the main scene's entity, its graph's public variable, the value
 # that makes it start as Moto started before it had that director), so that a test scene's checks turn on what they need.
@@ -373,6 +414,8 @@ def declare(author):
             tuple(public(name, ENTITY, None, tooltip) for suite in parts for name, _, tooltip in suite.entities) +
             tuple(variable for suite in parts for variable in suite.variables)),
             functions=tuple(declaration for suite in parts for declaration, _, _ in suite.helpers) +
+            tuple((name, False, (), (), ()) for suite in parts for name, _, _ in suite.steps) +
+            tuple((name, False, (), (), ()) for suite in parts for name, _, _ in suite.frames) +
             tuple((function, False, (), (), ()) for _, function, _, _ in rows))
 
 
@@ -492,10 +535,32 @@ def write_tests(author, scene):
         for title, color, write_events in suite.events:
             with author.region(scene.graph, title, color) as b:
                 write_events(b)
+    def call_each(b, event, names):
+        """The event calls each function in turn: through a Sequence, or straight when there is one."""
+        if len(names) == 1:
+            b.chain(b.event(event), b.own(names[0]))
+            return
+        calls = b.sequence(len(names))
+        b.chain(b.event(event), calls)
+        for index, name in enumerate(names):
+            b.flow(calls[f"Then{index}"], b.own(name))
+
+    steps = [name for suite in suites(scene) for name, _, _ in suite.steps]
+    if steps:
+        with author.region(scene.graph, "Fixed steps: each module's ride, in turn, every fixed step", EVENTS) as b:
+            call_each(b, "Event.FixedUpdate", steps)
+    frames = [name for suite in suites(scene) for name, _, _ in suite.frames]
+    if frames:
+        with author.region(scene.graph, "Frames: each module's readings, in turn, every frame", EVENTS) as b:
+            call_each(b, "Event.Update", frames)
     for suite in suites(scene):
         for (function, *_), title, write_helper in suite.helpers:
             with author.region(scene.graph, title, CHECK, function) as b:
                 write_helper(b)
+    for suite in suites(scene):
+        for function, title, write_step in suite.steps + suite.frames:
+            with author.region(scene.graph, title, EVENTS, function) as b:
+                write_step(b)
     for suite, function, title, name in order:
         with author.region(scene.graph, title, CHECK, function) as b:
             suite.write(b, function, name)
@@ -730,8 +795,9 @@ def check_ghost_laps(b, name):
 
 
 def check_engine_sounds(b, name):
-    # Every voice: playing, its volume squared added to the power, and counted as a stray when it sounds outside its
-    # layer's band or plays off the Engine bus.
+    # Every voice: playing, its volume squared added to the power (an off-load voice's over the off-load gain squared, so
+    # that the sum is 1 at any load), and counted as a stray when it sounds outside its layer's band or plays off the
+    # Engine bus.
     engine = b.var("EngineSound")
     each = b.add("Flow.ForEach", Array=b.pure("Get:Strada.Entity.Children", "Value", Target=engine))
     voice = each["Element"]
@@ -740,7 +806,9 @@ def check_engine_sounds(b, name):
     on_bus = b.equal(b.pure("Get:Strada.AudioSourceComponent.Bus", "Value", Target=voice), b.lit("string", "Engine"))
     playing = b.pure("Get:Strada.AudioSourceComponent.IsPlaying", "Value", Target=voice)
     low, high = 1.0 / EngineSound.LAYER_RATIO - 1e-4, EngineSound.LAYER_RATIO + 1e-4
-    power = b.set("Power", b.expr("power + volume * volume", power=b.var("Power"), volume=volume))
+    gain = round(EngineSound.OFF_LOAD_GAIN ** 2, 6)
+    power = b.set("Power", b.expr(f"power + volume * volume / (index < {EngineSound.LAYERS} ? 1.0 : {gain})", power=b.var("Power"),
+                                  volume=volume, index=each["Index"]))
     count = b.set("Playing", b.expr("count + (playing ? 1 : 0)", count=b.var("Playing"), playing=playing))
     stray = b.set("Strays", b.expr(f"strays + ((volume > 0.001 && (pitch < {low:.6f} || pitch > {high:.6f})) || !engine ? 1 : 0)",
                                    strays=b.var("Strays"), volume=volume, pitch=pitch, engine=on_bus))
@@ -750,7 +818,8 @@ def check_engine_sounds(b, name):
     passed = b.expr(f"count == {voices} && abs(power - 1) <= {EngineSound.POWER_BAND} && strays == 0 && "
                     f"abs(speed - ghost) < 1 && speed > {RacingLine.IDLE}", count=b.var("Playing"), power=b.var("Power"),
                     strays=b.var("Strays"), speed=speed, ghost=b.get("EngineSpeed", Ghost.GHOST, b.var("Ghost")))
-    detail = b.fmt(f"{{Playing}} of {voices} voices play, their volumes squared summing to {{Power}}, {{Strays}} out of their band "
+    detail = b.fmt(f"{{Playing}} of {voices} voices play, their volumes squared summing to {{Power}} (the off-load voices' over "
+                   f"{gain}), {{Strays}} out of their band "
                    "or off the Engine bus, at {Speed} rpm", Playing=b.var("Playing"), Power=b.var("Power"), Strays=b.var("Strays"),
                    Speed=speed)
     reported = b.library(CHECKS, "Check", Name=f"Moto: {name}", Passed=passed, Detail=detail)
@@ -907,7 +976,7 @@ def build_scene(session, handles, project, scene):
             walk(entity.get("children", []))
 
     walk(session.call("scene_hierarchy")["entities"])
-    for name, variable, value in SWITCHES:
+    for name, variable, value in SWITCHES + scene.switches:
         if name in found:
             set_variables(session, found[name], {variable: value})
     entities = [row for suite in parts for row in suite.entities]
@@ -949,11 +1018,14 @@ def make_entities(create, handles):
 
 
 def prepare_scene(session, found):
-    """The ghost sets out into its lap where its checks find it early in the run, from the line's pose there."""
+    """The ghost sets out into its lap where its checks find it early in the run, from the line's pose there; the camera
+    director cuts only when told and the audio director plays no ride, as Moto did before the race and the ridden bike."""
     ghost = found[Ghost.ENTITY]
     session.call("component_set", {"entity": ghost, "component": "Transform", "fields": Ghost.transform(Ghost.TEST_START_AT)})
     session.call("component_set", {"entity": ghost, "component": "VisualScript", "fields": {
         "Variables": {"StartAt": {"Type": "Float", "Value": Ghost.TEST_START_AT}}}})
+    set_variables(session, found[Trackside.ROOT], {"Directs": {"Type": "Bool", "Value": False}})
+    set_variables(session, found[Sound.DIRECTOR], {"RideSounds": {"Type": "Bool", "Value": False}})
 
 
 CORE = Suite(checks, write_check, TEST_ENTITIES, VARIABLES, HELPERS, OWN_ENTITIES, make_entities, prepare_scene)

@@ -711,14 +711,20 @@ namespace Strada
 		// (PhysicsScene::SetVehicleSettings) when only values changed; left alone when the world already carried it over to a
 		// rebuilt body. An entity whose Vehicle cannot make one (no definition that loads, no dynamic body, values the world
 		// refuses) is no vehicle, said once for each reason. A vehicle made again for an edit of its definition says so once
-		// for the edit, and one whose chassis's roll inertia the lean spring's damping cannot settle is warned of once each time
-		// it comes to that (CheckVehicleLeanSpring).
+		// for the edit, and one whose chassis's roll inertia the lean spring's damping cannot settle, or one that leans on a
+		// wheel too wide for its cast to be round, is warned of once each time it comes to that (CheckVehicleLeanSpring,
+		// CheckVehicleWheelWidths).
 		void UpdateVehicle(entt::entity handle);
 		struct VehicleSyncState;
 		// Warns when a made vehicle's lean spring cannot settle its chassis (PhysicsScene::GetVehicleRollInertia at or below
 		// LeanSpringDamping times the collision step), once each time it comes to that: when it is made, or its values or its
 		// body change into it. Changes no value.
 		void CheckVehicleLeanSpring(Entity entity, VehicleSyncState& state);
+		// Warns when a made vehicle that leans (MaxLeanAngle above 0) has a wheel wider than MaxRoundVehicleWheelWidth, whose
+		// cast rides on a flat bottom, naming the wheel and its width: once for each wheel and width, so again only when that
+		// wheel comes to another width above the bound or comes back above it, or the vehicle is made again after it was none.
+		// Changes no value.
+		void CheckVehicleWheelWidths(Entity entity, VehicleSyncState& state);
 		// Every entity with a vehicle entry (made or not), in the order of their UUIDs; rebuilt only after an entry was added or
 		// removed.
 		std::vector<entt::entity> const& GetVehicleOrder();
@@ -1070,6 +1076,8 @@ namespace Strada
 			std::array<std::string, VehicleChannelCount> ChannelNames{};
 			// The lean spring's warning was given and its cause stands (CheckVehicleLeanSpring).
 			bool LeanSpringWarned = false;
+			// Each wheel's width the wide wheel's warning was given for while it stands; 0 for none (CheckVehicleWheelWidths).
+			std::array<float, VehicleWheelCount> WideWheelWarned{};
 		};
 		std::unordered_map<entt::entity, VehicleSyncState> m_Vehicles;
 		// GetVehicleOrder's list, and whether an entry of m_Vehicles was added or removed since it was made.

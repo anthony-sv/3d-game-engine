@@ -19,6 +19,7 @@
 #include <chrono>
 #include <cmath>
 #include <cstdint>
+#include <initializer_list>
 #include <limits>
 #include <optional>
 #include <string>
@@ -602,6 +603,127 @@ TEST_CASE("PhysicsScene: a positive lean input leans and turns the bike to its r
 	}
 	MESSAGE("moved to the right in 2 s: " << sideways[0] << " m on full grip, " << sideways[1] << " m on a grip of 0.25");
 	CHECK(sideways[1] < sideways[0]);
+}
+
+TEST_CASE("PhysicsScene: a bike held at a speed and a lean request on a steady circle leans most of the angle that balances the "
+          "circle on narrow wheels, and clearly less on wide ones")
+{
+	Testing::PhysicsSystemScope physics;
+	// Docs/Architecture.md §8, "The wheels' cast": a wheel's cast is round only up to 0.1 m wide, and a wider one rides on a
+	// flat bottom whose contact lies off the wheel's plane, so the ground's force misses the center of mass at the lean the
+	// controller aims for. The test bike (MakeChassis, 26 kg m² of roll inertia) rides a right-hand circle at 15 m/s with
+	// its lean input set to the steering that holds a lean of 25 degrees at that speed (Jolt's relation,
+	// MotorcycleController.cpp:141-147), on new definition's wheels 0.05 m wide and on wheels 0.2 m wide. Over the last 4 s
+	// of 12 s its lean is taken against the angle that balances the circle it rides, atan(v x yaw rate / g).
+	constexpr float Speed = 15.0f;
+	constexpr float RequestedLean = 25.0f;
+	constexpr int SettleSteps = 90;
+	constexpr int CircleSteps = 720;
+	constexpr int ReadSteps = 240;
+	struct Circle
+	{
+		float Lean = 0.0f;
+		float Balance = 0.0f;
+		float LeanSpread = 0.0f;
+		float LargestLean = 0.0f;
+		float SlowestSpeed = 0.0f;
+		float FastestSpeed = 0.0f;
+		int StepsOffGround = 0;
+	};
+	auto const ride = [](float width)
+	{
+		Scope<PhysicsScene> world = CreateWorld();
+		RequireOk(world->AddBody(MakeGround(GroundId)));
+		RequireOk(world->AddBody(MakeChassis(BikeId, {0.0f, 0.1f, 0.0f}, {0.0f, 0.0f, -Speed})));
+		VehicleDesc bike = MakeBike(BikeId, VehicleTransmissionMode::Automatic);
+		for (VehicleWheelDesc& wheel : bike.Wheels)
+		{
+			wheel.Width = width;
+		}
+		RequireOk(world->AddVehicle(bike));
+
+		// The steering that turns a circle whose balancing lean is the request: sin(steer) = wheelbase x g x tan(lean) /
+		// (v² x cos(caster)), the wheelbase between the suspensions fully extended along the front.
+		VehicleWheelDesc const& front = bike.Wheels[0];
+		VehicleWheelDesc const& rear = bike.Wheels[1];
+		float const wheelBase = std::abs((rear.Position.z + glm::normalize(rear.SuspensionDirection).z * rear.SuspensionMaxLength) -
+		                                 (front.Position.z + glm::normalize(front.SuspensionDirection).z * front.SuspensionMaxLength));
+		float const casterCos = glm::normalize(front.SteeringAxis).y;
+		float const steer = std::asin(wheelBase * Gravity * std::tan(glm::radians(RequestedLean)) / (Speed * Speed * casterCos));
+		float const lean = steer / front.MaxSteerAngle;
+		REQUIRE(lean > 0.0f);
+		REQUIRE(lean < 1.0f);
+		// The throttle holds the speed, a function of the bike's state alone.
+		auto const throttle = [](float current)
+		{
+			return std::clamp(0.3f + 0.5f * (Speed - current), 0.0f, 1.0f);
+		};
+
+		float speed = Speed;
+		for (int step = 0; step < SettleSteps; step++)
+		{
+			world->SetVehicleInputs(BikeId, MakeInputs(throttle(speed), 0.0f, 0.0f, 0.0f));
+			world->Step(Step);
+			speed = StateOf(*world, BikeId).ForwardSpeed;
+		}
+		Circle circle;
+		circle.SlowestSpeed = std::numeric_limits<float>::max();
+		double leanSum = 0.0;
+		double leanSquares = 0.0;
+		double balanceSum = 0.0;
+		for (int step = 0; step < CircleSteps; step++)
+		{
+			world->SetVehicleInputs(BikeId, MakeInputs(throttle(speed), 0.0f, 0.0f, lean));
+			world->Step(Step);
+			VehicleState const state = StateOf(*world, BikeId);
+			speed = state.ForwardSpeed;
+			float const leanDegrees = glm::degrees(state.LeanAngle);
+			circle.LargestLean = std::max(circle.LargestLean, std::abs(leanDegrees));
+			if (step < CircleSteps - ReadSteps)
+			{
+				continue;
+			}
+			// Turning to its right, the bike's heading turns clockwise seen from above: about -Y.
+			float const yawRate = -world->GetAngularVelocity(BikeId).y;
+			leanSum += leanDegrees;
+			leanSquares += static_cast<double>(leanDegrees) * leanDegrees;
+			balanceSum += glm::degrees(std::atan(speed * yawRate / Gravity));
+			circle.SlowestSpeed = std::min(circle.SlowestSpeed, speed);
+			circle.FastestSpeed = std::max(circle.FastestSpeed, speed);
+			bool const grounded = state.Wheels[0].ContactEntity == GroundId && state.Wheels[1].ContactEntity == GroundId;
+			circle.StepsOffGround += grounded ? 0 : 1;
+		}
+		double const mean = leanSum / ReadSteps;
+		circle.Lean = static_cast<float>(mean);
+		circle.Balance = static_cast<float>(balanceSum / ReadSteps);
+		circle.LeanSpread = static_cast<float>(std::sqrt(std::max(0.0, leanSquares / ReadSteps - mean * mean)));
+		return circle;
+	};
+
+	Circle const narrow = ride(0.05f);
+	Circle const wide = ride(0.2f);
+	float const narrowShare = narrow.Lean / narrow.Balance;
+	float const wideShare = wide.Lean / wide.Balance;
+	MESSAGE("on 0.05 m wheels the bike leans " << narrow.Lean << " degrees where " << narrow.Balance << " balance its circle ("
+	                                           << narrowShare << "), on 0.2 m wheels " << wide.Lean << " where " << wide.Balance << " do ("
+	                                           << wideShare << "); spreads " << narrow.LeanSpread << " and " << wide.LeanSpread
+	                                           << " degrees");
+	for (Circle const& reading : {narrow, wide})
+	{
+		// Steady circles: on both wheels, at the held speed, without swinging, never thrown over.
+		CHECK(reading.StepsOffGround == 0);
+		CHECK(reading.SlowestSpeed > Speed - 1.0f);
+		CHECK(reading.FastestSpeed < Speed + 1.0f);
+		CHECK(reading.Balance > 10.0f);
+		CHECK(reading.LeanSpread < 1.0f);
+		CHECK(reading.LargestLean < 45.0f);
+	}
+	// Read 0.782 and 0.006 in Release and in Debug (MSVC): the narrow wheels lean into the circle by at least 85 % of the
+	// weaker reading, and the wide ones by no more than 0.3, under half of that: nearly upright.
+	CHECK(narrow.Lean > 0.0f);
+	CHECK(narrowShare >= 0.66f);
+	CHECK(wideShare <= 0.3f);
+	CHECK(wideShare < 0.5f * narrowShare);
 }
 
 TEST_CASE("PhysicsScene: the lean spring stands a chassis whose roll inertia is above its damping times the step, and throws over "
