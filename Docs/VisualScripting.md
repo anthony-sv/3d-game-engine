@@ -421,6 +421,10 @@ A motorcycle's `VehicleComponent` ([Scripting.md](Scripting.md#vehicles)) is rid
   before it.
 - **Shift Up** and **Shift Down** (`Call:Strada.VehicleComponent.ShiftUp()`, `ShiftDown()`) move a `Manual` gearbox one
   gear at the next step. A Manual gearbox waits in neutral until the first Shift Up.
+- **Reset Vehicle** (`Call:Strada.VehicleComponent.ResetVehicle()`) puts the vehicle back as it was made, at rest where
+  its body stands, before the next step: the engine at idle, neutral with no shift under way or asked for, the wheels
+  still, the lean as new, both velocities at zero. The inputs last given stay. With the rigid body's **Teleport** in the
+  same step, before or after it, it puts the bike back on a grid as new.
 - Pure getters read what the last step left: `EngineSpeed`, `Gear` (0 neutral), `ForwardSpeed`, `LeanAngle` (degrees,
   positive to the right), and the inputs the step applied, `Throttle`, `FrontBrake`, `RearBrake` and `Lean`.
 - **Get Wheel State** (`Index` 0 the front, 1 the rear; pure) gives a `Strada.VehicleWheelState`. Break it (or split

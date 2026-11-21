@@ -1417,6 +1417,32 @@ namespace Strada
 		return variables;
 	}
 
+	Result<ScriptFieldChanges> VisualScriptEngine::GetChangedInstanceVariables(UUID entity)
+	{
+		ScriptEngineData* const data = GetData();
+		if (data == nullptr || !data->GraphInstances.contains(entity))
+		{
+			return MakeError("entity {} runs no visual script", entity);
+		}
+		std::string description;
+		auto const status = static_cast<ScriptStatus>(
+			data->Host.VisualScriptDescribeChangedInstanceVariables(entity.GetValue(), &description, &ReceiveText));
+		if (status == ScriptStatus::NotFound)
+		{
+			return ForgetInstance(*data, entity);
+		}
+		if (status != ScriptStatus::Success)
+		{
+			return MakeError("the variables of entity {}'s visual script cannot be read (see the log)", entity);
+		}
+		Result<ScriptFieldChanges> changes = ScriptEngineInternal::ParseFieldChanges(description);
+		if (!changes)
+		{
+			return MakeError("the variables of entity {}'s visual script cannot be read: {}", entity, changes.GetError());
+		}
+		return changes;
+	}
+
 	Result<void> VisualScriptEngine::SetInstanceVariables(UUID entity, ScriptFieldMap const& variables)
 	{
 		ScriptEngineData* const data = GetData();

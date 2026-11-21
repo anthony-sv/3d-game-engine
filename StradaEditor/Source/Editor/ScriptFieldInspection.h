@@ -9,7 +9,9 @@
 #include "Strada/Script/ScriptEngine.h"
 #include "Strada/Serialization/StructSerialization.h"
 
+#include <cstddef>
 #include <span>
+#include <string>
 #include <string_view>
 #include <vector>
 
@@ -28,6 +30,35 @@ namespace Strada::ScriptFieldInspection
 	// A component's stored fields ({ "<Name>": { "Type", "Value" } }, a Script component's Fields) as FieldEditor values
 	// ({ "<Name>": value }): the stored value when it has the field's type, the class's default otherwise.
 	Json ToEditorValues(ScriptClassInfo const& scriptClass, Json const& storedFields);
+
+	// One object's stored fields as FieldEditor values, kept from one draw to the next so that a draw converts again only what
+	// changed (Docs/Architecture.md §11, "Long lists"): Update gives `values` what ToEditorValues gives for the class and the
+	// stored fields (in their file form), converting a field again only when its stored value, or what the class says of it
+	// (its type, its enumerators and their kind, its default where no stored value has its type), differs from what it last
+	// converted, the values compared as the runtime's read-back compares them (floating-point numbers bit for bit, so a list
+	// holding a NaN that stays is not converted again). A class whose shown fields are others than last time (names or order)
+	// starts over.
+	class EditorValueCache
+	{
+	public:
+		// Returns how many fields it converted.
+		size_t Update(ScriptClassInfo const& scriptClass, ScriptFieldMap const& storedFields, Json& values);
+
+	private:
+		// What a shown field's value was last converted from.
+		struct ConvertedField
+		{
+			std::string Name;
+			ScriptFieldType Type = ScriptFieldType::None;
+			std::vector<ScriptEnumerator> Enumerators;
+			bool IsFlags = false;
+			// The stored value when one had the field's type, the class's default otherwise.
+			bool FromStored = false;
+			ScriptFieldValue Source;
+		};
+
+		std::vector<ConvertedField> m_Fields;
+	};
 
 	// The stored fields with one field set from a FieldEditor value; fails when the class has no such field or the value
 	// does not fit it. Stored values of other fields are kept, including those of fields the class no longer has.

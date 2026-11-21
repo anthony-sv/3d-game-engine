@@ -41,11 +41,7 @@ internal sealed partial class VisualScriptRuntime
 				object? stored = ScriptFieldCodec.NormalizeQuaternions(ScriptFieldCodec.ToStored(instance.ReadVariable(index), fieldType));
 				if (stored is List<object?> { Count: > ScriptFieldCodec.MaxListElements } elements)
 				{
-					if (m_ReportedLongLists.Add($"{instance.Program.Name}.{variable.Name}"))
-					{
-						WarnVariables(instance, FormattableString.Invariant(
-							$"{variable.Name}: holds {elements.Count} elements, more than a list's {ScriptFieldCodec.MaxListElements}: its value is not read back"));
-					}
+					ReportLongList(instance, variable, elements.Count);
 					continue;
 				}
 				writer.WriteStartObject(variable.Name);
@@ -57,6 +53,79 @@ internal sealed partial class VisualScriptRuntime
 			writer.WriteEndObject();
 		}
 		return buffer.WrittenSpan.ToArray();
+	}
+
+	// The public variables of the entity's instance whose values differ from what the last call answered of them (every one at
+	// the instance's first call and after a live edit gave it another program, and a variable given a value since), compared
+	// with a copy of each answer (ReadBackCopy) without converting the running value to the stored form, as ScriptRegistry's
+	// DescribeChangedInstanceFields does for C# fields: { "Changed": { "<Name>": { "Type", "Value" } }, "Unchanged": [
+	// "<Name>" ] }, the unchanged ones by name in document order. A public array holding more elements than a list can is in
+	// neither, as DescribeInstanceVariables leaves it out. Null without an instance. Only the engine's read-back of a running
+	// scene calls it (Scene::RefreshVisualScriptVariables), since the copies are the instance's.
+	internal byte[]? DescribeChangedInstanceVariables(ulong entity)
+	{
+		if (!m_Instances.TryGetValue(entity, out GraphInstance? instance))
+		{
+			return null;
+		}
+		CompiledVariable[] variables = instance.Program.Variables;
+		ReadBackCopy?[] copies = instance.ReadBackCopies ??= new ReadBackCopy?[variables.Length];
+		List<string> unchanged = [];
+		ArrayBufferWriter<byte> buffer = new();
+		using (Utf8JsonWriter writer = new(buffer))
+		{
+			writer.WriteStartObject();
+			writer.WriteStartObject("Changed");
+			for (int index = 0; index < variables.Length; index++)
+			{
+				CompiledVariable variable = variables[index];
+				ScriptFieldType fieldType = variable.Type.VariableFieldType;
+				if (!variable.Public || fieldType == ScriptFieldType.None)
+				{
+					continue;
+				}
+				object? value = instance.ReadVariable(index);
+				if (copies[index] is { } copy && copy.Matches(value))
+				{
+					unchanged.Add(variable.Name);
+					continue;
+				}
+				int count = ReadBackCopy.CountOf(value);
+				if (count > ScriptFieldCodec.MaxListElements)
+				{
+					ReportLongList(instance, variable, count);
+					copies[index] = null;
+					continue;
+				}
+				writer.WriteStartObject(variable.Name);
+				writer.WriteString("Type", ScriptFieldCodec.GetTypeName(fieldType));
+				writer.WritePropertyName("Value");
+				ScriptFieldCodec.WriteValue(writer, fieldType, ScriptFieldCodec.NormalizeQuaternions(ScriptFieldCodec.ToStored(value, fieldType)));
+				writer.WriteEndObject();
+				ReadBackCopy taken = copies[index] ?? ReadBackCopy.Create(variable.Type.ClrType!);
+				taken.Take(value);
+				copies[index] = taken;
+			}
+			writer.WriteEndObject();
+			writer.WriteStartArray("Unchanged");
+			foreach (string name in unchanged)
+			{
+				writer.WriteStringValue(name);
+			}
+			writer.WriteEndArray();
+			writer.WriteEndObject();
+		}
+		return buffer.WrittenSpan.ToArray();
+	}
+
+	// A public array too long to read back is reported once per graph and variable.
+	private void ReportLongList(GraphInstance instance, CompiledVariable variable, int count)
+	{
+		if (m_ReportedLongLists.Add($"{instance.Program.Name}.{variable.Name}"))
+		{
+			WarnVariables(instance, FormattableString.Invariant(
+				$"{variable.Name}: holds {count} elements, more than a list's {ScriptFieldCodec.MaxListElements}: its value is not read back"));
+		}
 	}
 
 	// Sets public variables of the entity's instance from stored values, as its creation does; NotFound without an
@@ -118,6 +187,11 @@ internal sealed partial class VisualScriptRuntime
 				if (index < 0)
 				{
 					continue;
+				}
+				// Whatever becomes of the value, the next read-back of changes answers what the variable holds then.
+				if (instance.ReadBackCopies is { } copies)
+				{
+					copies[index] = null;
 				}
 				CompiledVariable variable = instance.Program.Variables[index];
 				ScriptFieldType fieldType = variable.Type.VariableFieldType;

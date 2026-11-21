@@ -701,6 +701,21 @@ namespace Strada::ScriptGlue
 			}
 		}
 
+		// The vehicle put back as it was made, at rest where its body stands, before its next step (Scene::ResetVehicle).
+		void VehicleComponent_ResetVehicle(uint64_t id)
+		{
+			char const* const function = "VehicleComponent.ResetVehicle";
+			if (FindVehicle(id, function) == nullptr)
+			{
+				return;
+			}
+			Entity const entity = FindEntity(id, function);
+			if (!entity.GetScene()->ResetVehicle(entity))
+			{
+				Log::GetScriptLogger().error("{}: entity {} has no vehicle to reset", function, id);
+			}
+		}
+
 		// A Manual gearbox's next gear up (gears > 0) or down at the vehicle's next step.
 		void VehicleComponent_Shift(uint64_t id, int32_t gears)
 		{
@@ -930,6 +945,7 @@ namespace Strada::ScriptGlue
 
 		AddFieldBindings<&VehicleComponent::Definition, "VehicleComponent", "Definition">(table);
 		table.Add("VehicleComponent_GetState", &VehicleComponent_GetState);
+		table.Add("VehicleComponent_ResetVehicle", &VehicleComponent_ResetVehicle);
 		table.Add("VehicleComponent_SetDriverInput", &VehicleComponent_SetDriverInput);
 		table.Add("VehicleComponent_Shift", &VehicleComponent_Shift);
 

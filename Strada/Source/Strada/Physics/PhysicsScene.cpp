@@ -2375,6 +2375,32 @@ namespace Strada
 		m_Data->Vehicles->RequestVehicleShift(entity, gears);
 	}
 
+	bool PhysicsScene::ResetVehicle(UUID entity)
+	{
+		Data& data = *m_Data;
+		if (!data.Vehicles->HasVehicle(entity))
+		{
+			return false;
+		}
+		if (Result<void> const reset = data.Vehicles->ResetVehicle(entity); !reset)
+		{
+			// Its body is gone (which the world never leaves a vehicle without): a vehicle went, as RemoveVehicle has it go.
+			ST_CORE_WARN("Physics: the vehicle of entity {} cannot be reset: {}", entity, reset.GetError());
+			if (!data.Vehicles->HasVehicle(entity))
+			{
+				data.Structure++;
+				ReaddVehicleConstraints();
+			}
+			return false;
+		}
+		// At rest where it stands (which wakes it), its constraint back in its place in Jolt's list; the structure is the
+		// one it was, so snapshots of either side of the reset restore.
+		SetLinearVelocity(entity, glm::vec3(0.0f));
+		SetAngularVelocity(entity, glm::vec3(0.0f));
+		ReaddVehicleConstraints();
+		return true;
+	}
+
 	std::optional<VehicleState> PhysicsScene::GetVehicleState(UUID entity) const
 	{
 		return m_Data->Vehicles->GetVehicleState(entity);

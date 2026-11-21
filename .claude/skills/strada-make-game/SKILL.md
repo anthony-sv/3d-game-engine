@@ -131,7 +131,9 @@ component and the whole scripting API.
   the wheel is. A C# script or a graph rides it from its fixed step (`OnFixedUpdate`, `Event.FixedUpdate`) with
   `VehicleComponent.SetDriverInput(throttle, frontBrake, rearBrake, lean)` and, in `Manual`, `ShiftUp()` and
   `ShiftDown()`, and reads `EngineSpeed`, `Gear`, `ForwardSpeed`, `LeanAngle` and `GetWheelState(0 or 1)` (contact,
-  surface, suspension, spin, slips). Give the bike one writer of its inputs.
+  surface, suspension, spin, slips). Give the bike one writer of its inputs. To put a bike back (on the grid, after a
+  fall), `RigidBodyComponent.Teleport` it and call `ResetVehicle()` in the same fixed step: it is then as new, at rest,
+  in neutral with its engine at idle; never pin it by clearing its velocities over several steps.
 - Look at the result in a windowed editor: `viewport_frame` points its camera at entities, `viewport_camera` sets the
   view, and `viewport_screenshot` returns an image of the editor. `viewport_overlays` sets what the scene view draws
   over the scene: `colliders` `all` shows every physics shape (check that colliders fit their meshes), `contacts` shows

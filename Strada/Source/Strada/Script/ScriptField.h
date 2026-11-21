@@ -172,4 +172,15 @@ namespace Strada
 
 	// Field name -> value; ordered so serialized scenes are deterministic.
 	using ScriptFieldMap = std::map<std::string, ScriptFieldValue>;
+
+	// What a read-back of an instance's changes answers (ScriptEngine::GetChangedInstanceFields,
+	// VisualScriptEngine::GetChangedInstanceVariables; Docs/Architecture.md §11, "Long lists").
+	struct ScriptFieldChanges
+	{
+		// The fields or public variables whose values changed since the instance's last read-back of changes, in the stored
+		// form, by name.
+		ScriptFieldMap Changed;
+		// The names of the instance's other fields or public variables, whose values are those that read-back answered.
+		std::vector<std::string> Unchanged;
+	};
 }

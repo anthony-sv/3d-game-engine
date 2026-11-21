@@ -50,4 +50,8 @@ namespace Strada
 	// variable, the one under its current name is kept, else the one under its most recent former name. Values are kept as
 	// stored, and so are the keys that name neither a public variable nor a former name of one.
 	[[nodiscard]] ScriptFieldMap NormalizeVisualScriptOverrides(VisualScriptDocument const& document, ScriptFieldMap overrides);
+	// Whether NormalizeVisualScriptOverrides gives the stored values back as they are: none is under a former name of a public
+	// variable that no public variable has as its name. Reads the keys only, so a caller that would copy the values to
+	// normalize them copies nothing when they need none.
+	[[nodiscard]] bool AreVisualScriptOverridesNormalized(VisualScriptDocument const& document, ScriptFieldMap const& overrides);
 }

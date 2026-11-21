@@ -8,8 +8,8 @@ namespace FeatureTest;
 /// Automatic, and a VehicleWheel entity for each wheel) stands on the ground at (-7, 0, 6), its front along -Z.
 /// Features.sgraph rides it first, from its Event.FixedUpdate; once the graph's BikeRidden is set, this test rides it again
 /// from OnFixedUpdate by its own count of steps (the throttle, a lean to the right, both brakes) and reads every member on
-/// the way. Inputs set in a fixed step reach the physics step that follows it, so the ride is the same at every frame
-/// rate.</summary>
+/// the way, then resets the stopped bike and reads it at once. Inputs set in a fixed step reach the physics step that
+/// follows it, so the ride is the same at every frame rate.</summary>
 public sealed class VehicleTests : FeatureTestScript
 {
 	// Game seconds the course may take, the graph's ride included.
@@ -51,6 +51,11 @@ public sealed class VehicleTests : FeatureTestScript
 	private float m_AppliedFrontBrake;
 	private float m_AppliedRearBrake;
 	private float m_SpeedAfterBraking;
+	private bool m_ContactBeforeReset;
+	private VehicleWheelState m_RearAfterReset;
+	private int m_GearAfterReset = -1;
+	private float m_EngineAfterReset;
+	private float m_SpeedAfterReset = -1.0f;
 
 	private VehicleComponent Vehicle => Bike!.GetComponent<VehicleComponent>()!;
 
@@ -128,6 +133,13 @@ public sealed class VehicleTests : FeatureTestScript
 			m_SpeedAfterBraking = vehicle.ForwardSpeed;
 			vehicle.SetDriverInput(0.0f, 0.0f, 0.0f, 0.0f);
 			vehicle.ShiftDown();
+			// Stopped, the ride's last read taken: put back as it was made, where it stands, and read before any step.
+			m_ContactBeforeReset = vehicle.GetWheelState(1).HasContact;
+			vehicle.ResetVehicle();
+			m_GearAfterReset = vehicle.Gear;
+			m_EngineAfterReset = vehicle.EngineSpeed;
+			m_SpeedAfterReset = vehicle.ForwardSpeed;
+			m_RearAfterReset = vehicle.GetWheelState(1);
 			m_Phase = Phase.Done;
 			return;
 		}
@@ -207,6 +219,16 @@ public sealed class VehicleTests : FeatureTestScript
 			Assert.AreEqual(1.0f, m_AppliedFrontBrake);
 			Assert.AreEqual(1.0f, m_AppliedRearBrake);
 			Assert.IsTrue(MathF.Abs(m_SpeedAfterBraking) < 0.3f, $"{m_SpeedAfterBraking} m/s");
+		});
+		Check("a reset puts the vehicle back as it was made, at rest where it stands", () =>
+		{
+			// In neutral at idle, the chassis at rest, the wheels still and without contact until the next step tests them.
+			Assert.AreEqual(0, m_GearAfterReset);
+			Assert.AreEqual(1500.0f, m_EngineAfterReset);
+			Assert.AreEqual(0.0f, m_SpeedAfterReset);
+			Assert.IsTrue(m_ContactBeforeReset, "the stopped bike stood on the ground");
+			Assert.IsFalse(m_RearAfterReset.HasContact, m_RearAfterReset.ToString());
+			Assert.AreEqual(0.0f, m_RearAfterReset.Spin);
 		});
 		return true;
 	}

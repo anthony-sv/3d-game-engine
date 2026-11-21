@@ -113,6 +113,34 @@ namespace Strada
 		return description;
 	}
 
+	bool AreVisualScriptOverridesNormalized(VisualScriptDocument const& document, ScriptFieldMap const& overrides)
+	{
+		// NormalizeVisualScriptOverrides moves or drops only the values under such former names.
+		std::set<std::string_view> publicNames;
+		for (VisualScriptVariable const& variable : document.Variables)
+		{
+			if (variable.Public)
+			{
+				publicNames.insert(variable.Name);
+			}
+		}
+		for (VisualScriptVariable const& variable : document.Variables)
+		{
+			if (!variable.Public)
+			{
+				continue;
+			}
+			for (std::string const& formerName : variable.FormerNames)
+			{
+				if (!publicNames.contains(formerName) && overrides.contains(formerName))
+				{
+					return false;
+				}
+			}
+		}
+		return true;
+	}
+
 	ScriptFieldMap NormalizeVisualScriptOverrides(VisualScriptDocument const& document, ScriptFieldMap overrides)
 	{
 		std::set<std::string_view> publicNames;

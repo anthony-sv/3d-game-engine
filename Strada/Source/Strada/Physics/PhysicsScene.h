@@ -98,9 +98,9 @@ namespace Strada
 		// the thread that runs Jolt's step-listener job (a worker, or this thread while it waits for the step); their callbacks
 		// read the vehicle's own values and the surfaces, fixed for the step, and write only the vehicle's own constraint,
 		// wheels and record. Making, replacing or removing a vehicle moves the structure version; changing its values in place
-		// (SetVehicleSettings) does not. After each of them the world takes every vehicle's constraint and every joint out of
-		// Jolt and adds them again, the vehicles in the order of their entities' UUIDs and then the joints in theirs, so that
-		// Jolt solves them in an order that never depends on what happened before.
+		// (SetVehicleSettings) and resetting it (ResetVehicle) do not. After each of them the world takes every vehicle's
+		// constraint and every joint out of Jolt and adds them again, the vehicles in the order of their entities' UUIDs and
+		// then the joints in theirs, so that Jolt solves them in an order that never depends on what happened before.
 
 		// Makes the entity's vehicle on its body, replacing the vehicle it has (which keeps its latest inputs, its engine's
 		// speed within the new range, its gear within the new gears and each wheel's spin and angle). Fails, leaving the
@@ -127,6 +127,16 @@ namespace Strada
 		// Asks a Manual gearbox to shift by `gears` (+1 up, -1 down): the requests add up until the next step, which moves the
 		// gear by their sum within neutral and the top gear. An Automatic gearbox shifts by itself and ignores them.
 		void RequestVehicleShift(UUID entity, int32_t gears);
+		// Puts the entity's vehicle back as it was made, at rest where its body stands (Architecture.md section 8, "The
+		// reset"): the vehicle is made again on its body with the values it runs with, carrying only its latest inputs (which
+		// its next step applies), so its engine idles, its gearbox is in neutral with no shift under way or asked for, its
+		// wheels are still and straight with no contact until the next step's wheel tests and its lean controller is new; then
+		// the chassis's linear and angular velocities are set to zero as SetLinearVelocity and SetAngularVelocity set them
+		// (which wakes it). Its pose and every other body, joint, character and vehicle stay as they are, and so does the
+		// structure version: the vehicle's constraint takes its place in Jolt's list again, so snapshots taken before and after
+		// it restore. Its state, and so the hash, is that of a vehicle made there. Between steps. False, changing nothing, for
+		// an entity without a vehicle.
+		[[nodiscard]] bool ResetVehicle(UUID entity);
 		// The vehicle as the last step left it, with the inputs given since; empty for an entity without a vehicle.
 		std::optional<VehicleState> GetVehicleState(UUID entity) const;
 		// The transform of one of the vehicle's wheels (0 the front, 1 the rear) in its chassis's local space without the
@@ -181,7 +191,7 @@ namespace Strada
 		// since (SetVehicleSettings) is brought back within the gears it has now, as SetVehicleSettings does.
 		[[nodiscard]] Result<void> RestoreState(PhysicsSnapshot const& snapshot);
 		// Changes whenever a body, joint, character or vehicle is added, removed or replaced (a vehicle's values changed in
-		// place do not count): snapshots of other versions are refused.
+		// place and a vehicle's reset do not count): snapshots of other versions are refused.
 		uint64_t GetStructureVersion() const;
 		// A 64-bit hash (HashBuilder) of the simulation's state: every body in entity order (entity, motion type, position,
 		// rotation, linear and angular velocity, awake), then every character in entity order (position, velocity, its own

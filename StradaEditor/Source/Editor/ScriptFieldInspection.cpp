@@ -4,23 +4,63 @@
 #include "Strada/Script/ScriptField.h"
 #include "Strada/Script/ScriptFieldSerialization.h"
 
+#include <glm/glm.hpp>
+#include <glm/gtc/quaternion.hpp>
 #include <spdlog/fmt/fmt.h>
 
 #include <algorithm>
 #include <charconv>
 #include <cstddef>
 #include <cstdint>
+#include <cstring>
 #include <limits>
 #include <optional>
 #include <string>
 #include <string_view>
+#include <type_traits>
 #include <utility>
+#include <variant>
 #include <vector>
 
 namespace Strada::ScriptFieldInspection
 {
 	namespace
 	{
+		// Whether two stored values are the same as the runtime's read-back compares the running values (ReadBackCopy in
+		// Strada.ScriptCore): of one type, floating-point numbers and the math values made of them bit for bit (so a NaN that
+		// stays is the same and a change between 0 and -0 is a change), lists element by element, every other value by
+		// value.
+		bool IsSameStoredValue(ScriptFieldValue const& first, ScriptFieldValue const& second)
+		{
+			if (first.GetType() != second.GetType() || first.GetStorage().index() != second.GetStorage().index())
+			{
+				return false;
+			}
+			return std::visit(
+				[&second](auto const& value)
+				{
+					using TValue = std::decay_t<decltype(value)>;
+					TValue const& other = std::get<TValue>(second.GetStorage());
+					if constexpr (std::is_same_v<TValue, std::vector<ScriptFieldValue>>)
+					{
+						return std::equal(value.begin(), value.end(), other.begin(), other.end(), IsSameStoredValue);
+					}
+					else if constexpr (std::is_same_v<TValue, float> || std::is_same_v<TValue, double> ||
+				                       std::is_same_v<TValue, glm::vec2> || std::is_same_v<TValue, glm::vec3> ||
+				                       std::is_same_v<TValue, glm::vec4> || std::is_same_v<TValue, glm::quat>)
+					{
+						// Numbers alone: glm's vectors and quaternions hold their components without padding.
+						static_assert(sizeof(TValue) % sizeof(float) == 0 && std::is_trivially_copyable_v<TValue>);
+						return std::memcmp(&value, &other, sizeof(TValue)) == 0;
+					}
+					else
+					{
+						return value == other;
+					}
+				},
+				first.GetStorage());
+		}
+
 		// An integer value as bits (two's complement for signed types), so enumerators of every size combine alike.
 		uint64_t ToBits(ScriptFieldValue const& value)
 		{
@@ -334,6 +374,20 @@ namespace Strada::ScriptFieldInspection
 			ScriptFieldInfo const* field = scriptClass.FindField(name);
 			return field != nullptr && !field->Hidden ? field : nullptr;
 		}
+
+		// A field's value as the editor edits it, from its stored value in the file form (null for none, or one of another
+		// type): the stored value when it reads as a value of the field's type, the class's default otherwise.
+		Json ToEditorValue(ScriptFieldInfo const& field, Json const* storedValue)
+		{
+			if (storedValue != nullptr)
+			{
+				if (Result<ScriptFieldValue> parsed = ScriptFieldValueFromJson(field.Type, *storedValue, DeserializationContext{}))
+				{
+					return ToEditorValue(field, parsed.GetValue());
+				}
+			}
+			return ToEditorValue(field, field.DefaultValue);
+		}
 	}
 
 	std::vector<FieldDescriptor> DescribeFields(ScriptClassInfo const& scriptClass)
@@ -393,23 +447,81 @@ namespace Strada::ScriptFieldInspection
 			{
 				continue;
 			}
-			ScriptFieldValue value = field.DefaultValue;
+			Json const* storedValue = nullptr;
 			if (storedFields.is_object())
 			{
 				auto const stored = storedFields.find(field.Name);
 				if (stored != storedFields.end() && stored->is_object() && stored->contains("Type") && stored->contains("Value") &&
 				    (*stored)["Type"] == ScriptFieldTypeToString(field.Type))
 				{
-					if (Result<ScriptFieldValue> parsed =
-					        ScriptFieldValueFromJson(field.Type, (*stored)["Value"], DeserializationContext{}))
-					{
-						value = parsed.TakeValue();
-					}
+					storedValue = &(*stored)["Value"];
 				}
 			}
-			values[field.Name] = ToEditorValue(field, value);
+			values[field.Name] = ToEditorValue(field, storedValue);
 		}
 		return values;
+	}
+
+	size_t EditorValueCache::Update(ScriptClassInfo const& scriptClass, ScriptFieldMap const& storedFields, Json& values)
+	{
+		// The shown fields, in order, are those converted last time, or the conversion starts over.
+		size_t shown = 0;
+		bool sameFields = values.is_object();
+		for (ScriptFieldInfo const& field : scriptClass.Fields)
+		{
+			if (field.Hidden)
+			{
+				continue;
+			}
+			sameFields = sameFields && shown < m_Fields.size() && m_Fields[shown].Name == field.Name;
+			shown++;
+		}
+		if (!sameFields || shown != m_Fields.size())
+		{
+			m_Fields.clear();
+			values = Json::object();
+		}
+
+		size_t converted = 0;
+		size_t index = 0;
+		for (ScriptFieldInfo const& field : scriptClass.Fields)
+		{
+			if (field.Hidden)
+			{
+				continue;
+			}
+			auto const stored = storedFields.find(field.Name);
+			bool const fromStored = stored != storedFields.end() && stored->second.GetType() == field.Type;
+			ScriptFieldValue const& source = fromStored ? stored->second : field.DefaultValue;
+			if (index < m_Fields.size())
+			{
+				ConvertedField const& last = m_Fields[index];
+				if (last.Type == field.Type && last.IsFlags == field.IsFlags && last.FromStored == fromStored &&
+				    IsSameStoredValue(last.Source, source) && last.Enumerators == field.Enumerators)
+				{
+					index++;
+					continue;
+				}
+			}
+			else
+			{
+				m_Fields.emplace_back();
+			}
+			// Read in its file form, as ToEditorValues reads it, so that both show the same value whatever its reader makes of
+			// it.
+			Json const storedValue = fromStored ? ScriptFieldValueToJson(stored->second) : Json();
+			values[field.Name] = ToEditorValue(field, fromStored ? &storedValue : nullptr);
+			ConvertedField& record = m_Fields[index];
+			record.Name = field.Name;
+			record.Type = field.Type;
+			record.Enumerators = field.Enumerators;
+			record.IsFlags = field.IsFlags;
+			record.FromStored = fromStored;
+			record.Source = source;
+			converted++;
+			index++;
+		}
+		return converted;
 	}
 
 	Result<Json> SetEditorValue(ScriptClassInfo const& scriptClass, Json storedFields, std::string_view fieldName, Json const& value)

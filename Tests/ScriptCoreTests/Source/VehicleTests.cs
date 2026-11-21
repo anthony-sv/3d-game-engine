@@ -229,8 +229,8 @@ public sealed unsafe class VehicleTests : IDisposable
 		Assert.True(VisualScriptTesting.LibraryNode("Call:Strada.Vehicle.GetGearRatio(int)").Pure);
 		Assert.True(VisualScriptTesting.LibraryNode("Call:Strada.Vehicle.GetWheelName(int)").Pure);
 
-		// The component: the reads are pure, the rider's input and the shifts are impure, and a wheel's state is a struct that
-		// graphs Break.
+		// The component: the reads are pure, the rider's input, the shifts and the reset are impure, and a wheel's state is
+		// a struct that graphs Break.
 		foreach (string member in new[] { "EngineSpeed", "Gear", "ForwardSpeed", "LeanAngle", "Throttle", "FrontBrake", "RearBrake", "Lean" })
 		{
 			Assert.True(VisualScriptTesting.LibraryNode($"Get:Strada.VehicleComponent.{member}").Pure, member);
@@ -240,7 +240,7 @@ public sealed unsafe class VehicleTests : IDisposable
 		NodeDefinition wheel = VisualScriptTesting.LibraryNode("Call:Strada.VehicleComponent.GetWheelState(int)");
 		Assert.True(wheel.Pure);
 		Assert.Equal(["In:Target", "In:Index", "Out:Result"], wheel.Pins.Select(static pin => $"{pin.Direction}:{pin.Name}"));
-		foreach (string member in new[] { "SetDriverInput(float,float,float,float)", "ShiftUp()", "ShiftDown()" })
+		foreach (string member in new[] { "SetDriverInput(float,float,float,float)", "ShiftUp()", "ShiftDown()", "ResetVehicle()" })
 		{
 			Assert.False(VisualScriptTesting.LibraryNode($"Call:Strada.VehicleComponent.{member}").Pure, member);
 		}

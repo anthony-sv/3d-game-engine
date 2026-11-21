@@ -537,7 +537,10 @@ entities below it that draw its wheels each have a `VehicleWheel` naming the def
 steers those entities itself. A rider drives it with `SetDriverInput(throttle, frontBrake, rearBrake, lean)`. The
 throttle and both brakes run from 0 to 1, and the lean from -1 (left) to 1 (right). In a `Manual` gearbox the rider also
 calls `ShiftUp()` and `ShiftDown()`, one gear per call; a Manual gearbox waits in neutral (`Gear` 0) until the first
-`ShiftUp`. An `Automatic` gearbox shifts by itself. The reads are what the last physics step left: `EngineSpeed` (rpm),
+`ShiftUp`. An `Automatic` gearbox shifts by itself. `ResetVehicle()` puts the vehicle back as it was made, at rest where
+its body stands: the engine at idle, neutral with no shift under way or asked for, the wheels still, the lean as new and
+the chassis's velocities at zero, before the next physics step; the inputs last given stay. To put it back somewhere else,
+`Teleport` its `RigidBodyComponent` in the same fixed step, before or after. The reads are what the last physics step left: `EngineSpeed` (rpm),
 `Gear`, `ForwardSpeed` (m/s), `LeanAngle` (degrees, positive to the right), the inputs the step applied (`Throttle`,
 `FrontBrake`, `RearBrake`, `Lean`) and `GetWheelState(0)` and `GetWheelState(1)`, the front and the rear wheel. Each wheel
 state gives what the wheel stands on (`HasContact`, `Ground`, `Material`, `Surface`), its suspension's length, its spin

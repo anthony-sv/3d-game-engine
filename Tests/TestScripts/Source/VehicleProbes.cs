@@ -114,3 +114,53 @@ public sealed class VehicleRider : Script
 		vehicle.SetDriverInput(throttle, frontBrake, rearBrake, lean);
 	}
 }
+
+// Rides its entity's Manual bike from OnFixedUpdate as a function of its own count of fixed steps, as VehicleRider does, and
+// at step 120, in second gear at speed with a shift up asked just before, puts it back where it started: a teleport and a
+// reset in one fixed step, the teleport first unless its entity's name holds "ResetFirst". Its name reports what the reset
+// left, read right after it ("key=value;" pairs, numbers round-trip), and a shift up at the next step takes first gear.
+public sealed class VehicleResetRider : Script
+{
+	private const int ResetStep = 120;
+	private int m_Steps;
+	private bool m_ResetFirst;
+	private Vector3 m_Start;
+	private Quaternion m_StartRotation;
+
+	protected override void OnCreate()
+	{
+		m_ResetFirst = Name.Contains("ResetFirst", StringComparison.Ordinal);
+		m_Start = Transform.Translation;
+		m_StartRotation = Transform.Rotation;
+	}
+
+	protected override void OnFixedUpdate(float fixedDeltaTime)
+	{
+		VehicleComponent vehicle = GetComponent<VehicleComponent>()!;
+		m_Steps++;
+		if (m_Steps == 1 || m_Steps == 45 || m_Steps == ResetStep || m_Steps == ResetStep + 1)
+		{
+			vehicle.ShiftUp();
+		}
+		float throttle = m_Steps < 200 ? 0.4f + 0.05f * (m_Steps % 3) : 0.0f;
+		float lean = m_Steps is > 60 and < 100 ? (m_Steps % 2 == 1 ? 0.3f : 0.2f) : 0.0f;
+		vehicle.SetDriverInput(throttle, m_Steps >= 200 ? 0.5f : 0.0f, 0.0f, lean);
+		if (m_Steps == ResetStep)
+		{
+			RigidBodyComponent body = GetComponent<RigidBodyComponent>()!;
+			if (m_ResetFirst)
+			{
+				vehicle.ResetVehicle();
+				body.Teleport(m_Start, m_StartRotation);
+			}
+			else
+			{
+				body.Teleport(m_Start, m_StartRotation);
+				vehicle.ResetVehicle();
+			}
+			VehicleWheelState rear = vehicle.GetWheelState(1);
+			Name = string.Create(CultureInfo.InvariantCulture,
+				$"Reset={m_Steps};Gear={vehicle.Gear};Engine={vehicle.EngineSpeed:R};Speed={vehicle.ForwardSpeed:R};Throttle={vehicle.Throttle:R};RearSpin={rear.Spin:R};RearContact={rear.HasContact};");
+		}
+	}
+}
