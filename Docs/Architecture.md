@@ -7046,9 +7046,10 @@ graphs alone keeps its best lap and its settings screen, and none exposes a path
   32.5°), and through Turns 1 and 2 leaned 24.9° at least, 80 % of the weaker of the Debug and the Release readings (31.4°
   and 31.2°; the bike as drawn read 9.2°), so that a bike that takes Turn 1 upright again fails on every platform. Then the
   ride stops the autopilot, puts the riding graph on its test driver with the assists still on and the bike on the main
-  straight at 20 m/s in the gear the autopilot left, and stops it on the front lever alone; (15) let go, every input 0,
-  for 120 steps, the bike waits in first gear (the automatic shifts took it down as it slowed and never into neutral) under
-  0.1 m/s and at most 5 cm from where it stopped (read first gear, 1e-5 m/s and 17 mm): an engine idling in gear that
+  straight at 20 m/s in the gear the autopilot left, and stops it on the front lever alone, held 30 steps more while its
+  wheels stop; (15) let go, every input 0, for 120 steps, the bike waits in first gear (the automatic shifts took it down
+  as it slowed and never into neutral) under 0.1 m/s and at most 5 cm from where it was let go (read first gear, 4e-5 m/s
+  and 11 mm, 10 mm in Debug): an engine idling in gear that
   pushed it, as Jolt's held at its idle speed does with the clutch closed, would move it meters. Then the ride turns the
   assists off, puts the bike on the grid, brakes it to rest into neutral and enters `Done`. The ride logs every reading in one line ("Moto's assists and autopilot: ..."), which
   `MotoRideTests.cpp` requires the same at 1/60 and 1/30 s a frame (and at 1/144 behind `STRADA_LONG_RIDES=1`). **The
@@ -7082,14 +7083,14 @@ graphs alone keeps its best lap and its settings screen, and none exposes a path
   step and ends 660 m along the lap, past Turn 1, its time the steps since. Laps 1, 2 and 3 ride at a `Pace` of 0.8, 1 and
   0.9, then lap 4, of 180 steps, rides while the ghost's `MaxSamples` is 20. (25) Lap 4, the race's best, is longer than
   the ghost keeps: timed, not kept, the ghost's best lap cleared and the racing line ridden. (26) The ghost keeps lap 1, then
-  lap 2 in its place, and not lap 3 (read 24.65, 21.03 and 22.57 s), its `BestLapTime` the kept lap's, lap 2's samples
+  lap 2 in its place, and not lap 3 (read 24.63, 21.03 and 22.58 s), its `BestLapTime` the kept lap's, lap 2's samples
   within one of its time's count, each the bike's position at its step within 10 µm: the ghost's first sample is in its
   first fixed step at or after `LapStarted`, the step the lap starts in or the next as the scene orders the graphs within a
   step, so the module takes the bike's samples from both and compares the ghost's with the grid they lie on (read
   from the start step, 0 m apart). (27) `Delta` at the end of each lap, read in its last step before
   `LapFinished`: 0 while no best lap is held (lap 1), and within two fixed steps (0.033 s) of the laps' difference,
-  negative for lap 2 and positive for lap 3 (read −3.615 against −3.617 and 1.538 against 1.533; −3.611 and 1.535 in
-  Debug): `Delta` is a step old when the module reads it before the ghost's graph runs in the step, and the bike ends a
+  negative for lap 2 and positive for lap 3 (read −3.601 against −3.600 and 1.540 against 1.550; −3.601 and 1.534
+  against 1.533 in Debug): `Delta` is a step old when the module reads it before the ghost's graph runs in the step, and the bike ends a
   lap up to a step's ride past where the best lap ended. (28) In every frame of lap 3 from its fourth step on
   the ghost stands, at its own `LapTime`, where lap 2's samples of the bike put it (between the two round that time, at
   the share the time gives) within 1 cm, and its `LapTime` is the race's lap clock within 0.04 s (the ghost's time runs by

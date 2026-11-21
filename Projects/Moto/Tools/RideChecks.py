@@ -23,8 +23,9 @@ and StopAutopilot, and takes every reading in the step it belongs to. The phases
    grass, and the deepest lean.
 8. Rest: StopAutopilot, the riding graph on its test driver with the assists still on, the bike placed on the main straight
    at REST_FROM in the gear the autopilot left it in; the front lever alone (the linked brakes on) until it stops, the
-   automatic shifts taking it down as it slows; then every input released for REST_STEPS: the gear it waits in (first: the
-   automatic shifts never take it into neutral), its speed and how far it crept meanwhile.
+   automatic shifts taking it down as it slows, and REST_SETTLE steps more while its wheels stop; then every input released
+   for REST_STEPS: the gear it waits in (first: the automatic shifts never take it into neutral), its speed and how far it
+   crept meanwhile.
 9. Stand: every reading logged in one line ("Moto's assists and autopilot: ..."), the same at every frame rate; the riding
    graph's assists off, the bike placed on the grid at rest, both brakes on and shifted down into neutral until its wheels
    have stopped; then Done, which no case of the switch runs: the bike stands on the grid in neutral, as BikeChecks' ride
@@ -69,6 +70,9 @@ STOPPED = BikeChecks.STOPPED
 # The rest in gear: the speed the bike is braked to a stop from (m/s), and the steps it then waits with every input released.
 REST_FROM = BRAKE_FROM
 REST_STEPS = 120
+# The steps the lever stays on once the bike is under STOPPED, so that it is let go standing still (it stops within a
+# step of crossing STOPPED, where a step of the brake sheds about 0.15 m/s), as BikeChecks' Stand holds it.
+REST_SETTLE = BikeChecks.STAND_STEPS
 
 # The phases in the order they ride: (name, the function its case calls).
 PHASES = (
@@ -114,9 +118,9 @@ FORK_TOLERANCE = 0.5
 HANG_LEAN = 5.0
 TUCK_SPEED = Vehicle.TUCK_FULL + 2.0
 # The rest in gear: a bike braked to a stop on the assists waits in first gear and stays where it stopped, its inputs
-# released: under STOPPED (m/s) at the end of REST_STEPS, and at most REST_DRIFT (meters) from where it was let go. An
-# engine idling in gear that pushed the bike, as Jolt's held at its idle speed does with the clutch closed, would move it
-# meters in that time (4.6 m/s in first gear).
+# released: under STOPPED (m/s) at the end of REST_STEPS, and at most REST_DRIFT (meters) from where it was let go,
+# standing still after REST_SETTLE steps braked. An engine idling in gear that pushed the bike, as Jolt's held at its idle
+# speed does with the clutch closed, would move it meters in that time (4.6 m/s in first gear).
 REST_DRIFT = 0.05
 # How long a check waits for its reading (seconds of the game, from when it starts): the bike's ride and this one take about
 # 85 s, and the ride test scene's timeout (Checks.SCENES) must stay above the wait.
@@ -331,14 +335,20 @@ def write_autopilot_b(b):
 
 
 def write_rest(b):
-    """Rest: the front lever alone until the bike stops (the linked brakes and the automatic shifts on), then every input
-    released for REST_STEPS; at their end the gear, the speed and how far it crept since it was let go."""
+    """Rest: the front lever alone until the bike stops (the linked brakes and the automatic shifts on) and REST_SETTLE
+    steps more, then every input released for REST_STEPS; at their end the gear, the speed and how far it crept since it
+    was let go."""
     braking = b.branch(b.expr("stopped < 0", stopped=b.var("RestStopped")), comment="Not stopped yet: the front lever alone")
     held = drive(b, front=1.0)
     stopped = b.branch(b.expr(f"speed < {STOPPED}", speed=speed(b)))
-    marked = [b.set("RestStopped", elapsed(b)), b.set("RestFrom", BikeChecks.position(b), comment="Where it is let go")]
+    marked = b.set("RestStopped", elapsed(b))
+    settling = b.branch(b.expr(f"elapsed - stopped < {REST_SETTLE}", elapsed=elapsed(b), stopped=b.var("RestStopped")),
+                        comment="Stopped: the lever on while its wheels stop")
+    settled = drive(b, front=1.0)
+    letting = b.branch(b.expr(f"elapsed - stopped == {REST_SETTLE}", elapsed=elapsed(b), stopped=b.var("RestStopped")))
+    from_here = b.set("RestFrom", BikeChecks.position(b), comment="Where it is let go")
     released = drive(b)
-    done = b.branch(b.expr(f"elapsed - stopped >= {REST_STEPS}", elapsed=elapsed(b), stopped=b.var("RestStopped")),
+    done = b.branch(b.expr(f"elapsed - stopped >= {REST_SETTLE + REST_STEPS}", elapsed=elapsed(b), stopped=b.var("RestStopped")),
                     comment="Its inputs released for REST_STEPS")
     readings = [b.set("RestGear", gear(b)), b.set("RestSpeed", b.expr("abs(speed)", speed=speed(b))),
                 b.set("RestDrift", b.expr("distance(at, start)", at=BikeChecks.position(b), start=b.var("RestFrom")))]
@@ -346,8 +356,8 @@ def write_rest(b):
         "Moto's assists and autopilot: in gear {Gear} after the throttle alone; the linked brakes stopped it in {Linked} m, the "
         "rear at {Rear}; turned {Turn} degrees in 0.5 s leaned {Lean} degrees at {Speed} m/s; the autopilot covered {A} m and {B} m, {OffsetA} and {OffsetB} m "
         "off the line at most, {RoughA} and {RoughB} steps off the road, leaned {DeepA} and {DeepB} degrees at most; braked to "
-        f"rest on the assists it waited in gear {{RestGear}} at {{RestSpeed}} m/s, {{RestDrift}} m from where it stopped {REST_STEPS} "
-        "steps before; done at step {Step}", Gear=b.var("AutoGear"), Linked=b.var("LinkedStop"), Rear=b.var("LinkedRear"),
+        f"rest on the assists it waited in gear {{RestGear}} at {{RestSpeed}} m/s, {{RestDrift}} m from where it was let go "
+        f"{REST_STEPS} steps before; done at step {{Step}}", Gear=b.var("AutoGear"), Linked=b.var("LinkedStop"), Rear=b.var("LinkedRear"),
         Turn=b.var("LeanTurn"), Lean=b.var("LeanReading"), Speed=b.var("LeanSpeed"), A=b.var("CoveredA"), B=b.var("CoveredB"),
         OffsetA=b.var("OffsetA"), OffsetB=b.var("OffsetB"), RoughA=b.var("OffRoadA"), RoughB=b.var("OffRoadB"),
         DeepA=b.var("DeepestA"), DeepB=b.var("DeepestB"), RestGear=b.var("RestGear"), RestSpeed=b.var("RestSpeed"),
@@ -358,9 +368,14 @@ def write_rest(b):
     place = b.own("Place", At=at, Yaw=yaw, Along=along, Speed=0.0, comment="Back onto the grid, at rest")
     b.chain(b.entry, braking)
     b.chain(braking["True"], held, stopped)
-    b.chain(stopped["True"], *marked, b.ret)
+    b.chain(stopped["True"], marked, b.ret)
     b.flow(stopped["False"], b.ret)
-    b.chain(braking["False"], released, done)
+    b.chain(braking["False"], settling)
+    b.chain(settling["True"], settled, b.ret)
+    b.chain(settling["False"], letting)
+    b.chain(letting["True"], from_here, released)
+    b.flow(letting["False"], released)
+    b.chain(released, done)
     b.chain(done["True"], *readings, log, *back, place, enter(b, "Stand"), b.ret)
     b.flow(done["False"], b.ret)
 
@@ -548,7 +563,7 @@ def check_rest_in_gear(b, name):
     passed = b.both(ready, b.expr(f"gear == 1 && speed < {STOPPED} && drift <= {REST_DRIFT}", gear=gear_then, speed=speed_then,
                                   drift=drift))
     text = b.fmt(f"braked to a stop from {REST_FROM} m/s on the assists and let go, the bike waited in gear {{Gear}} (first "
-                 f"expected) at {{Speed}} m/s (under {STOPPED}), {{Drift}} m from where it stopped {REST_STEPS} steps before (at most "
+                 f"expected) at {{Speed}} m/s (under {STOPPED}), {{Drift}} m from where it was let go {REST_STEPS} steps before (at most "
                  f"{REST_DRIFT})", Gear=gear_then, Speed=speed_then, Drift=drift)
     run(b, Checks.check(b, name, ready, WAIT, text, passed))
 
