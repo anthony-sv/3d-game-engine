@@ -565,6 +565,10 @@ namespace Strada
 		VehicleCurve NormalizedTorque;
 		float EngineInertia = 0.5f;
 		float EngineAngularDamping = 0.2f;
+		// Per second, 0 to 100, added to EngineAngularDamping by how far the applied throttle is closed while the engine runs
+		// free of the wheels: in neutral, or while a Manual gearbox holds its clutch open below idle outside a shift
+		// (VehicleEngineDefinition::NeutralDamping); 0 adds nothing.
+		float EngineNeutralDamping = 0.0f;
 		VehicleTransmissionMode TransmissionMode = VehicleTransmissionMode::Automatic;
 		// 1 to MaxVehicleGears forward gears, each above 0.
 		std::vector<float> GearRatios = {2.27f, 1.63f, 1.3f, 1.09f, 0.96f, 0.88f};

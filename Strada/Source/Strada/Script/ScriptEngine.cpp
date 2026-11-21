@@ -54,6 +54,7 @@ namespace Strada
 				Resolve(functions.CreateInstance, "CreateInstance"),
 				Resolve(functions.SetInstanceFields, "SetInstanceFields"),
 				Resolve(functions.DescribeInstanceFields, "DescribeInstanceFields"),
+				Resolve(functions.DescribeChangedInstanceFields, "DescribeChangedInstanceFields"),
 				Resolve(functions.DestroyInstance, "DestroyInstance"),
 				Resolve(functions.DestroyAllInstances, "DestroyAllInstances"),
 				Resolve(functions.Invoke, "Invoke"),
@@ -67,6 +68,7 @@ namespace Strada
 				Resolve(functions.VisualScriptDestroyAllInstances, "VisualScriptDestroyAllInstances"),
 				Resolve(functions.VisualScriptInvoke, "VisualScriptInvoke"),
 				Resolve(functions.VisualScriptDescribeInstanceVariables, "VisualScriptDescribeInstanceVariables"),
+				Resolve(functions.VisualScriptDescribeChangedInstanceVariables, "VisualScriptDescribeChangedInstanceVariables"),
 				Resolve(functions.VisualScriptSetInstanceVariables, "VisualScriptSetInstanceVariables"),
 				Resolve(functions.VisualScriptDebug, "VisualScriptDebug"),
 				Resolve(functions.VisualScriptTakeTrace, "VisualScriptTakeTrace"),
@@ -272,6 +274,37 @@ namespace Strada
 		{
 			return fields.empty() ? std::string()
 			                      : JsonTraits<ScriptFieldMap>::ToJson(fields).dump(-1, ' ', false, Json::error_handler_t::replace);
+		}
+
+		Result<ScriptFieldChanges> ParseFieldChanges(std::string const& text)
+		{
+			Result<Json> json = ParseJson(text);
+			if (!json)
+			{
+				return Error{json.GetError()};
+			}
+			auto const changed = json.GetValue().find("Changed");
+			auto const unchanged = json.GetValue().find("Unchanged");
+			if (!json.GetValue().is_object() || changed == json.GetValue().end() || unchanged == json.GetValue().end() ||
+			    !unchanged->is_array())
+			{
+				return Error{"expected { \"Changed\", \"Unchanged\" }"};
+			}
+			ScriptFieldChanges changes;
+			if (Result<void> read = JsonTraits<ScriptFieldMap>::FromJson(*changed, changes.Changed, DeserializationContext{}); !read)
+			{
+				return Error{read.GetError()};
+			}
+			changes.Unchanged.reserve(unchanged->size());
+			for (Json const& name : *unchanged)
+			{
+				if (!name.is_string())
+				{
+					return Error{"expected the names of the unchanged fields"};
+				}
+				changes.Unchanged.push_back(name.get<std::string>());
+			}
+			return changes;
 		}
 
 		void ReportScriptException()
@@ -531,6 +564,27 @@ namespace Strada
 			return MakeError("the fields of entity {}'s script cannot be read: {}", entity, read.GetError());
 		}
 		return fields;
+	}
+
+	Result<ScriptFieldChanges> ScriptEngine::GetChangedInstanceFields(UUID entity)
+	{
+		if (s_Data == nullptr || !s_Data->Instances.contains(entity))
+		{
+			return MakeError("entity {} runs no script", entity);
+		}
+		std::string description;
+		auto const status =
+			static_cast<ScriptStatus>(s_Data->Host.DescribeChangedInstanceFields(entity.GetValue(), &description, &ReceiveText));
+		if (status != ScriptStatus::Success)
+		{
+			return MakeError("the fields of entity {}'s script cannot be read (see the log)", entity);
+		}
+		Result<ScriptFieldChanges> changes = ScriptEngineInternal::ParseFieldChanges(description);
+		if (!changes)
+		{
+			return MakeError("the fields of entity {}'s script cannot be read: {}", entity, changes.GetError());
+		}
+		return changes;
 	}
 
 	Result<void> ScriptEngine::SetInstanceFields(UUID entity, ScriptFieldMap const& fields)

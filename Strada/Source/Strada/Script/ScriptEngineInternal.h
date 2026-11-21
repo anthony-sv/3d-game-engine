@@ -7,6 +7,7 @@
 #include "Strada/Asset/VisualScriptAsset.h"
 #include "Strada/Asset/VisualScriptReferences.h"
 #include "Strada/Core/Base.h"
+#include "Strada/Core/Result.h"
 #include "Strada/Core/UUID.h"
 #include "Strada/Physics/PhysicsTypes.h"
 #include "Strada/Script/ScriptBindings.h"
@@ -70,6 +71,8 @@ namespace Strada::ScriptEngineInternal
 		                          int32_t fieldsLength) = nullptr;
 		int32_t (*SetInstanceFields)(uint64_t entity, char const* fields, int32_t fieldsLength) = nullptr;
 		int32_t (*DescribeInstanceFields)(uint64_t entity, void* context, ReceiveFunction receive) = nullptr;
+		// The fields that changed since the instance's last call, and the names of the others (ParseFieldChanges).
+		int32_t (*DescribeChangedInstanceFields)(uint64_t entity, void* context, ReceiveFunction receive) = nullptr;
 		int32_t (*DestroyInstance)(uint64_t entity) = nullptr;
 		int32_t (*DestroyAllInstances)() = nullptr;
 		int32_t (*Invoke)(uint64_t entity, int32_t scriptEvent, float timeStep, uint64_t other) = nullptr;
@@ -90,6 +93,7 @@ namespace Strada::ScriptEngineInternal
 		int32_t (*VisualScriptDestroyAllInstances)() = nullptr;
 		int32_t (*VisualScriptInvoke)(uint64_t entity, int32_t scriptEvent, float timeStep, uint64_t other) = nullptr;
 		int32_t (*VisualScriptDescribeInstanceVariables)(uint64_t entity, void* context, ReceiveFunction receive) = nullptr;
+		int32_t (*VisualScriptDescribeChangedInstanceVariables)(uint64_t entity, void* context, ReceiveFunction receive) = nullptr;
 		int32_t (*VisualScriptSetInstanceVariables)(uint64_t entity, char const* variables, int32_t variablesLength) = nullptr;
 		// The visual-script debugger (VisualScriptDebugger): a JSON request whose JSON reply comes through receive (error
 		// replies included), and the binary trace block (NotFound, receive not called, while no debugger is attached).
@@ -235,6 +239,9 @@ namespace Strada::ScriptEngineInternal
 	void ReceiveText(void* context, char const* text, int32_t length);
 	// Stored script field JSON, compact; empty for no entries (the runtime reads an empty text as none).
 	std::string ToJsonText(ScriptFieldMap const& fields);
+	// What DescribeChangedInstanceFields and VisualScriptDescribeChangedInstanceVariables answer: { "Changed": <stored script
+	// field JSON>, "Unchanged": [ <name> ] }. Fails on any other text.
+	[[nodiscard]] Result<ScriptFieldChanges> ParseFieldChanges(std::string const& text);
 	// Tells the application that a script's code failed (the runtime logged why): ScriptHost::OnScriptException.
 	void ReportScriptException();
 	ScriptEvent ToScriptEvent(ContactEventType type);

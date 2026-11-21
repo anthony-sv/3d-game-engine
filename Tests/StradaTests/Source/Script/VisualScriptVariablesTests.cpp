@@ -705,4 +705,19 @@ TEST_CASE("VisualScriptVariables: stored values follow the renames of their vari
 	CHECK(NormalizeVisualScriptOverrides(LoadFixture("Variables.json"),
 	                                     MakeMap({{"Health", five}, {"Speed", ScriptFieldValue::FromFloat(1.0f)}})) ==
 	      MakeMap({{"Lives", five}, {"Speed", ScriptFieldValue::FromFloat(1.0f)}}));
+
+	// The values need normalizing exactly while some are under a former name of a public variable that no public variable
+	// has as its name: then normalizing changes them, and otherwise it gives them back as they are.
+	std::vector<ScriptFieldMap> const maps = {MakeMap({{"Health", five}}),
+	                                          MakeMap({{"Lives", five}, {"Retries", seven}}),
+	                                          MakeMap({{"Lives", five}, {"Speed", ScriptFieldValue::FromFloat(2.0f)}}),
+	                                          MakeMap({{"Unknown", five}, {"Hidden", seven}}),
+	                                          {}};
+	for (ScriptFieldMap const& map : maps)
+	{
+		CHECK(AreVisualScriptOverridesNormalized(document, map) == (NormalizeVisualScriptOverrides(document, map) == map));
+	}
+	CHECK_FALSE(AreVisualScriptOverridesNormalized(document, maps[0]));
+	CHECK(AreVisualScriptOverridesNormalized(document, maps[2]));
+	CHECK(AreVisualScriptOverridesNormalized(reused, MakeMap({{"Lives", five}})));
 }

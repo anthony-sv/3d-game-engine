@@ -538,7 +538,9 @@ writes an editable copy to `Assets/Materials` and gives it to the slot, as one u
 - Drag a C# script or a visual script from the Content Browser onto the Inspector to make the inspected entities run it.
 
 While the game plays, script fields and graph variables show the values the running scripts hold, and an edit reaches
-them at once.
+them at once. An edit of a list starts from the list the game holds at that moment, so the elements the game changes
+meanwhile are kept. A long list costs about what a short one does: the Inspector reads again only the values that
+changed and draws only the rows you can see, so scroll a list of thousands of elements freely while the game runs.
 
 ### Inspecting assets
 

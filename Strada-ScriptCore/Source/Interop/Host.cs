@@ -169,6 +169,30 @@ internal static unsafe class Host
 		}
 	}
 
+	// Passes the fields of the entity's instance whose values changed since the last call ({ "Changed": { "Name": { "Type",
+	// "Value" } }, "Unchanged": [ "Name" ] }, ScriptRegistry.DescribeChangedInstanceFields) to receive(context, bytes, length).
+	[UnmanagedCallersOnly]
+	internal static int DescribeChangedInstanceFields(ulong entity, void* context, delegate* unmanaged<void*, byte*, int, void> receive)
+	{
+		try
+		{
+			byte[]? description = ScriptRegistry.DescribeChangedInstanceFields(entity);
+			if (description == null)
+			{
+				return NotFound;
+			}
+			fixed (byte* bytes = description)
+			{
+				receive(context, bytes, description.Length);
+			}
+			return Success;
+		}
+		catch (Exception exception)
+		{
+			return Report(exception);
+		}
+	}
+
 	[UnmanagedCallersOnly]
 	internal static int DestroyInstance(ulong entity)
 	{
@@ -352,6 +376,22 @@ internal static unsafe class Host
 		try
 		{
 			return Deliver(VisualScripts.DescribeVariables(entity), context, receive);
+		}
+		catch (Exception exception)
+		{
+			return Report(exception);
+		}
+	}
+
+	// Passes the public variables of the entity's graph instance whose values changed since the last call ({ "Changed": {
+	// "Name": { "Type", "Value" } }, "Unchanged": [ "Name" ] }) to receive.
+	[UnmanagedCallersOnly]
+	internal static int VisualScriptDescribeChangedInstanceVariables(ulong entity, void* context,
+		delegate* unmanaged<void*, byte*, int, void> receive)
+	{
+		try
+		{
+			return Deliver(VisualScripts.DescribeChangedVariables(entity), context, receive);
 		}
 		catch (Exception exception)
 		{

@@ -51,6 +51,11 @@ internal sealed partial class VisualScriptRuntime
 	// VisualScriptDescribeInstanceVariables: the stored-map JSON of the instance's public variables (spec section 5.4).
 	internal HostReply DescribeVariables(ulong entity) => DescribeInstanceVariables(entity) is { } text ? HostReply.Success(text) : HostReply.NotFound;
 
+	// VisualScriptDescribeChangedInstanceVariables: the public variables whose values changed since the last call, and the
+	// names of the others (Docs/Architecture.md §11, "Long lists").
+	internal HostReply DescribeChangedVariables(ulong entity) =>
+		DescribeChangedInstanceVariables(entity) is { } text ? HostReply.Success(text) : HostReply.NotFound;
+
 	// VisualScriptTakeLiveEvents (spec-slice4 section 8.4): the live log's receipts and runtime problems whose serial is after
 	// `after`, as JSON; NotFound when there are none.
 	internal HostReply TakeLiveEvents(ulong after) => m_Live.Write(after) is { } text ? HostReply.Success(text) : HostReply.NotFound;

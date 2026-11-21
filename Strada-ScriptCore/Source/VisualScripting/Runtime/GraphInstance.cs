@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using Strada.Interop;
 
 namespace Strada.VisualScripting;
 
@@ -44,6 +45,10 @@ internal sealed class GraphInstance
 	internal Slot[] Variables { get; private set; }
 
 	internal Frame Frame { get; private set; }
+
+	// What the last DescribeChangedInstanceVariables answered of each variable (by the program's variable index; null for a
+	// variable to answer next time); null before the first. A live edit's new program starts without them.
+	internal ReadBackCopy?[]? ReadBackCopies { get; set; }
 
 	// False once the instance was destroyed or replaced: its executions run to their end, but none of them can wait.
 	internal bool IsAlive { get; private set; } = true;
@@ -114,6 +119,7 @@ internal sealed class GraphInstance
 		Program = program;
 		Variables = variables;
 		Frame = frame;
+		ReadBackCopies = null;
 	}
 
 	// The instance is destroyed or replaced: it never owns another fiber (the runtime releases the ones it has).

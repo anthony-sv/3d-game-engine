@@ -85,6 +85,11 @@
 			"Path": "Vehicles/EngineTorque.scurve"
 		},
 		{
+			"Handle": "7939177738146291249",
+			"Type": "Vehicle",
+			"Path": "Vehicles/Neutral.svehicle"
+		},
+		{
 			"Handle": "6555722309289367045",
 			"Type": "Curve",
 			"Path": "Vehicles/TyreLateral.scurve"

@@ -28,6 +28,7 @@ public sealed class HostProtocolTests
 		("VisualScriptDestroyAllInstances", []),
 		("VisualScriptInvoke", ["ulong", "int", "float", "ulong"]),
 		("VisualScriptDescribeInstanceVariables", ["ulong", "void*", "receive"]),
+		("VisualScriptDescribeChangedInstanceVariables", ["ulong", "void*", "receive"]),
 		("VisualScriptSetInstanceVariables", ["ulong", "byte*", "int"]),
 		("VisualScriptDebug", ["byte*", "int", "void*", "receive"]),
 		("VisualScriptTakeTrace", ["void*", "receive"]),
@@ -122,6 +123,7 @@ public sealed class HostProtocolTests
 		[
 			host.DescribeLibrary(), host.AnalyzeDocument([]), host.AnalyzeDocument(Encoding.UTF8.GetBytes(document.Build())),
 			host.LoadDocument(TestRuntime.Graph, TestRuntime.Name, Encoding.UTF8.GetBytes(document.Build())), host.DescribeVariables(TestRuntime.Hero),
+			host.DescribeChangedVariables(TestRuntime.Hero),
 		];
 
 		foreach (HostReply reply in replies)
@@ -196,6 +198,9 @@ public sealed class HostProtocolTests
 		(int status, List<byte[]> received) = Deliver(runtime.Runtime.DescribeVariables(TestRuntime.Hero));
 		Assert.Equal(Host.NotFound, status);
 		Assert.Empty(received);
+		(int changedStatus, List<byte[]> changed) = Deliver(runtime.Runtime.DescribeChangedVariables(TestRuntime.Hero));
+		Assert.Equal(Host.NotFound, changedStatus);
+		Assert.Empty(changed);
 	}
 
 	private static JsonElement Parse(HostReply reply)

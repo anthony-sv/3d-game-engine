@@ -157,6 +157,36 @@ namespace Strada
 
 	Result<ScriptFieldMap> Scene::ReadVisualScriptVariables(Entity entity)
 	{
+		Result<ScriptFieldChanges> changes = RefreshVisualScriptVariableChanges(entity);
+		if (!changes)
+		{
+			return Error{changes.GetError()};
+		}
+		// Every public variable the runtime answered: what changed, and the others as the component holds them now.
+		ScriptFieldMap variables = std::move(changes.GetValue().Changed);
+		VisualScriptComponent const& component = entity.GetComponent<VisualScriptComponent>();
+		for (std::string& name : changes.GetValue().Unchanged)
+		{
+			if (auto const value = component.Variables.find(name); value != component.Variables.end())
+			{
+				variables.insert_or_assign(std::move(name), value->second);
+			}
+		}
+		return variables;
+	}
+
+	Result<size_t> Scene::RefreshVisualScriptVariables(Entity entity)
+	{
+		Result<ScriptFieldChanges> changes = RefreshVisualScriptVariableChanges(entity);
+		if (!changes)
+		{
+			return Error{changes.GetError()};
+		}
+		return changes.GetValue().Changed.size();
+	}
+
+	Result<ScriptFieldChanges> Scene::RefreshVisualScriptVariableChanges(Entity entity)
+	{
 		bool const ofThisScene = entity && entity.GetScene() == this;
 		auto const state = ofThisScene ? m_VisualScriptInstances.find(entity.GetHandle()) : m_VisualScriptInstances.end();
 		VisualScriptComponent* const component = ofThisScene ? entity.TryGetComponent<VisualScriptComponent>() : nullptr;
@@ -167,12 +197,12 @@ namespace Strada
 		}
 		// Edits that waited for the program the instance runs now reach it before its values are read over them.
 		UpdateVisualScriptVariables(entity.GetHandle(), state->second, *component, false);
-		Result<ScriptFieldMap> variables = VisualScriptEngine::GetInstanceVariables(state->second.Entity);
-		if (!variables)
+		Result<ScriptFieldChanges> changes = VisualScriptEngine::GetChangedInstanceVariables(state->second.Entity);
+		if (!changes)
 		{
-			return variables;
+			return changes;
 		}
-		for (auto const& [name, value] : variables.GetValue())
+		for (auto const& [name, value] : changes.GetValue().Changed)
 		{
 			component->Variables[name] = value;
 			state->second.Variables[name] = value;
@@ -181,7 +211,16 @@ namespace Strada
 		// the same variables go. Values of variables only a newer document has stay (the inspector shows that document).
 		component->Variables =
 			NormalizeVariables(VisualScriptEngine::GetWorkingDocument(component->Graph), std::move(component->Variables));
-		return variables;
+		// The runtime answers a variable again only when it changes or is given a value: one a paste or component.set left out
+		// of the component's map (they replace it whole) comes back from the record, which holds the value last answered.
+		for (std::string const& name : changes.GetValue().Unchanged)
+		{
+			if (auto const recorded = state->second.Variables.find(name); recorded != state->second.Variables.end())
+			{
+				component->Variables.try_emplace(name, recorded->second);
+			}
+		}
+		return changes;
 	}
 
 	void Scene::ApplyVisualScriptVariableChanges()
