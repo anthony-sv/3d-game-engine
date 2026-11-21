@@ -17,7 +17,9 @@
 #include <glm/glm.hpp>
 
 #include <filesystem>
+#include <memory>
 #include <string>
+#include <utility>
 
 using namespace Strada;
 

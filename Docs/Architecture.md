@@ -3185,10 +3185,13 @@ wheel all of its torque).
   place) keeps its latest inputs, its engine's speed (within the new range), its gear (within the new gears) and each
   wheel's spin and angle; its contacts, suspension, gearbox timers and lean start again. Making, replacing and removing a
   vehicle moves the world's structure version, so a snapshot of another structure is refused; changing its values in place
-  (`SetVehicleSettings`) does not. The chassis's centre of mass and inertia are its colliders' alone, as any dynamic body's
-  are: a bike that must carry its mass low places its chassis collider low, and the vehicle adds no offset of its own.
-  How far a bike leans into its turns depends on its wheels' widths as much as on its chassis: a wheel's `Width` is the
-  width of its cast against the ground, round only up to 0.1 m (below, "The wheels' cast"). The colliders also give the chassis its roll inertia, which the lean spring needs: Jolt applies the spring's impulse at
+  (`SetVehicleSettings`) does not, and neither does a reset, which makes the vehicle again on the same body with the
+  values it runs with, carrying nothing but its latest inputs, and puts its constraint back in its place in Jolt's list
+  (below, "The reset"). The chassis's centre of mass and inertia are its colliders' alone, as any dynamic body's are: a
+  bike that must carry its mass low places its chassis collider low, and the vehicle adds no offset of its own. How far a
+  bike leans into its turns depends on its wheels' widths as much as on its chassis: a wheel's `Width` is the width of its
+  cast against the ground, round only up to 0.1 m (below, "The wheels' cast"). The colliders also give the chassis its
+  roll inertia, which the lean spring needs: Jolt applies the spring's impulse at
   every velocity iteration of the solver against what it applied before (`MotorcycleController.cpp:218-226`), so its
   damping term changes the roll rate by `LeanSpringDamping` times the collision step over the roll inertia about the
   front at each iteration, and the iterations settle only while that ratio is below 1 (for the default damping of 1,000
@@ -3435,11 +3438,10 @@ wheel all of its torque).
   running at its start): the lever is held, and the engine turns by itself as in neutral. Without that case an engine
   revved in neutral and put into first with the rear wheel still would keep its revs (at Moto's 0.005, 80 rpm a second)
   until the throttle opened, and close its clutch at that speed. Above that wheel speed the clutch is closed and the
-  engine turns with the wheels, which take it down to `MinRPM` as the bike slows (the probe the rule comes from read the
-  same figures with and without the case: downshifts at speed, a locked rear wheel released, two laps of Moto, its ride
-  scene). **A clutch open for a shift never counts**: a shift between two gears never passes through gear 0 (a Manual
-  gearbox takes its target at once, and Jolt's moves its gear straight to the next, `VehicleTransmission.cpp:58-97`), and
-  the hold counts only outside a shift; a shift into neutral is neutral. **It is exact**: at full throttle the sum is
+  engine turns with the wheels, which take it down to `MinRPM` as the bike slows. **A clutch open for a shift never
+  counts**: a shift between two gears never passes through gear 0 (a Manual gearbox takes its target at once, and Jolt's
+  moves its gear straight to the next, `VehicleTransmission.cpp:58-97`), and the hold counts only outside a shift; a
+  shift into neutral is neutral. **It is exact**: at full throttle the sum is
   `EngineAngularDamping + EngineNeutralDamping × 0`, which is `EngineAngularDamping` to the bit, as it is in gear with the
   clutch closed or open for a shift and with the field at 0, so every full-throttle figure, every collision step in gear
   outside the hold and every vehicle whose definition leaves the field at 0 step bit for bit as before: a ride whose
@@ -3500,7 +3502,8 @@ wheel all of its torque).
   neither falls to neutral nor keeps an automatic gearbox's empty state, and one now `Automatic` keeps no manual shift.
   After the restore the gear is brought within the definition's gears, as above. The scene's
   snapshot adds how each wheel entity is drawn (below). `Scene::RestorePhysicsState` refuses, changing nothing, once a
-  vehicle was made, made again or removed (a reset is none of these: above, "The reset").
+  vehicle was made, made again or removed; a reset, which makes the vehicle again in its own place and moves no structure
+  version, does not count (above, "The reset").
   The engine sets every controller value from the definition when it makes the
   vehicle and when the definition changes, and never reads them back through `GetSettings()` (which gives the lean
   spring's damping its own default, `MotorcycleController.cpp:299`).
@@ -3647,7 +3650,8 @@ wheel all of its torque).
   at 0 the lean controller holds it upright) is made, or its values change, with a wheel wider than 0.1 m (above, "The
   wheels' cast"), the scene warns that it leans less than its turns balance, naming the entity, the wheel and its width
   and the width up to which a wheel's cast is round. It warns once for each wheel and width: not again for an edit that
-  leaves the wheel as it was or for a body made again, and again when that wheel takes another width above the bound,
+  leaves the wheel as it was, for a body made again or for a reset (which leaves the scene's record of the vehicle as it
+  was), and again when that wheel takes another width above the bound,
   comes back above it, or the vehicle is made again after it was none. It changes no value and runs only when the
   vehicle changes, never in a step. FeatureTest's bike (wheels 0.12 and 0.18 m wide) is warned of; Moto's casts 24 and
   40 mm.
