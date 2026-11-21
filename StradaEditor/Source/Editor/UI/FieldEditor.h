@@ -6,6 +6,7 @@
 #include <glm/glm.hpp>
 #include <glm/gtc/quaternion.hpp>
 
+#include <cstddef>
 #include <cstdint>
 #include <functional>
 #include <limits>
@@ -151,10 +152,20 @@ namespace Strada
 		std::string_view ClearTooltip = "Clear";
 	};
 
+	// What FieldEditor::Draw drew in its last call (Docs/Architecture.md §11, "Long lists"): the counts that hold a long
+	// list's cost to the rows in view, which the inspector's tests read.
+	struct FieldEditorDrawStatistics
+	{
+		// Element rows of arrays of plain values drawn, and those left out because they lay outside the window's view.
+		size_t ArrayRowsDrawn = 0;
+		size_t ArrayRowsClipped = 0;
+	};
+
 	// Draws editing widgets for reflected fields as the rows of a two-column property table (labels with descriptions as
 	// tooltips, widgets chosen by the field kind and hints) and reports the user's change; callers turn it into an
 	// undoable operation (Docs/Architecture.md §11). Arrays of plain values are a row of widgets per element with a grip
-	// that drags the row onto another row's grip (moving the element there) and "-", then "+"; arrays of reflected
+	// that drags the row onto another row's grip (moving the element there) and "-", then "+", of which only the rows in
+	// the window's view are drawn, with the row being edited wherever it is, the others' space kept; arrays of reflected
 	// structs fold open into a row per element (DescribeElement's title, with a menu to move,
 	// duplicate, insert above and remove it) over the element's own field rows, then Add Element; buttons that add are
 	// disabled at the field's MaxCount, and an array of a fixed order (FieldHints::FixedOrder) has no grips and no moves. Every array
@@ -181,6 +192,8 @@ namespace Strada
 		// resolves entity references to names (may be null).
 		std::optional<FieldChange> Draw(std::span<FieldDescriptor const> fields, Json const& values,
 		                                std::span<std::string const> mixedFields = {}, Scene* scene = nullptr);
+		// What the last Draw drew (counted from zero at its start).
+		FieldEditorDrawStatistics const& GetDrawStatistics() const;
 		// Asset fields show images of the assets these thumbnails have (textures, materials, meshes, prefabs and environments):
 		// a small one in front of the path, a larger one in its tooltip and one in each row of the picker. The thumbnails must
 		// outlive the editor; null (the default) shows paths only.

@@ -247,7 +247,10 @@ Profiler panel, the `profiler.*` commands and `StradaRuntime --profile` read its
     graph window's frame, `GraphEditor.Sync` with `GraphEditor.Adopt`, `GraphEditor.Analysis`, `GraphEditor.Canvas`
     and `GraphEditor.Index`, `GraphEditor.DrawCanvas`, and `GraphEditor.PrepareCommit`; the debugger's `GraphDebug.Frame` (its part of a game frame, which takes the
     runtime's trace), `GraphDebug.EndFrame` (the session's end of an editor frame), `GraphDebug.TakeFlow` (a window's
-    flow) and `GraphDebug.ReadValues` (the live wire values); the Telemetry panel's `TelemetryPanel.Draw` (§4.5);
+    flow) and `GraphDebug.ReadValues` (the live wire values); the Telemetry panel's `TelemetryPanel.Draw` (§4.5); the
+    inspector's `InspectorPanel.ReadBack` (the selected entities' running C# fields and graph variables brought into
+    their components) and `InspectorPanel.ScriptValues` (their conversion into the field editor's values and their rows),
+    in the frames it shows them while a game plays (§11, "Long lists");
   - a game's saves (§13.1), never per frame but read from a ride's capture when a save makes a hitch: `Saves.ReadSlot`
     and `Saves.WriteSlot` around a slot's read and write and `Saves.WriteSettings` around the player's settings' save,
     with `SyncFile` (no subsystem of its own) around each of the durable write's waits for the device;
@@ -1962,7 +1965,7 @@ Vehicle (`.svehicle`, the data asset type `Vehicle`, version 1, §8 "Vehicles"; 
 "SuspensionMaxLength", "SuspensionPreload", "SuspensionFrequency", "SuspensionDamping", "SteeringAxis", "MaxSteerAngle",
 "Radius", "Width", "Inertia", "AngularDamping", "FrontBrakeTorque", "RearBrakeTorque", "LongitudinalFriction",
 "LateralFriction" } ], "Up", "Forward", "MaxPitchRoll", "Engine": { "MaxTorque", "MinRPM", "MaxRPM", "Torque", "Inertia",
-"AngularDamping" }, "Transmission": { "Mode", "GearRatios", "FinalDrive", "SwitchTime", "ClutchReleaseTime",
+"AngularDamping", "NeutralDamping" }, "Transmission": { "Mode", "GearRatios", "FinalDrive", "SwitchTime", "ClutchReleaseTime",
 "SwitchLatency", "ShiftUpRPM", "ShiftDownRPM", "ClutchStrength" }, "Lean": { "MaxLeanAngle", "SpringConstant",
 "SpringDamping", "SmoothingFactor", "SteeringLimit" } }`. Exactly two wheels, the front then the rear (an editor keeps
 their order): the front steers (`MaxSteerAngle` above 0, at most 90) and the rear does not (0); names are 1 to 64 bytes,
@@ -1974,10 +1977,12 @@ at least 0; `MinLength <= MaxLength`; `MinRPM < MaxRPM`; 1 to 16 gear ratios, fi
 `Mode` is `Automatic` or `Manual`; `ShiftDownRPM < ShiftUpRPM`, and in `Automatic` mode `ShiftUpRPM < MaxRPM`. The three
 curve fields (`LongitudinalFriction` over the slip ratio, `LateralFriction` over the slip angle in degrees, `Torque` over
 the engine's speed as a fraction of `MaxTorque`) reference `Curve` assets, 0 or a reference that is no loadable curve for
-Jolt's default. There are no fields only a car uses (anti-roll bars, a differential between wheels, a handbrake, a
-reverse gear). A new definition (`{}`) is a bike with the proportions of Jolt's motorcycle sample, its front along -Z, on
-springs of 2.5 Hz that hold a 250 kg chassis off their stops (the sample's 1.5 Hz front spring lets it sit on its shortest
-length).
+Jolt's default. `NeutralDamping` (0 to 100, per second) is the engine's added damping in neutral (§8, "The engine in
+neutral"), a compatible field of version 1: a file without it reads as 0, the engine as built, and an engine from before
+it warns of the unknown field and drops it on its next save. There are no fields only a car uses (anti-roll bars, a
+differential between wheels, a handbrake, a reverse gear). A new definition (`{}`) is a bike with the proportions of
+Jolt's motorcycle sample, its front along -Z, on springs of 2.5 Hz that hold a 250 kg chassis off their stops (the
+sample's 1.5 Hz front spring lets it sit on its shortest length).
 
 ```json
 {
@@ -1994,7 +1999,8 @@ length).
 			  "AngularDamping": 0.2, "FrontBrakeTorque": 0.0, "RearBrakeTorque": 600.0, "LongitudinalFriction": "0", "LateralFriction": "0" }
 		],
 		"Up": [0.0, 1.0, 0.0], "Forward": [0.0, 0.0, -1.0], "MaxPitchRoll": 60.0,
-		"Engine": { "MaxTorque": 110.0, "MinRPM": 1700.0, "MaxRPM": 16000.0, "Torque": "4815162342", "Inertia": 0.4, "AngularDamping": 0.2 },
+		"Engine": { "MaxTorque": 110.0, "MinRPM": 1700.0, "MaxRPM": 16000.0, "Torque": "4815162342", "Inertia": 0.4, "AngularDamping": 0.2,
+			"NeutralDamping": 0.0 },
 		"Transmission": { "Mode": "Manual", "GearRatios": [2.714, 2.2, 1.85, 1.6, 1.42, 1.304], "FinalDrive": 4.6125, "SwitchTime": 0.05,
 			"ClutchReleaseTime": 0.1, "SwitchLatency": 0.5, "ShiftUpRPM": 15500.0, "ShiftDownRPM": 6000.0, "ClutchStrength": 2.0 },
 		"Lean": { "MaxLeanAngle": 55.0, "SpringConstant": 5000.0, "SpringDamping": 1000.0, "SmoothingFactor": 0.8, "SteeringLimit": true }
@@ -3200,6 +3206,53 @@ wheel all of its torque).
   its own while it has a vehicle, which calls each vehicle constraint's `OnStep` in the order of the chassis's UUIDs: Jolt
   keeps its listeners in a list from which a removal moves the last one into the removed slot (`PhysicsSystem.cpp:123-131`),
   and a listener per vehicle would have to be taken out and put back in order at every change, as the constraints are.
+- **The reset** (`PhysicsScene::ResetVehicle`, `Scene::ResetVehicle`, and for scripts and graphs
+  `VehicleComponent.ResetVehicle()`). A reset puts a vehicle back as it was made, at rest where its body stands.
+  **The world makes the vehicle again** on the body it stands on, with the values it runs with and carrying nothing
+  (`MakeVehicle` without a carried state), rather than clearing values in place: much of what a ridden vehicle holds has
+  no setter in Jolt (the gearbox's clutch and three timers, `VehicleTransmission.h:80-84`; the controller's last step's
+  length, `WheeledVehicleController.h:188`; each wheel's contact, suspension length and constraint parts' warm starts and
+  the pitch and roll part's, `VehicleConstraint.cpp:646-671`), and what a new vehicle starts with is what Jolt's
+  constructors give it, none of which reads the body's pose (`VehicleConstraint.cpp:78-104`; its step counter is seeded
+  from the body's ID, so a vehicle made again on the same body starts it where a new one does). So a reset vehicle holds
+  exactly what `AddVehicle` gives a vehicle made there from nothing, but for the latest inputs (below), which no hash
+  reads, and the hash says so. What that is, set against what
+  a made vehicle has: the engine at `MinRPM` (`WheeledVehicleController.cpp:185`); the gearbox in neutral, its clutch
+  closed and its timers at 0, a Manual gearbox's own state (`VehicleShiftState`) at 0 and the pending shift count dropped
+  (a shift asked before the reset is not made, one asked after it is); each wheel's spin, angle and steering at 0, its
+  suspension at its longest (`Wheel.cpp:68`), its slips at 0 and no contact or surface until the next step's wheel tests,
+  so the reads between the reset and that step show no contact; the lean target, the lean spring's integral and the
+  applied lean impulse at 0 (`MotorcycleController.h:110-116`); the applied inputs at 0 until the next step applies the
+  latest. **The latest inputs stay**, as a vehicle made again keeps them: the next step applies what a script last gave,
+  before or after the reset, so a reset and the inputs given in the same frame or fixed step make the same step whichever
+  order the scripts and graphs run in. **The chassis's linear and angular velocities are set to zero** once it is made
+  again, as `SetLinearVelocity` and `SetAngularVelocity` set them (which wakes the chassis); its position, rotation, sleep
+  test and contacts with other bodies stay. Then the world takes every vehicle's constraint and every joint out of Jolt's
+  list and adds them again in UUID order, as after any change (above), so the vehicle's constraint takes the place it
+  had. **Nothing else changes**: every other body, vehicle, joint and character, the vehicle's values (the definition's,
+  or the last `SetVehicleSettings`'), and the structure version, since the world holds the same vehicles with the same
+  values in the same places of Jolt's list: a snapshot taken before a reset restores after it (bringing back the ride as
+  it was then), and one taken after it restores too. The hash and the snapshot gain nothing: a reset vehicle is hashed and
+  saved as any vehicle is. **When it applies**: at the call, on the main thread, between steps (no script runs inside
+  one), so from `OnFixedUpdate` it is in place for the step that follows and from `OnUpdate` for the next frame's first.
+  A reset touches its own vehicle alone and the constraints go back into UUID order after each, so several resets in one
+  frame or fixed step leave the same world in whatever order they come. **With `Teleport`**: `RigidBodyComponent.Teleport`
+  sets the chassis entity's transform, and the next step's sync takes the body there, keeping its velocity; the reset
+  reads nothing of the pose and zeroes the velocities at once, so a teleport and a reset in one frame or fixed step, in
+  either order, leave the vehicle new and at rest at the teleported place for that step. `Scene::ResetVehicle` applies the
+  physics changes not applied yet first, as every vehicle binding does, and starts the vehicle's wheel drawing again, so
+  its wheels are drawn from its next step on (below, "Interpolated wheels"), never between the old ride and the new.
+  **Where no game plays** there is no physics world and so no vehicle: a reset from a script or a graph is then a script
+  error naming the member and does nothing, as the inputs and the shifts are; no automation command resets a vehicle.
+  **Scripts and graphs**: `VehicleComponent.ResetVehicle()` (its XML documentation: "Puts the vehicle back as it was
+  made, at rest where its body stands: the engine at idle, the gearbox in neutral with no shift under way or asked for,
+  the wheels still and straight, the lean as new, and the chassis's velocity and angular velocity at zero. The inputs
+  last given stay, so the next physics step applies them; give others after this call to change them. It takes effect
+  at once, before the next physics step, and keeps where the body stands: to put the vehicle somewhere else as well,
+  Teleport its RigidBodyComponent in the same frame, before or after. Without a simulated vehicle it is logged and does
+  nothing."), a method and so an impure node, **Reset Vehicle** (`Call:Strada.VehicleComponent.ResetVehicle()`), beside
+  Shift Up and Shift Down; its binding (`VehicleComponent_ResetVehicle`) calls `Scene::ResetVehicle` after the check the
+  inputs' binding makes.
 - **The threads.** `PhysicsSystem::Update` locks every body and constraint (`PhysicsSystem.cpp:241-246`) and in each
   collision step runs the step listeners first, as jobs on which gravity and the active constraints wait (`:401-412`);
   `OnStep` runs once per collision step with that collision step's length (`PhysicsStepListener.h:28`). Jolt makes one
@@ -3329,6 +3382,44 @@ wheel all of its torque).
   changes the mode hands the gear over: a gearbox made `Manual` takes Jolt's current gear as its own (its timers at 0 and
   any pending requests dropped), and one made `Automatic` keeps the gear Strada last gave Jolt, from which Jolt's gearbox
   goes on by itself.
+- **The engine in neutral** (`VehicleEngineDefinition::NeutralDamping`, `VehicleDesc::EngineNeutralDamping`). Jolt's
+  engine loses speed by a rate that does not know its inertia: each `PostCollide` multiplies its speed by
+  `1 - AngularDamping × collision step` (`VehicleEngine::ApplyDamping`, `VehicleEngine.cpp:60-68`, called at
+  `WheeledVehicleController.cpp:288`), in every gear and at every throttle, and in gear the same rate takes
+  `Inertia × AngularDamping × speed` of torque from the crank, so a damping that brings a revved engine in neutral to
+  idle in a second (2.25 a second) would brake the bike through the gearbox harder than the engine drives it.
+  The definition's `NeutralDamping` (per second, 0 to 100, 0 by default) is therefore added in neutral only, by how far the throttle is
+  closed: at each collision step, in `VehicleWorld::OnStep` after a Manual gearbox's gear and clutch
+  (`UpdateManualGearbox`) and before the vehicle's `VehicleConstraint::OnStep`, the world sets the engine's
+  `mAngularDamping` to `EngineAngularDamping + EngineNeutralDamping × (1 - throttle)` while the gearbox is in neutral and
+  to `EngineAngularDamping` otherwise, the throttle being the one the step applies (`AppliedInputs.Throttle`, 0 to 1).
+  **Neutral** is gear 0 of Jolt's gearbox as the vehicle's constraint step finds it: in `Manual` mode the gear
+  `UpdateManualGearbox` has just given it (`VehicleShiftState::Gear`); in `Automatic` mode the gear its own update left
+  at the end of the collision step before, since Jolt damps the engine (`:288`) before it updates the gearbox (`:620`).
+  An `Automatic` gearbox shifts down to neutral by itself with the throttle closed below `ShiftDownRPM` and takes first
+  gear at the first throttle (`VehicleTransmission.cpp:93-95`, `:58-62`), so the field acts there too, while the bike
+  coasts or stands in neutral. **A clutch held open below idle does not count**: in `Manual` mode the clutch is open with
+  the throttle closed while the rear wheel turns the gear slower than idle (above), once the engine, coupled until then,
+  has followed the wheel down to `MinRPM`, where Jolt holds it, so there is no speed to take; the probe the rule comes
+  from read the same figures with and without that case (downshifts at speed, a locked rear wheel released, two laps of
+  Moto, its ride scene), and a rule of the gear alone is one scripts read (`Gear` 0) and leaves the engine in gear
+  exactly as built. **A clutch open for a shift never counts**: a shift between two gears never passes through gear 0 (a
+  Manual gearbox takes its target at once, and Jolt's moves its gear straight to the next,
+  `VehicleTransmission.cpp:58-97`), and a shift into neutral is neutral. **It is exact**: at full throttle the sum is
+  `EngineAngularDamping + EngineNeutralDamping × 0`, which is `EngineAngularDamping` to the bit, as it is in gear and with
+  the field at 0, so
+  every full-throttle figure, every gear and every vehicle whose definition leaves the field at 0 step bit for bit as
+  before. **It adds nothing to the state, the hash or the snapshot**: the damping is set again at every collision step
+  from the values, the gear and the throttle the step applies, all of which the step already has, and Jolt saves the
+  engine's speed, not its settings (`VehicleEngine::SaveState`), so a restored vehicle damps as it did;
+  `SetVehicleSettings` gives the engine the definition's values (`MakeEngine`), and the next collision step sets the
+  damping again. With the sum `c` and `n` collision steps a second, the engine's speed in neutral with the throttle
+  closed falls by the factor `1 - c / n` at each collision step down to `MinRPM` (a product with the collision step of 1
+  or more takes it there in one collision step, `ApplyDamping`'s `max(0, ...)`), where Jolt holds it without hunting, as
+  it has no idle governor (`ClampRPM`): at 2.25 a second and 60 collision steps, from 16,000 rpm to 1.01 times an idle of
+  1,700 in 59 collision steps, 0.98 s; at Moto's 0.005 alone, 80 rpm a second from its red line. The managed `Vehicle`
+  class does not read the field, which no game needs; `vehicle.set` edits it while a game plays, as any value of the
+  definition, and the next step uses it. Engine braking in gear and a rev match when a gear goes in are not built.
 - **The state in the hash.** `PhysicsScene::ComputeStateHash` adds, after the bodies and the characters and **only when
   the world has a vehicle** (so that a world without one hashes bit for bit as before), this sequence (`HashBuilder`, each
   float by its bit pattern): the number of vehicles (`AddUInt64`); then for each vehicle in the order of its chassis's
@@ -3374,7 +3465,8 @@ wheel all of its torque).
   neither falls to neutral nor keeps an automatic gearbox's empty state, and one now `Automatic` keeps no manual shift.
   After the restore the gear is brought within the definition's gears, as above. The scene's
   snapshot adds how each wheel entity is drawn (below). `Scene::RestorePhysicsState` refuses, changing nothing, once a
-  vehicle was made, made again or removed. The engine sets every controller value from the definition when it makes the
+  vehicle was made, made again or removed (a reset is none of these: above, "The reset").
+  The engine sets every controller value from the definition when it makes the
   vehicle and when the definition changes, and never reads them back through `GetSettings()` (which gives the lean
   spring's damping its own default, `MotorcycleController.cpp:299`).
 - **The scene's side.** A `Vehicle` component on an entity with a dynamic `RigidBody` and a collider makes it a vehicle
@@ -3421,7 +3513,7 @@ wheel all of its torque).
   step before to the last one that the time left over makes up, as bodies are (at its last step when the chassis's
   `RigidBody` does not interpolate), and before the next physics changes and steps each goes back exactly to where its last
   step left it. A wheel is placed from its vehicle's first step on (before it, the entity stays where it was put), and a
-  vehicle made again starts again. Nothing about the wheels is in the hash or reaches the simulation: a wheel entity has
+  vehicle made again or reset starts again. Nothing about the wheels is in the hash or reaches the simulation: a wheel entity has
   no body, and the vehicle writes its transform at every step and frame, so a script's or the editor's edit of it lasts
   until then. **Every write is made in the wheel's parent's space from the parent's world transform at the moment of the
   write, and from nothing else** (after the step, in `Scene.Interpolate`, in `Scene.ReturnToSteps`, and when physics
@@ -4301,7 +4393,9 @@ While a scene runs, `Scene::ReadScriptFields` copies the values a script's field
 (`ScriptEngine::GetInstanceFields`) into its Script component, and `Scene::ApplyScriptFieldChanges` gives scripts the
 stored values that differ from those they were last given or read (`ScriptEngine::SetInstanceFields`): the editor reads
 the fields it shows or edits during play and applies its edits (undo included) at once, so tuning a running game
-reaches its scripts.
+reaches its scripts. A read-back carries across the boundary only the fields whose values changed since the last one of
+that instance (`Scene::RefreshScriptFields`, `ScriptEngine::GetChangedInstanceFields`, which `ReadScriptFields` reads
+through), so reading an unchanged list again costs one comparison of its elements (§11, "Long lists").
 
 Visual scripts (§10.6) are a second kind of instance with the same lifecycle: `VisualScriptComponent`s get graph
 instances as `ScriptComponent`s get script instances, every instance of both kinds exists before the first `OnCreate`
@@ -4327,7 +4421,8 @@ editor's Simulate mode runs neither kind.
   `BoxColliderComponent`, `SphereColliderComponent`, `CapsuleColliderComponent`, `MeshColliderComponent`,
   `JointComponent`, `CharacterControllerComponent` (every field, `Move(Vector3 velocity)`, `Velocity`, `IsGrounded`,
   `GroundNormal`, `Teleport(Vector3)`), `VehicleComponent` (`Definition`, `SetDriverInput(throttle, frontBrake,
-  rearBrake, lean)`, `ShiftUp()`, `ShiftDown()`, `EngineSpeed` (rpm), `Gear`, `ForwardSpeed` (m/s), `LeanAngle` (deg,
+  rearBrake, lean)`, `ShiftUp()`, `ShiftDown()`, `ResetVehicle()` (§8, "The reset"), `EngineSpeed` (rpm), `Gear`,
+  `ForwardSpeed` (m/s), `LeanAngle` (deg,
   positive to the right), the inputs the last step applied (`Throttle`, `FrontBrake`, `RearBrake`, `Lean`) and
   `GetWheelState(index)`, a `VehicleWheelState`; §8 "Vehicles", "Scripts and graphs"),
   `AudioSourceComponent` (`Play()`, `Stop()`, `Pause()`, `IsPlaying`, `Volume`, `Pitch`, `Loop`, `Clip`, `Stream`,
@@ -4444,8 +4539,8 @@ frame are created first; `Type`, `Mass` and `Layer` rebuild it), `CharacterContr
 velocity of the next physics step; call it from `OnFixedUpdate`), `Velocity` (the character's own: falling, jumping),
 `IsGrounded`, `GroundNormal` and `Teleport` act on the entity's character (fields change it before the next step;
 without a simulated character the reads are a character at rest and `Move` and setting `Velocity` are logged),
-`VehicleComponent`'s inputs, shifts and reads act on the entity's vehicle (without a simulated vehicle the reads are a
-vehicle at rest in neutral and the inputs and shifts are logged), and
+`VehicleComponent`'s inputs, shifts, reset and reads act on the entity's vehicle (without a simulated vehicle the reads
+are a vehicle at rest in neutral and the inputs, shifts and resets are logged), and
 `AudioSourceComponent` playback acts on the entity's sound, brought up to date with the component first. Entity
 lookups (`FindByName`, `FindByID`, `Parent`, `Children`, contacts, raycast hits) return the script instance of scripted
 entities. `Time.TimeScale` scales script and physics time, not sounds. Asset references are typed (`Mesh`, `Material`,
@@ -5020,6 +5115,9 @@ once. Without .NET a document still loads, saves and shows in the editor; analys
   `Scene::ApplyVisualScriptVariableChanges` gives instances the stored values that differ from those they were given or
   read, at the editor's sites for script fields (§10.3): the inspector, `EditorOperations::SetComponentFields`,
   `EditorContext::FinishEdit` (every edit, undo and redo) and the automation reads (`entity.get`, `component.get`).
+  A read-back carries only the variables whose values changed since the last one of that instance
+  (`Scene::RefreshVisualScriptVariables`, `VisualScriptEngine::GetChangedInstanceVariables` through the entry point
+  `VisualScriptDescribeChangedInstanceVariables`, which `ReadVisualScriptVariables` reads through; §11, "Long lists").
   Both use the names of the program the instance runs (the working document, which may be older than the asset's): a
   value for a variable that program lacks is not given and waits. When a live edit swaps the program (a new
   generation, seen by the next update or read), the values the instance was given are renamed as its variables were
@@ -5111,11 +5209,49 @@ once. Without .NET a document still loads, saves and shows in the editor; analys
   undo step that writes the field's whole list (`{ "Type": "Float[]", "Value": [...] }`). A selection whose lists differ
   shows the field mixed, as components' arrays do, and an edit is applied to each selected entity's own list by index
   (`FieldChange::MakePatch`), so each keeps its other elements. `component.set` takes and answers the file form, and a
-  list given replaces its field whole. The cost is accepted as linear in the selection's elements: while playing, the
-  inspector reads the selected entities' running values back on every draw (`Scene::ReadScriptFields` and
-  `ReadVisualScriptVariables`, lists whole, across the script boundary as JSON), and it draws one row per element,
-  unclipped, so a list near the 4,096 limit costs time on every frame it is shown. C# scripts and visual
-  scripts dropped onto the inspector run on the selected entities. Without selected entities the inspector shows the
+  list given replaces its field whole. **Long lists.** While a game plays, the inspector shows what the running scripts
+  hold, read back at every draw, and what it reads, converts and draws is held to what changed and to the rows in view,
+  so a list near the 4,096 limit costs about what a short one does:
+  - *Read back.* At each draw `Scene::RefreshScriptFields` and `RefreshVisualScriptVariables` bring each selected
+    entity's component up to its running instance, and only the fields and public variables whose values differ from
+    what the last read-back of that instance answered cross the script boundary (`ScriptEngine::GetChangedInstanceFields`
+    and `VisualScriptEngine::GetChangedInstanceVariables`, through the entry points `DescribeChangedInstanceFields` and
+    `VisualScriptDescribeChangedInstanceVariables`). The scripting runtime keeps, for each field and public variable of
+    each instance, a copy of the value it last answered (a list's elements copied in their own type) and compares the
+    running value with it without converting it to the stored form, so an unchanged list costs one comparison of its
+    elements, and a field or variable that changed is answered whole. The copy goes when the instance is made again (a
+    new class, a hot reload, a live edit that gives it another program) and when a value is given to that field or
+    variable (an edit, `SetInstanceFields`, `VisualScriptSetInstanceVariables`), so the next read-back answers it
+    whatever became of the value given (taken, or refused for its type). The copy is the instance's, not a reader's:
+    every answer is merged into the component, and into the scene's record of what was given or read, before the call
+    returns, so every reader (the inspector, `EditorOperations::SetComponentFields`, `entity.get`, `component.get`) finds
+    the component holding the running values as of its call, and `ReadScriptFields` and `ReadVisualScriptVariables`
+    read through it and answer every field and variable as before.
+  - *Converted.* The inspector keeps, for the section it shows (the fields of the selection's C# script, or the
+    variables of its graph), each entity's stored values as it last converted them with their field editor values, and
+    at each draw converts again only the values that differ from those (compared by value), changing its field editor
+    values in place; the descriptors and the mixed fields are made again only when the class, the graph's document, the
+    enum lookup, the selection or a converted value changes. The component's JSON, which its generic rows draw
+    (`ClassName`, `Graph`), is made without the stored map, which no row draws; Copy Values serializes the whole
+    component when it is chosen.
+  - *Drawn.* An array of plain values draws only the element rows that lie in the window's view, one more on each side,
+    and the row whose widget is active (an edit or a grip's drag under way) wherever it is, and keeps the space of the
+    others: a row is a frame's height and the item spacing, since every plain value's widget is one frame high.
+    `ImGuiListClipper` cannot clip inside the table's value cell, since its `Begin` ends the table's row
+    (`imgui.cpp:3410-3412` of the pinned ImGui), so the field editor clips by hand. Tab moves through the rows drawn.
+    Arrays of reflected structs (bounded by their `MaxCount`, which no script's or graph's list is) are drawn whole.
+  - *An edit stays an edit of what the game holds.* An edit's patch is made from the component's values of the draw that
+    took it, which hold the running values as that draw's read-back found them (nothing of the game runs between the
+    read and the edit), and `SetComponentFields` reads back again before it applies: the whole list it writes is the
+    running list with the edited element changed, never an older one, and undoing it gives back what the game held.
+  - *What still grows with a list*: one comparison of its elements per draw in the runtime and one in the inspector, and
+    in a frame in which the list changed, its read and its conversion. `InspectorPanel.ReadBack` and
+    `InspectorPanel.ScriptValues` (§4.4) time the two halves, and `InspectorPanel::GetDrawStatistics` and
+    `FieldEditor::GetDrawStatistics` count the values read back and converted and the rows drawn and clipped, which the
+    headless tests hold to the rows in view.
+
+  C# scripts and visual scripts dropped onto the inspector run on the selected entities. Without selected entities the
+  inspector shows the
   asset selected in the content browser (`EditorContext::SelectAsset`; selecting entities replaces it): its type and
   reference, the parameters of materials with a preview (editable for material files; Create Material copies built-in
   and mesh-imported ones), a texture preview, mesh statistics with the mesh's materials, what a visual script holds
@@ -5130,7 +5266,8 @@ once. Without .NET a document still loads, saves and shows in the editor; analys
   tooltips. The default layout gives the inspector about a quarter of the window. Data assets show the body of the data
   asset editor (§6.4): their type's field table, or the drawer of their type.
 - Arrays in field tables (`FieldEditor`, in the inspector, the data asset editor and the settings panels): an array of
-  plain values (numbers, strings, assets, ...) is a row of widgets per element with `-`, then `+`. An array of reflected
+  plain values (numbers, strings, assets, ...) is a row of widgets per element with `-`, then `+`, drawn for the rows in
+  the window's view (above, "Long lists"). An array of reflected
   structs is a header row that folds away (its count, `2 of at most 16 elements`), then a folding row per element,
   `<index>: <title>` (the title is the element's first string field, such as its name, when it is not empty; for a
   struct without a string field, its first two numbers or choices that the element shows, a number with its name and

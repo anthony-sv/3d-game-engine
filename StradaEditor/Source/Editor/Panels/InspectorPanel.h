@@ -22,6 +22,16 @@ namespace Strada
 	class AssetThumbnails;
 	class VisualScriptProjectIndex;
 
+	// What the inspector's last frame did with the running values of the selected entities' C# scripts and graphs
+	// (Docs/Architecture.md §11, "Long lists"): the counts that hold a long list's cost to what changed, which its tests read.
+	struct InspectorDrawStatistics
+	{
+		// Fields and public variables read back across the script boundary (Scene::RefreshScriptFields and
+		// RefreshVisualScriptVariables), and stored values converted into the field editor's values.
+		size_t ValuesReadBack = 0;
+		size_t ValuesConverted = 0;
+	};
+
 	// Edits the selected entities: name, the components they all have (fields generated from the component registry, one
 	// undo step per widget interaction; Script components get a class picker and the fields of their script class; Mesh
 	// components a section per material slot with the material's parameters; VisualScript components the values they give
@@ -65,6 +75,10 @@ namespace Strada
 		// (none when empty; as if the user pointed at it), or closes the menu (open false). Without selected entities in that
 		// frame nothing opens.
 		void ShowAddComponentMenu(bool open, std::string search, std::string category = {});
+		// What the last frame did with the running values it showed (counted from zero at each frame's start), and what its
+		// field editor drew (FieldEditor::GetDrawStatistics).
+		InspectorDrawStatistics const& GetDrawStatistics() const;
+		FieldEditorDrawStatistics const& GetFieldDrawStatistics() const;
 
 	private:
 		// What ShowAddComponentMenu asks of the next frame.

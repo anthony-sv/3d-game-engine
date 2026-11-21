@@ -158,6 +158,13 @@ namespace Strada
 		// The values the serialized fields of the entity's instance hold now, in the stored form, by name (the fields of
 		// every class it derives from included). Fails when the entity has no instance.
 		[[nodiscard]] static Result<ScriptFieldMap> GetInstanceFields(UUID entity);
+		// The serialized fields of the entity's instance whose values differ from those the last GetChangedInstanceFields of
+		// that instance answered, as GetInstanceFields gives them: every field at the instance's first, and a field given a
+		// value since (SetInstanceFields), whatever became of it. The runtime compares each field with a copy of the value it
+		// last answered without converting it to the stored form (a list's elements copied in their own type), so an unchanged
+		// list costs one comparison of its elements, and a changed one is answered whole (Docs/Architecture.md §11, "Long
+		// lists"). Fails when the entity has no instance.
+		[[nodiscard]] static Result<ScriptFieldMap> GetChangedInstanceFields(UUID entity);
 		// Sets fields of the entity's instance from stored values, as CreateInstance does: values of fields the class does
 		// not have are skipped, and values of another type are logged and skipped. Fails when the entity has no instance.
 		[[nodiscard]] static Result<void> SetInstanceFields(UUID entity, ScriptFieldMap const& fields);

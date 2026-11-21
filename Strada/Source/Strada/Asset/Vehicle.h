@@ -92,6 +92,12 @@ namespace Strada
 		// The engine's moment of inertia (kg m², above 0) and how fast its speed decays by itself (per second, at least 0).
 		float Inertia = 0.5f;
 		float AngularDamping = 0.2f;
+		// How much faster the engine's speed decays in neutral as the throttle closes (per second, at least 0;
+		// Docs/Architecture.md §8, "The engine in neutral"): while the gearbox is in neutral the engine is damped by
+		// AngularDamping plus this times how far the throttle is closed, so a revved engine falls back to idle with no gear to
+		// hold it, while a full throttle revs it as without this and in gear AngularDamping alone acts. 0 is the engine as
+		// built.
+		float NeutralDamping = 0.0f;
 
 		bool operator==(VehicleEngineDefinition const&) const = default;
 	};

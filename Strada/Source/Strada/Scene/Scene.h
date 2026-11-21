@@ -519,6 +519,12 @@ namespace Strada
 		// Places an entity with a CharacterController at a world position at once, keeping its rotation and scale, and stops
 		// its character, which finds what it stands on there.
 		void TeleportCharacter(Entity entity, glm::vec3 const& position);
+		// Puts the vehicle of an entity with a Vehicle back as it was made, at rest where its body stands
+		// (PhysicsScene::ResetVehicle, Docs/Architecture.md §8, "The reset"), applying the physics changes not applied yet first,
+		// and draws its wheels again from its next step on, as a vehicle made again's are. At once, between steps: called from
+		// OnFixedUpdate, it is in place for the step that follows. False, changing nothing, while the scene simulates no vehicle
+		// for the entity (it does not play, or the entity has no dynamic body or no definition that loads).
+		[[nodiscard]] bool ResetVehicle(Entity entity);
 		// Control the sound of an entity's AudioSource while running, bringing it up to date with the component first (a
 		// clip set this frame plays). Without a running audio scene or a playable clip they do nothing.
 		void PlayAudioSource(Entity entity);
@@ -540,6 +546,13 @@ namespace Strada
 		// values of its Script component (Fields), so that the component shows them and edits start from them. Fails when
 		// the entity runs no script.
 		[[nodiscard]] Result<ScriptFieldMap> ReadScriptFields(Entity entity);
+		// While the scene runs scripts: brings the stored values of the entity's Script component up to what its script's
+		// fields hold now, as ReadScriptFields does, reading across the script boundary only the fields whose values changed
+		// since the last read-back of that script instance (ScriptEngine::GetChangedInstanceFields: every field at the
+		// instance's first, and a field given a value since), so that an unchanged list costs one comparison of its elements
+		// (Docs/Architecture.md §11, "Long lists"). Every reader shares the instance's last read-back, since each merges what it
+		// reads into the component. Returns how many fields it read; fails as ReadScriptFields does, which reads through it.
+		[[nodiscard]] Result<size_t> RefreshScriptFields(Entity entity);
 		// While the scene runs scripts: gives each script the stored values of its Script component's fields that differ
 		// from the ones it was last given or read (ReadScriptFields), so that edits of a running scene reach its scripts.
 		// Editors call it after each edit; a class that changed gets a new instance at the next update instead.
@@ -549,6 +562,13 @@ namespace Strada
 		// program it runs), so that the component shows them and edits start from them. Fails when the entity runs no visual
 		// script.
 		[[nodiscard]] Result<ScriptFieldMap> ReadVisualScriptVariables(Entity entity);
+		// While the scene runs scripts: brings the stored values of the entity's VisualScript component up to what the public
+		// variables of its graph instance hold now, as ReadVisualScriptVariables does, reading across the script boundary only
+		// the variables whose values changed since the last read-back of that instance
+		// (VisualScriptEngine::GetChangedInstanceVariables: every public variable at the instance's first and after a live edit
+		// gave it another program, and a variable given a value since), as RefreshScriptFields does for C# scripts. Returns how
+		// many variables it read; fails as ReadVisualScriptVariables does, which reads through it.
+		[[nodiscard]] Result<size_t> RefreshVisualScriptVariables(Entity entity);
 		// While the scene runs scripts: gives each graph instance the stored values of its VisualScript component's variables
 		// that differ from the ones it was last given or read (ReadVisualScriptVariables), so that edits of a running scene
 		// reach its visual scripts. Editors call it after each edit; a graph that changed gets a new instance at the next

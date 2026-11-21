@@ -148,6 +148,12 @@ namespace Strada
 		std::optional<VehicleCarriedState> TakeVehicle(UUID entity, VehicleDesc& desc);
 		[[nodiscard]] Result<void> RestoreVehicle(VehicleDesc const& desc, VehicleCarriedState const& state, JPH::BodyID body,
 		                                          JPH::ObjectLayer objectLayer);
+		// Makes the entity's vehicle again on the body it stands on, with the values it runs with and its tester's object layer,
+		// carrying only its latest inputs (Docs/Architecture.md §8, "The reset"): what MakeVehicle gives a vehicle made there
+		// from nothing, its record's Manual gearbox state and pending shift count included. Its body exists while the vehicle
+		// does, so it is made again whenever it is found. Leaves its constraint out of order in Jolt's list, as AddVehicle
+		// does; the chassis's velocities are PhysicsScene's. Fails, changing nothing, for an entity without a vehicle.
+		[[nodiscard]] Result<void> ResetVehicle(UUID entity);
 
 		// Takes every vehicle's constraint and the joints given out of Jolt's list and adds them again: the vehicles in the
 		// order of their entities' UUIDs, then the joints in the order given (theirs). Registers the world's step listener while
@@ -158,9 +164,11 @@ namespace Strada
 		// bodies of those whose inputs are not all 0. Main thread.
 		void BeginStep();
 		// The step listener, once per collision step: each vehicle, in the order of the entities' UUIDs, inside the zone
-		// Physics.Vehicles: a Manual gearbox's gear and clutch over the collision step (the pending shift in the first), then
-		// Jolt's VehicleConstraint::OnStep with the world's callbacks (its wheels' surfaces and rolling drag after the wheel
-		// tests, its tyre grip in the friction combine function).
+		// Physics.Vehicles: a Manual gearbox's gear and clutch over the collision step (the pending shift in the first), the
+		// engine's damping for the collision step (EngineAngularDamping, plus EngineNeutralDamping times one less the applied
+		// throttle while Jolt's gearbox is then in gear 0: Docs/Architecture.md §8, "The engine in neutral"), then Jolt's
+		// VehicleConstraint::OnStep with the world's callbacks (its wheels' surfaces and rolling drag after the wheel tests,
+		// its tyre grip in the friction combine function).
 		void OnStep(JPH::PhysicsStepListenerContext const& context) override;
 		// After Jolt's state was restored (PhysicsScene::RestoreState): each vehicle's gear back within its gears and its
 		// engine's speed within its range, as SetVehicleSettings keeps them.
