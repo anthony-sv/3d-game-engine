@@ -76,7 +76,7 @@ namespace Strada
 		// frame nothing opens.
 		void ShowAddComponentMenu(bool open, std::string search, std::string category = {});
 		// What the last frame did with the running values it showed (counted from zero at each frame's start), and what its
-		// field editor drew (FieldEditor::GetDrawStatistics).
+		// field editor drew over the whole frame: FieldEditor::GetDrawStatistics of every section it drew, summed.
 		InspectorDrawStatistics const& GetDrawStatistics() const;
 		FieldEditorDrawStatistics const& GetFieldDrawStatistics() const;
 

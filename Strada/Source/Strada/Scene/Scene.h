@@ -550,8 +550,11 @@ namespace Strada
 		// fields hold now, as ReadScriptFields does, reading across the script boundary only the fields whose values changed
 		// since the last read-back of that script instance (ScriptEngine::GetChangedInstanceFields: every field at the
 		// instance's first, and a field given a value since), so that an unchanged list costs one comparison of its elements
-		// (Docs/Architecture.md §11, "Long lists"). Every reader shares the instance's last read-back, since each merges what it
-		// reads into the component. Returns how many fields it read; fails as ReadScriptFields does, which reads through it.
+		// (Docs/Architecture.md §11, "Long lists"). It first copies into the component, from what the scene last gave or read
+		// of each field, every field the component lacks (a paste or component.set that replaced the stored map whole), since
+		// the runtime answers again only what changed. Every reader shares the instance's last read-back, since each merges
+		// what it reads into the component; nothing else asks the runtime for changes. Returns how many fields it read across
+		// the boundary; fails as ReadScriptFields does, which reads through it.
 		[[nodiscard]] Result<size_t> RefreshScriptFields(Entity entity);
 		// While the scene runs scripts: gives each script the stored values of its Script component's fields that differ
 		// from the ones it was last given or read (ReadScriptFields), so that edits of a running scene reach its scripts.
@@ -566,8 +569,9 @@ namespace Strada
 		// variables of its graph instance hold now, as ReadVisualScriptVariables does, reading across the script boundary only
 		// the variables whose values changed since the last read-back of that instance
 		// (VisualScriptEngine::GetChangedInstanceVariables: every public variable at the instance's first and after a live edit
-		// gave it another program, and a variable given a value since), as RefreshScriptFields does for C# scripts. Returns how
-		// many variables it read; fails as ReadVisualScriptVariables does, which reads through it.
+		// gave it another program, and a variable given a value since), as RefreshScriptFields does for C# scripts, putting
+		// back first every variable the component lacks from what the scene last gave or read. Returns how many variables it
+		// read across the boundary; fails as ReadVisualScriptVariables does, which reads through it.
 		[[nodiscard]] Result<size_t> RefreshVisualScriptVariables(Entity entity);
 		// While the scene runs scripts: gives each graph instance the stored values of its VisualScript component's variables
 		// that differ from the ones it was last given or read (ReadVisualScriptVariables), so that edits of a running scene

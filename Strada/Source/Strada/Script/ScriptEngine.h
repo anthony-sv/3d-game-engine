@@ -163,7 +163,9 @@ namespace Strada
 		// value since (SetInstanceFields), whatever became of it. The runtime compares each field with a copy of the value it
 		// last answered without converting it to the stored form (a list's elements copied in their own type), so an unchanged
 		// list costs one comparison of its elements, and a changed one is answered whole (Docs/Architecture.md §11, "Long
-		// lists"). Fails when the entity has no instance.
+		// lists"). Values compare element by element bit for bit (a float by its bit pattern: a NaN that stays is unchanged, 0
+		// against -0 is a change). The copy is the instance's: only Scene::RefreshScriptFields calls this, merging every answer
+		// into the component and the scene's record before it returns. Fails when the entity has no instance.
 		[[nodiscard]] static Result<ScriptFieldMap> GetChangedInstanceFields(UUID entity);
 		// Sets fields of the entity's instance from stored values, as CreateInstance does: values of fields the class does
 		// not have are skipped, and values of another type are logged and skipped. Fails when the entity has no instance.

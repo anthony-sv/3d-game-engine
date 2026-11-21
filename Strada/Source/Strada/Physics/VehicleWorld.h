@@ -166,7 +166,8 @@ namespace Strada
 		// The step listener, once per collision step: each vehicle, in the order of the entities' UUIDs, inside the zone
 		// Physics.Vehicles: a Manual gearbox's gear and clutch over the collision step (the pending shift in the first), the
 		// engine's damping for the collision step (EngineAngularDamping, plus EngineNeutralDamping times one less the applied
-		// throttle while Jolt's gearbox is then in gear 0: Docs/Architecture.md §8, "The engine in neutral"), then Jolt's
+		// throttle while the engine runs free: Jolt's gearbox then in gear 0, or a Manual gearbox holding its clutch open
+		// below idle outside a shift; Docs/Architecture.md §8, "The engine in neutral"), then Jolt's
 		// VehicleConstraint::OnStep with the world's callbacks (its wheels' surfaces and rolling drag after the wheel tests,
 		// its tyre grip in the friction combine function).
 		void OnStep(JPH::PhysicsStepListenerContext const& context) override;

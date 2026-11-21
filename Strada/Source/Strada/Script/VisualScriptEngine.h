@@ -194,8 +194,8 @@ namespace Strada
 		// The public variables of the entity's instance whose values differ from those the last GetChangedInstanceVariables of
 		// that instance answered, as GetInstanceVariables gives them: every public variable at the instance's first and after a
 		// live edit gave it another program, and a variable given a value since (SetInstanceVariables), whatever became of it.
-		// Compared as ScriptEngine::GetChangedInstanceFields compares fields (Docs/Architecture.md §11, "Long lists"). Fails
-		// like GetInstanceVariables.
+		// Compared as ScriptEngine::GetChangedInstanceFields compares fields, bit for bit (Docs/Architecture.md §11, "Long
+		// lists"); only Scene::RefreshVisualScriptVariables calls it. Fails like GetInstanceVariables.
 		[[nodiscard]] static Result<ScriptFieldMap> GetChangedInstanceVariables(UUID entity);
 		// Sets public variables of the entity's instance from stored values, as CreateInstance does. Fails when the entity
 		// has no instance, like GetInstanceVariables.

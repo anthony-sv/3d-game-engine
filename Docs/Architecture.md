@@ -3388,28 +3388,34 @@ wheel all of its torque).
   `WheeledVehicleController.cpp:288`), in every gear and at every throttle, and in gear the same rate takes
   `Inertia × AngularDamping × speed` of torque from the crank, so a damping that brings a revved engine in neutral to
   idle in a second (2.25 a second) would brake the bike through the gearbox harder than the engine drives it.
-  The definition's `NeutralDamping` (per second, 0 to 100, 0 by default) is therefore added in neutral only, by how far the throttle is
-  closed: at each collision step, in `VehicleWorld::OnStep` after a Manual gearbox's gear and clutch
-  (`UpdateManualGearbox`) and before the vehicle's `VehicleConstraint::OnStep`, the world sets the engine's
-  `mAngularDamping` to `EngineAngularDamping + EngineNeutralDamping × (1 - throttle)` while the gearbox is in neutral and
-  to `EngineAngularDamping` otherwise, the throttle being the one the step applies (`AppliedInputs.Throttle`, 0 to 1).
-  **Neutral** is gear 0 of Jolt's gearbox as the vehicle's constraint step finds it: in `Manual` mode the gear
-  `UpdateManualGearbox` has just given it (`VehicleShiftState::Gear`); in `Automatic` mode the gear its own update left
-  at the end of the collision step before, since Jolt damps the engine (`:288`) before it updates the gearbox (`:620`).
-  An `Automatic` gearbox shifts down to neutral by itself with the throttle closed below `ShiftDownRPM` and takes first
-  gear at the first throttle (`VehicleTransmission.cpp:93-95`, `:58-62`), so the field acts there too, while the bike
-  coasts or stands in neutral. **A clutch held open below idle does not count**: in `Manual` mode the clutch is open with
-  the throttle closed while the rear wheel turns the gear slower than idle (above), once the engine, coupled until then,
-  has followed the wheel down to `MinRPM`, where Jolt holds it, so there is no speed to take; the probe the rule comes
-  from read the same figures with and without that case (downshifts at speed, a locked rear wheel released, two laps of
-  Moto, its ride scene), and a rule of the gear alone is one scripts read (`Gear` 0) and leaves the engine in gear
-  exactly as built. **A clutch open for a shift never counts**: a shift between two gears never passes through gear 0 (a
-  Manual gearbox takes its target at once, and Jolt's moves its gear straight to the next,
-  `VehicleTransmission.cpp:58-97`), and a shift into neutral is neutral. **It is exact**: at full throttle the sum is
-  `EngineAngularDamping + EngineNeutralDamping × 0`, which is `EngineAngularDamping` to the bit, as it is in gear and with
-  the field at 0, so
-  every full-throttle figure, every gear and every vehicle whose definition leaves the field at 0 step bit for bit as
-  before. **It adds nothing to the state, the hash or the snapshot**: the damping is set again at every collision step
+  The definition's `NeutralDamping` (per second, 0 to 100, 0 by default) is therefore added only while the engine runs
+  free of the wheels, by how far the throttle is closed: at each collision step, in `VehicleWorld::OnStep` after a Manual
+  gearbox's gear and clutch (`UpdateManualGearbox`) and before the vehicle's `VehicleConstraint::OnStep`, the world sets
+  the engine's `mAngularDamping` to `EngineAngularDamping + EngineNeutralDamping × (1 - throttle)` while the engine runs
+  free and to `EngineAngularDamping` otherwise (at every collision step, so that no value of a step in neutral survives
+  into the next in gear), the throttle being the one the step applies (`AppliedInputs.Throttle`, 0 to 1). **The engine
+  runs free** in two cases, both read from the step alone. First, in **neutral**: gear 0 of Jolt's gearbox as the
+  vehicle's constraint step finds it (`GetCurrentGear()` once `UpdateManualGearbox` has run): in `Manual` mode the gear
+  it has just given it (`VehicleShiftState::Gear`); in `Automatic` mode the gear its own update left at the end of the
+  collision step before, since Jolt damps the engine (`:288`) before it updates the gearbox (`:620`). An `Automatic`
+  gearbox shifts down to neutral by itself with the throttle closed below `ShiftDownRPM` and takes first gear at the
+  first throttle (`VehicleTransmission.cpp:93-95`, `:58-62`), so the field acts there too, while the bike coasts or
+  stands in neutral, and in the first collision step of a throttle out of it. Second, while a **Manual gearbox holds its
+  clutch open below idle** (above: in gear, the throttle closed, the rear wheel turning the gear slower than `MinRPM`)
+  in a collision step that makes no shift (none asked for in it, and neither the switch time nor the release time
+  running at its start): the lever is held, and the engine turns by itself as in neutral. Without that case an engine
+  revved in neutral and put into first with the rear wheel still would keep its revs (at Moto's 0.005, 80 rpm a second)
+  until the throttle opened, and close its clutch at that speed. Above that wheel speed the clutch is closed and the
+  engine turns with the wheels, which take it down to `MinRPM` as the bike slows (the probe the rule comes from read the
+  same figures with and without the case: downshifts at speed, a locked rear wheel released, two laps of Moto, its ride
+  scene). **A clutch open for a shift never counts**: a shift between two gears never passes through gear 0 (a Manual
+  gearbox takes its target at once, and Jolt's moves its gear straight to the next, `VehicleTransmission.cpp:58-97`), and
+  the hold counts only outside a shift; a shift into neutral is neutral. **It is exact**: at full throttle the sum is
+  `EngineAngularDamping + EngineNeutralDamping × 0`, which is `EngineAngularDamping` to the bit, as it is in gear with the
+  clutch closed or open for a shift and with the field at 0, so every full-throttle figure, every collision step in gear
+  outside the hold and every vehicle whose definition leaves the field at 0 step bit for bit as before: a ride whose
+  every collision step with a throttle below 1 is in gear and outside the hold gives the same hashes with the field at 0
+  and set. **It adds nothing to the state, the hash or the snapshot**: the damping is set again at every collision step
   from the values, the gear and the throttle the step applies, all of which the step already has, and Jolt saves the
   engine's speed, not its settings (`VehicleEngine::SaveState`), so a restored vehicle damps as it did;
   `SetVehicleSettings` gives the engine the definition's values (`MakeEngine`), and the next collision step sets the
@@ -5222,11 +5228,22 @@ once. Without .NET a document still loads, saves and shows in the editor; analys
     elements, and a field or variable that changed is answered whole. The copy goes when the instance is made again (a
     new class, a hot reload, a live edit that gives it another program) and when a value is given to that field or
     variable (an edit, `SetInstanceFields`, `VisualScriptSetInstanceVariables`), so the next read-back answers it
-    whatever became of the value given (taken, or refused for its type). The copy is the instance's, not a reader's:
-    every answer is merged into the component, and into the scene's record of what was given or read, before the call
-    returns, so every reader (the inspector, `EditorOperations::SetComponentFields`, `entity.get`, `component.get`) finds
-    the component holding the running values as of its call, and `ReadScriptFields` and `ReadVisualScriptVariables`
-    read through it and answer every field and variable as before.
+    whatever became of the value given (taken, or refused for its type). Two values are the same when they are equal
+    element by element bit for bit (a float by its bit pattern, so that a NaN that stays is unchanged and a change
+    between 0 and -0 is a change), and a value of another type or length differs. The copy is the instance's, not a
+    reader's, so **only the scene asks for it** (`Scene::RefreshScriptFields` and `RefreshVisualScriptVariables`, which
+    `ReadScriptFields`, `ReadVisualScriptVariables` and the inspector read through), and nothing writes running values
+    into a component but those two: every answer is merged into the component, and into the scene's record of what was
+    given or read, before the call returns. **The scene first puts back what the runtime will not answer again**: a
+    paste of values or a `component.set` while playing deserializes the component's map whole
+    (`SetComponentsCommand::Execute`, `ComponentCommands.cpp:196-198`), and a key it leaves out is given to no script
+    (`ApplyScriptFieldChanges` walks the component's keys, `SceneScripting.cpp:221-247`, as the variables' do), so its
+    copy stays and the runtime never answers it while the game leaves it unchanged. Each refresh therefore first copies
+    into the component, from the scene's record, every field or variable the record has and the component lacks: for a
+    key given no value since its last answer the record holds that answer, which the runtime's copy equals. So every
+    reader (the inspector, `EditorOperations::SetComponentFields`, `entity.get`, `component.get`) finds the component
+    holding every running value as of its call, and `ReadScriptFields` and `ReadVisualScriptVariables` answer every field
+    and variable as before.
   - *Converted.* The inspector keeps, for the section it shows (the fields of the selection's C# script, or the
     variables of its graph), each entity's stored values as it last converted them with their field editor values, and
     at each draw converts again only the values that differ from those (compared by value), changing its field editor
@@ -5236,10 +5253,12 @@ once. Without .NET a document still loads, saves and shows in the editor; analys
     component when it is chosen.
   - *Drawn.* An array of plain values draws only the element rows that lie in the window's view, one more on each side,
     and the row whose widget is active (an edit or a grip's drag under way) wherever it is, and keeps the space of the
-    others: a row is a frame's height and the item spacing, since every plain value's widget is one frame high.
-    `ImGuiListClipper` cannot clip inside the table's value cell, since its `Begin` ends the table's row
-    (`imgui.cpp:3410-3412` of the pinned ImGui), so the field editor clips by hand. Tab moves through the rows drawn.
-    Arrays of reflected structs (bounded by their `MaxCount`, which no script's or graph's list is) are drawn whole.
+    others: a row is a frame's height and the item spacing, since every plain value's widget is one frame high, but for
+    a multiline text (`FieldDisplay::MultilineText`, four lines high: the element takes the array's hints,
+    `MakeElementDescriptor`), whose array is drawn whole. `ImGuiListClipper` cannot clip inside the table's value cell,
+    since its `Begin` ends the table's row (`imgui.cpp:3410-3412` of the pinned ImGui), so the field editor clips by
+    hand. Tab moves through the rows drawn. Arrays of reflected structs (bounded by their `MaxCount`, which no script's
+    or graph's list is) are drawn whole.
   - *An edit stays an edit of what the game holds.* An edit's patch is made from the component's values of the draw that
     took it, which hold the running values as that draw's read-back found them (nothing of the game runs between the
     read and the edit), and `SetComponentFields` reads back again before it applies: the whole list it writes is the
@@ -5248,7 +5267,9 @@ once. Without .NET a document still loads, saves and shows in the editor; analys
     in a frame in which the list changed, its read and its conversion. `InspectorPanel.ReadBack` and
     `InspectorPanel.ScriptValues` (§4.4) time the two halves, and `InspectorPanel::GetDrawStatistics` and
     `FieldEditor::GetDrawStatistics` count the values read back and converted and the rows drawn and clipped, which the
-    headless tests hold to the rows in view.
+    headless tests hold to the rows in view. The field editor counts one `Draw` (from zero at its start); the inspector,
+    which draws every section through one field editor, sums its sections' counts over its frame
+    (`InspectorPanel::GetFieldDrawStatistics`), so a list's rows drawn and clipped add up to its length.
 
   C# scripts and visual scripts dropped onto the inspector run on the selected entities. Without selected entities the
   inspector shows the

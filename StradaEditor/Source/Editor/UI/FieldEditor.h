@@ -165,7 +165,8 @@ namespace Strada
 	// tooltips, widgets chosen by the field kind and hints) and reports the user's change; callers turn it into an
 	// undoable operation (Docs/Architecture.md §11). Arrays of plain values are a row of widgets per element with a grip
 	// that drags the row onto another row's grip (moving the element there) and "-", then "+", of which only the rows in
-	// the window's view are drawn, with the row being edited wherever it is, the others' space kept; arrays of reflected
+	// the window's view are drawn, with the row being edited wherever it is, the others' space kept (an array of multiline
+	// texts, whose rows are taller than a frame, is drawn whole); arrays of reflected
 	// structs fold open into a row per element (DescribeElement's title, with a menu to move,
 	// duplicate, insert above and remove it) over the element's own field rows, then Add Element; buttons that add are
 	// disabled at the field's MaxCount, and an array of a fixed order (FieldHints::FixedOrder) has no grips and no moves. Every array
@@ -192,7 +193,8 @@ namespace Strada
 		// resolves entity references to names (may be null).
 		std::optional<FieldChange> Draw(std::span<FieldDescriptor const> fields, Json const& values,
 		                                std::span<std::string const> mixedFields = {}, Scene* scene = nullptr);
-		// What the last Draw drew (counted from zero at its start).
+		// What the last Draw drew (counted from zero at its start): one call's, so a caller that draws several tables in a
+		// frame sums them (InspectorPanel::GetFieldDrawStatistics).
 		FieldEditorDrawStatistics const& GetDrawStatistics() const;
 		// Asset fields show images of the assets these thumbnails have (textures, materials, meshes, prefabs and environments):
 		// a small one in front of the path, a larger one in its tooltip and one in each row of the picker. The thumbnails must
