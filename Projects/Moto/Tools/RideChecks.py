@@ -2,7 +2,8 @@
 after the ridden bike's (BikeChecks.py): its ride starts where that one ends, with the bike on the grid at rest in neutral and
 the riding graph on its test driver (Vehicle.TEST), and its checks run after that module's seven.
 
-The scene starts with the assists off (prepare), so that the bike's own ride is the raw vehicle's; this ride turns them on.
+The scene starts with the assists off (BikeChecks' prepare), so that the bike's own ride is the raw vehicle's; this ride
+turns them on.
 It is driven from the runner graph's Event.FixedUpdate by its own count of fixed steps and by what the bike reads, never by
 a frame or a time (the rule of the rides compared across frame rates): it writes the riding graph's public values through
 BikeChecks' Drive, places the bike through its Place, sends the riding graph its shifts and the Ride graph StartAutopilot
@@ -584,13 +585,4 @@ def write_check(b, function, name):
     WRITERS[function](b, name)
 
 
-def prepare_scene(session, found):
-    """The scene starts with the assists off, so that the bike's own ride is the raw vehicle's, whatever the main scene's
-    bike starts with; the riding graph's other values stay as the scene has them (the test driver)."""
-    component = session.call("component_get", {"entity": found["Bike"], "component": "VisualScript"})["fields"]
-    variables = dict(component.get("Variables", {}))
-    variables.update({name: {"Type": "Bool", "Value": False} for name in ("LeanAssist", "LinkedBrakes", "AutoShift")})
-    session.call("component_set", {"entity": found["Bike"], "component": "VisualScript", "fields": {"Variables": variables}})
-
-
-SUITE = Suite(checks, write_check, ENTITIES, VARIABLES, HELPERS, prepare=prepare_scene, steps=STEPS)
+SUITE = Suite(checks, write_check, ENTITIES, VARIABLES, HELPERS, steps=STEPS)

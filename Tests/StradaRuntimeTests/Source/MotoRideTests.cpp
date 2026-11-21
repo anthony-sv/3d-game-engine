@@ -31,38 +31,48 @@ using namespace Strada::RuntimeTesting;
 // them, and their checks pass at every rate. Then the best lap's checks (Tools/GhostChecks.py) stand in for the race
 // director's LapStarted and LapFinished: the autopilot rides short laps from the grid, the ghost (Scripts/Ghost.sgraph) keeps
 // the faster, refuses a lap too long for its samples, sets its Delta against the best at the same place and replays the best
-// lap beside the next; their readings of the fixed steps are logged in a third line, compared as the others are.
-// A ctest entry of its own (StradaRuntimeTests.Ride, Shards.cmake), which later rides of the sample join. The scene has no
-// props, so a start of the player on it costs less than the 25 s one on Moto's main scene takes on CI's macOS runners: the
-// shard's starts stay well within its 200 s there.
+// lap beside the next; their readings of the fixed steps are logged in a third line, compared as the others are. The scene's
+// race director stays idle and its screens hidden (Tools/Checks.py's start switches), so nothing but these checks speaks
+// for the race there.
 //
-// Beside the ride, from the scene's first step, a graph of the race's checks (Tools/RaceChecks.py) sends a box through the
-// race's trigger gates, the bike's top speed among the speeds, and the race director two scripted three-lap races and a
-// third that the box's crossing of the line begins, then abandons; the director keeps its best lap in the game's save
-// slot once the results show (never in a fixed step), and the checks report after the ride's. Its readings are logged in
-// one line too ("Moto's race: ...", by about step 480), compared between the frame rates, and two short runs that keep
-// their data (development runs, not test runs) show the slot the first saved loaded by the second, which gives the ghost
-// its time. Last come the HUD's and the pause's checks (Tools/HudChecks.py): a graph presses the Pause action in the
-// middle of the ride's lean and reads the stopped game and the HUD against the bike (a text written over while the game
-// stands is left as it is), and a fourth race shows the ghost's live delta and the split delta at a sector gate, and a
-// fifth's countdown neither. Then the menus' checks (Tools/MenuChecks.py) press the menus as a player does: the title's
-// RACE, a race to its results, the settings screen's buttons read back through Settings, a binding that listens, the
-// pad's selection, the pause screen, and a race whose best lap is kept when it is left by the pause screen's QUIT TO
-// TITLE.
-// The pause inserts frames without fixed steps, so the ride's and the race's readings and the state at the hash's step stay
-// what they are.
+// The flow test scene (Scenes/Flow.sscene, the main scene without its props too) runs the race director itself, so it is a
+// scene of its own: the bike's ride again (the same graph's functions, Scripts/FlowTests.sgraph), and beside it, from the
+// scene's first step, a graph of the race's checks (Tools/RaceChecks.py) sends a box through the race's trigger gates, the
+// bike's top speed among the speeds, and the race director two scripted three-lap races and a third that the box's
+// crossing of the line begins, then abandons; the director keeps its best lap in the game's save slot once the results show
+// (never in a fixed step), with the samples of the scene's ghost (Scripts/Ghost.sgraph), and the checks report after the
+// ride's. Its readings are logged in one line too ("Moto's race: ...", by about step 480), compared between the frame
+// rates, and two short runs that keep their data (development runs, not test runs) show the slot the first saved loaded by
+// the second, which gives the ghost its time and its samples, and the ghost rides them. Last come the HUD's and the pause's
+// checks (Tools/HudChecks.py): a graph presses the Pause action in the middle of the ride's lean and reads the stopped game,
+// the mix the race director's TogglePause muffles and the HUD against the bike (a text written over while the game stands
+// is left as it is), and a fourth race shows the ghost's live delta and the split delta at a sector gate, and a fifth's
+// countdown neither. Then the menus' checks (Tools/MenuChecks.py) press the menus as a player does: the title's RACE, a race
+// to its results, the settings screen's buttons read back through Settings and given to the bike's riding graph, a binding
+// that listens, the pad's selection, the pause screen, and a race whose best lap is kept when it is left by the pause
+// screen's QUIT TO TITLE. The pause inserts frames without fixed steps, so the ride's and the race's readings and the state
+// at the hash's step stay what they are.
+//
+// A ctest entry of its own (StradaRuntimeTests.Ride, Shards.cmake), which later rides of the sample join. The scenes have
+// no props, so a start of the player on one costs less than the 25 s one on Moto's main scene takes on CI's macOS runners:
+// the shard's starts stay well within its 200 s there.
 
 namespace
 {
 	// The ride test scene's checks: the bike's seven (Tools/BikeChecks.py), the assists', the autopilot's and the rest in
-	// gear's eight, the directors' nine, the best lap's five, then the race's nine, the HUD's and the pause's eight and the
-	// menus' seven.
-	constexpr std::string_view RideChecks = "Tests passed: 53 checks";
+	// gear's eight, the directors' nine, then the best lap's five.
+	constexpr std::string_view RideChecks = "Tests passed: 29 checks";
+	// The flow test scene's checks: the bike's seven, the race's nine, the HUD's and the pause's eight, the menus' seven.
+	constexpr std::string_view FlowChecks = "Tests passed: 31 checks";
 	// The lap test scene's checks (Tools/LapChecks.py): the laps' times, the line, the ghost, the lean.
 	constexpr std::string_view LapChecks = "Tests passed: 4 checks";
-	// The ride test scene's test timeout (seconds of the game, Tools/Checks.py's SCENES): the rides take about 158 s. A Debug
-	// run of its 9,500 frames on a slow runner can pass RunTimeout's two minutes, so it has a process timeout of its own.
+	// The test scenes and their test timeouts (seconds of the game, Tools/Checks.py's SCENES): the ride scene's rides take
+	// about 158 s, the flow scene's checks about 36 s. A Debug run of the ride scene's 9,500 frames on a slow runner can pass
+	// RunTimeout's two minutes, so its runs have a process timeout of their own.
+	constexpr std::string_view RideScene = "Scenes/Ride.sscene";
 	constexpr std::string_view RideTimeout = "200";
+	constexpr std::string_view FlowScene = "Scenes/Flow.sscene";
+	constexpr std::string_view FlowTimeout = "60";
 	constexpr std::chrono::seconds RideRunTimeout = std::chrono::minutes(5);
 	// A fixed step of the ride after it was teleported into the gravel trap and back (by about step 1,650) and before it ends
 	// (about step 1,870): the physics state there is the same at every frame rate.
@@ -119,16 +129,27 @@ namespace
 		return start == std::string_view::npos ? std::string_view() : summary.substr(start + 2);
 	}
 
-	// A test run of the ride test scene of a copy of Moto: at 1/60 s a frame, a test run's, or at a frame's time step.
-	std::vector<std::string> RideRun(std::filesystem::path const& project, char const* timestep = nullptr)
+	// A test run of a test scene of a copy of Moto: at 1/60 s a frame, a test run's, or at a frame's time step.
+	std::vector<std::string> SceneRun(std::filesystem::path const& project, std::string_view scene, std::string_view timeout,
+	                                  char const* timestep = nullptr)
 	{
-		std::vector<std::string> arguments = {"--project", Native(project),          "--scene",     "Scenes/Ride.sscene", "--test",
-		                                      "--timeout", std::string(RideTimeout), "--hash-step", std::string(HashStep)};
+		std::vector<std::string> arguments = {"--project", Native(project),      "--scene",     std::string(scene), "--test",
+		                                      "--timeout", std::string(timeout), "--hash-step", std::string(HashStep)};
 		if (timestep != nullptr)
 		{
 			arguments.insert(arguments.end(), {"--timestep", timestep});
 		}
 		return arguments;
+	}
+
+	std::vector<std::string> RideRun(std::filesystem::path const& project, char const* timestep = nullptr)
+	{
+		return SceneRun(project, RideScene, RideTimeout, timestep);
+	}
+
+	std::vector<std::string> FlowRun(std::filesystem::path const& project, char const* timestep = nullptr)
+	{
+		return SceneRun(project, FlowScene, FlowTimeout, timestep);
 	}
 }
 
@@ -158,9 +179,6 @@ TEST_CASE("Runtime: Moto's ride test scene rides the grid bike through its check
 	CHECK(RideReadings(thirty.Output, GhostReadings) == RideReadings(sixty.Output, GhostReadings));
 	CHECK(PhysicsState(thirty.Output) == PhysicsState(sixty.Output));
 	CHECK(Contains(PhysicsState(sixty.Output), std::string("at step ") + std::string(HashStep)));
-	// The race's readings: its gates' crossings and its laps, in steps and fractions of steps, the same at both rates.
-	REQUIRE_FALSE(RaceReadings(sixty.Output).empty());
-	CHECK(RaceReadings(thirty.Output) == RaceReadings(sixty.Output));
 }
 
 TEST_CASE("Runtime: Moto's ride test scene rides the grid bike through its checks at 1/144 s a frame too, with the readings "
@@ -189,23 +207,72 @@ TEST_CASE("Runtime: Moto's ride test scene rides the grid bike through its check
 	CHECK(RideReadings(fast.Output, GhostReadings) == RideReadings(sixty.Output, GhostReadings));
 	REQUIRE_FALSE(PhysicsState(sixty.Output).empty());
 	CHECK(PhysicsState(fast.Output) == PhysicsState(sixty.Output));
+}
+
+TEST_CASE("Runtime: Moto's flow test scene rides the grid bike and plays the race, the HUD, the pause and the menus through "
+          "its checks at 1/60 and 1/30 s a frame, with the same readings and physics state at both")
+{
+	Testing::TemporaryDirectory directory;
+	std::filesystem::path const project = CopyRepositoryProject("Moto", directory.GetPath());
+	Testing::IsolatedUserRoot const userRoot;
+
+	ProcessResult const sixty = RunPlayer(FlowRun(project), userRoot);
+	CAPTURE(sixty.Output);
+	CHECK(sixty.ExitCode == 0);
+	CHECK(Contains(sixty.Output, FlowChecks));
+	REQUIRE_FALSE(RideReadings(sixty.Output).empty());
+	REQUIRE_FALSE(PhysicsState(sixty.Output).empty());
+
+	// Two fixed steps a frame: the ride's inputs change between them as they do between frames at 1/60 s.
+	ProcessResult const thirty = RunPlayer(FlowRun(project, "0.0333333"), userRoot);
+	CAPTURE(thirty.Output);
+	CHECK(thirty.ExitCode == 0);
+	CHECK(Contains(thirty.Output, FlowChecks));
+	CHECK(RideReadings(thirty.Output) == RideReadings(sixty.Output));
+	CHECK(PhysicsState(thirty.Output) == PhysicsState(sixty.Output));
+	CHECK(Contains(PhysicsState(sixty.Output), std::string("at step ") + std::string(HashStep)));
+	// The race's readings: its gates' crossings and its laps, in steps and fractions of steps, the same at both rates.
+	REQUIRE_FALSE(RaceReadings(sixty.Output).empty());
+	CHECK(RaceReadings(thirty.Output) == RaceReadings(sixty.Output));
+}
+
+TEST_CASE("Runtime: Moto's flow test scene plays its checks at 1/144 s a frame too, with the readings and physics state it "
+          "has at 1/60" *
+          doctest::skip(!Platform::ReadEnvironmentVariable("STRADA_LONG_RIDES")))
+{
+	constexpr std::chrono::seconds LongRunTimeout = std::chrono::minutes(10);
+	Testing::TemporaryDirectory directory;
+	std::filesystem::path const project = CopyRepositoryProject("Moto", directory.GetPath());
+	Testing::IsolatedUserRoot const userRoot;
+
+	ProcessResult const sixty = RunPlayer(FlowRun(project), userRoot, LongRunTimeout);
+	CAPTURE(sixty.Output);
+	CHECK(sixty.ExitCode == 0);
+	ProcessResult const fast = RunPlayer(FlowRun(project, "0.00694444"), userRoot, LongRunTimeout);
+	CAPTURE(fast.Output);
+	CHECK(fast.ExitCode == 0);
+	CHECK(Contains(fast.Output, FlowChecks));
+	REQUIRE_FALSE(RideReadings(sixty.Output).empty());
+	CHECK(RideReadings(fast.Output) == RideReadings(sixty.Output));
+	REQUIRE_FALSE(PhysicsState(sixty.Output).empty());
+	CHECK(PhysicsState(fast.Output) == PhysicsState(sixty.Output));
 	REQUIRE_FALSE(RaceReadings(sixty.Output).empty());
 	CHECK(RaceReadings(fast.Output) == RaceReadings(sixty.Output));
 }
 
 TEST_CASE("Runtime: Moto's race keeps its best lap in the game's save slot, which the next run loads and gives the ghost")
 {
-	// Development runs of the ride test scene, which keep their game data in the project's folder (a test run's is
+	// Development runs of the flow test scene, which keep their game data in the project's folder (a test run's is
 	// temporary), each 560 frames at 1/60 s, past the race's readings: the first finds no best lap and saves the scripted
-	// races' best once their results show, the second race's with the stand-in ghost's samples; the second run loads it as
-	// the scene starts, gives the ghost its time and tells it, and its races beat nothing, so the slot keeps the first run's
-	// and nothing is saved again. A run without a window that
-	// is not a test run is paced at 60 frames a second, so the runs stop well before the ride's end.
+	// races' best once their results show, the second race's with the samples the scene's ghost was given; the second run
+	// loads it as the scene starts, gives the ghost its samples and its time and tells it, the ghost takes them and rides
+	// them, and its races beat nothing, so the slot keeps the first run's and nothing is saved again. A run without a
+	// window that is not a test run is paced at 60 frames a second, so the runs stop well before the ride's end.
 	Testing::TemporaryDirectory directory;
 	std::filesystem::path const project = CopyRepositoryProject("Moto", directory.GetPath());
 	Testing::IsolatedUserRoot const userRoot;
 	std::vector<std::string> const arguments = {
-		"--project", Native(project), "--scene", "Scenes/Ride.sscene", "--headless", "--timestep", "0.0166666667", "--frames", "560"};
+		"--project", Native(project), "--scene", std::string(FlowScene), "--headless", "--timestep", "0.0166666667", "--frames", "560"};
 
 	ProcessResult const first = RunPlayer(arguments, userRoot);
 	CAPTURE(first.Output);
@@ -226,6 +293,7 @@ TEST_CASE("Runtime: Moto's race keeps its best lap in the game's save slot, whic
 	std::string_view const loading = RaceReadings(second.Output);
 	REQUIRE_FALSE(loading.empty());
 	CHECK(RaceReading(loading, "loaded at start: ", " s, ") == saved);
+	// The ghost's graph took the samples and rides them (its RidesBestLap), with the lap's time the director gave it.
 	CHECK(Contains(loading, "the ghost told 1 times"));
 	CHECK(RaceReading(loading, "with a best lap of ", " s; ") == saved);
 	CHECK(Contains(loading, "the best lap saved 0 times"));

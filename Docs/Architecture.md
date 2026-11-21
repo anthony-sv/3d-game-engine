@@ -6430,7 +6430,7 @@ graphs alone keeps its best lap and its settings screen, and none exposes a path
   entry each, defined once in `Tests/StradaEditorTests/Shards.cmake` as doctest source-file filters:
   `StradaEditorTests.AutomationFuzz`, `.Graph` (the graph and debug command tests and `GraphEditFuzzTests`),
   `.VisualScriptPanels` (the visual script editor's panels, panes, windows and canvases), `.VisualScriptModel` (the rest
-  of the visual script editor), `.Moto` (the Moto sample played in the editor, `MotoPlayTests.cpp`) and `.Core` (every
+  of the visual script editor), `.Moto` (the Moto sample played in the editor, `MotoPlayTests.cpp` and `MotoAgentTests.cpp`) and `.Core` (every
   other file). `StradaEditorTests.Partition` lists the test cases
   unfiltered and through each shard's filters and fails when one is in no shard or in two, or when a shard selects
   nothing; a shard that passes 450 s on CI's Windows MSVC Debug job that runs the suite is split again by source-file
@@ -7209,7 +7209,8 @@ graphs alone keeps its best lap and its settings screen, and none exposes a path
   race's times are steps since the start signal times the fixed step. The trigger events count the subject's entries
   (`Entries`), and tell any other graph that a body met a gate. **The race director** (`Scripts/RaceDirector.sgraph`, on
   `Race`): its `State` is `Idle` (as the scene starts while its start switch `TitleOnStart` is off, as Moto started
-  before it had a race; the test scenes set it so, `Checks.SWITCHES`), `Title` (the title over the attract mode; it
+  before it had a race; the test scenes set it so, `Checks.SWITCHES`, and a test scene's own switches keep off what else
+  would act by itself as it starts and its checks do not read), `Title` (the title over the attract mode; it
   broadcasts `AttractStarted`), `Countdown` (`Countdown` seconds, 3, counted in fixed steps; `Holding` reads true, for
   the riding graph to hold the bike on the grid, and a crossing of the line counts for nothing), `Racing` (`RaceStarted` at the signal; lap 1 begins at the first
   crossing of the line after it, the grid standing 9 m before the line) and `Results` (after the crossing that finishes
@@ -7235,10 +7236,9 @@ graphs alone keeps its best lap and its settings screen, and none exposes a path
   show (a frame updates its scripts before its steps, so never in a fixed step), or as a race that made one is left
   without its results (`AbandonRace`, which the pause screen's QUIT TO TITLE sends) or started again (`StartRace`),
   only when the race made a new best lap, with the ghost's arrays when the ghost kept them and without them otherwise.
-  `Race.GHOST_GRAPH` is `Scripts/GhostStandIn.sgraph`, which declares what the director reads and writes of a ghost with
-  the names of the ride's ghost (the arrays, `BestLapTime`, `Delta` and `BestLapLoaded`) and which the ride test scene's
-  stand-in ghost runs; the main
-  scene's ghost rides the racing line and runs none of it, so the main scene keeps the best lap's time and splits alone.
+  `Race.GHOST_GRAPH` is the ghost's own graph (`Scripts/Ghost.sgraph`, the ride in graphs above): the main scene's
+  director keeps the samples the ghost kept of the best lap and gives them back to it as the scene starts, and the
+  ghost rides them when they hold one lap.
   **The HUD** (`Tools/Hud.py`, the `hud` part, which makes the `Screen` root: a `UICanvas` of 1920 by 1080 reference
   units running `Scripts/Hud.sgraph`, and the track map's image, `Textures/Hud/TrackMap.png`, the circuit's center line
   from `Circuit.py` seen from above with the line's and the sector gates' ticks) reads the grid bike's vehicle (`Bike`)
@@ -7295,28 +7295,35 @@ graphs alone keeps its best lap and its settings screen, and none exposes a path
   (`Settings.Save`, which waits for the disk: a menu's, never while the bike is ridden); the bindings are the input
   system's profile, written as each rebind ends. The assists' three values are given to the riding graph of the
   menus' `Rider` (the bike) as the scene starts and after each step (a value the player never set leaves the
-  rider's own), through `Menu.ASSIST_GRAPH`, which declares them:
-  `Scripts/AssistsStandIn.sgraph` until the bike's riding graph gets the rider assists, and the ride test scene's stand-in
-  rider runs it. `ShowMenus` off shows no screen: `Captures.py`'s copies set it, with the HUD's `ShowHud` off and the
+  rider's own), through `Menu.ASSIST_GRAPH`, the bike's riding graph (`Scripts/Bike.sgraph`), whose public
+  `LinkedBrakes`, `LinkedBrakeShare` and `AutoShift` they are; its `LeanAssist` is no setting the screen offers.
+  `ShowMenus` off shows no screen: `Captures.py`'s copies set it, with the HUD's `ShowHud` off and the
   director's `TitleOnStart` off (so no attract mode moves a camera), and the pictures of the circuit stay as they
   were. Each screen draws in two batches when shown (its rectangles and buttons, then its texts). **The
   race's checks**
-  (`Tools/RaceChecks.py`, a module of the tests part) join `Ride.sscene` and report after the ride's seven; what they
+  (`Tools/RaceChecks.py`, a module of the tests part) join the flow test scene, `Scenes/Flow.sscene` (the main scene
+  without its props, with the `Flow Tests` entity running `Scripts/FlowTests.sgraph`), a scene apart from `Ride.sscene`
+  because they run the race director, whose broadcasts the ride scene's checks send in its place there (the ride in
+  graphs, above): the bike's ride and its seven checks come first, as in the ride scene (`BikeChecks.py`'s
+  `prepare` turns the rider assists off in both, its bands being the raw vehicle's), and the camera director cuts only
+  when told and the audio director plays no ride there (the scene's own start switches); what they
   read is taken from the scene's first step, beside the ride, by a graph of their own (`Scripts/RaceTests.sgraph`, on
   the `Race Tests` entity, registered by a line of `Checks.MODULE_GRAPHS`) from its `Event.FixedUpdate`, as a function of
   its own count of steps and of what the director reads, by about step 480. Its entities: the `Gate Probe`, a box of
   0.5 m with no gravity and no damping, which is the director's `Subject` there from the first pass on (so the ridden
-  bike crosses nothing the race counts), the `Ghost Stand-In`, the director's `Ghost` as the scene starts, and the
+  bike crosses nothing the race counts), the scene's `Ghost`, the director's `Ghost` as in the main scene (its graph,
+  `Scripts/Ghost.sgraph`, its `Bike` cleared there: the scripted races are no laps of the bike, so it records none), and the
   `Race Marker`, a child of the race that is no gate, put first among its children with the line moved last (so the
   gates' numbers, not their order, time them); the scene's director counts down 1 s. Six passes send the probe through the gates: the line at 10 m/s, `Gate 1` at 30,
   `Gate 2` at 60, then each at the top speed, from 12 m before the plane, 1.2 m over the road, parked 60 m over the grid
   when out of the gate. Then two races: `StartRace` is sent, and once the countdown has run twelve crossings are sent
   the director one a step, as the gates send them (three laps, one crossing out of order and one after the finish); when
-  a lap is the best, the stand-in's arrays are filled with its samples, ten a second, as the ghost keeps a lap; a
+  a lap is the best, the ghost's arrays are filled with its samples, ten a second, as the ghost keeps a lap, once the
+  crossing's `Send` has returned (the ghost, which recorded none, clears its best lap at the `LapFinished` broadcast); a
   crossing of the line sent in the countdown's first step counts for nothing; the slot is opened again five steps after
   each finish, past the frame that saves it at every frame rate. The
   first race (laps of 99.008, 93.487 and 96.258 s) is run with the probe as the director's `Ghost`, which runs no graph
-  of a ghost, so its best lap is saved without samples; the second (90.008, 84.988 and 87.508 s) with the stand-in
+  of a ghost, so its best lap is saved without samples; the second (90.008, 84.988 and 87.508 s) with the scene's ghost
   again, so its best lap is saved with them. Then a third race, in which the probe is sent through the line at the top
   speed once the race runs, and which is abandoned once it is out of the gate. Nine checks: (1) each crossing the
   director timed within 0.5 ms of the analytic one, from where the probe's speed puts the plane past a position the
@@ -7336,7 +7343,8 @@ graphs alone keeps its best lap and its settings screen, and none exposes a path
   development runs of the scene of 560 frames with one per-user root, which keep their game data in the project's
   `.strada/PlayData` where a
   test run's is temporary, show the first saving the best lap and the second loading it as the scene starts, giving
-  the ghost its time and telling it once, and keeping it without a save. **The HUD's and the pause's checks** (`Tools/HudChecks.py`, after the race's): the
+  the ghost its samples and its time and telling it, the ghost riding them (its `RidesBestLap`, read before the first
+  race), and keeping it without a save. **The HUD's and the pause's checks** (`Tools/HudChecks.py`, after the race's): the
   `Hud Tests` entity's graph (`Scripts/HudTests.sgraph`) presses `Pause` by an action override in the ridden bike's
   launch (the riding graph's `Throttle` open, the bike past 10 m/s, the director still idle and the HUD's riding group
   shown). A frame's time step is scaled as the frame begins, before the press reaches the director, so the frame of the
@@ -7347,8 +7355,9 @@ graphs alone keeps its best lap and its settings screen, and none exposes a path
   still reads `STEADY` the next frame, the game still standing (the HUD writes a text only when its value changes); and
   paused, time scale 0, the `Paused` snapshot,
   the director's `Paused` and the pause screen together with the bike's speed held to the bit, then two frames after the
-  second press time scale 1, the mixer's own values and the screen hidden. Two more drive a fourth race against the
-  stand-in ghost, its lap 1 begun by a crossing of the line sent the director: with the stand-in's `BestLapTime` 90 s
+  second press time scale 1, the mixer's own values and the screen hidden (the mix through the race director's
+  `TogglePause` to the audio director). Two more drive a fourth race against the scene's ghost, its lap 1 begun by a
+  crossing of the line sent the director: with the ghost's `BestLapTime` 90 s
   and its `Delta` -1.25 s, then 0.4321 s, the HUD's delta reads `-1.250`, then `+0.432`; with no best lap on the ghost,
   a crossing of `Gate 1` 2,006 steps after the line reads the split against the second scripted race's best split as the
   lap began, `+0.608`; then the race is abandoned. The pause inserts frames without fixed steps, so the ride's and the
@@ -7361,7 +7370,7 @@ graphs alone keeps its best lap and its settings screen, and none exposes a path
   crossings sent the director, and the results read `LAP 1   1:35.000` to `LAP 3   1:37.000`, `TOTAL 4:48.000` and
   the best lap, then `Confirm` presses CONTINUE, back to the title; (3) SETTINGS clicked, the screen's buttons step the
   quality down twice, the size up, the master volume and the `Engine` bus a tenth down, the linked brakes off, their
-  share a tenth up and the automatic shifts off: `Settings` reads each back, the stand-in rider has the three, the
+  share a tenth up and the automatic shifts off: `Settings` reads each back, the bike's riding graph has the three, the
   screen shows them, and BACK saves once (a test run's game data folder is temporary, so nothing reaches the next run;
   the window's mode is not stepped: a test run takes no display); (4) the throttle's keyboard button listens and says so, and a cancel keeps `W` and names it;
   (5) `MenuDown` selects SETTINGS, `Confirm` presses it, `MenuRight` steps the selected quality up, `MenuUp` goes round
@@ -7371,10 +7380,10 @@ graphs alone keeps its best lap and its settings screen, and none exposes a path
   goes back to the title, and the slot opened again holds the lap. The scene runs 31 checks in 2,165 frames at 1/60 s
   (its timeout is 60 s). **In the
   editor** (`MotoPlayTests.cpp`, StradaEditorTests): a conditional breakpoint `Lap == 3` on the director's `LapStarted`
-  broadcast in `BeginLap`, playing the ride test scene, is reached at each lap's start and holds at the first scripted
+  broadcast in `BeginLap`, playing the flow test scene, is reached at each lap's start and holds at the first scripted
   race's third; `graph.step` with `Into` goes into each receiver of the broadcast in turn (the race checks' graph first)
   and into the HUD's `LapStarted`, delivered from the director with lap 3. The race's telemetry marks, recorded with
-  `telemetry.start` while the ride test scene plays ten seconds of the game at 1/60, 1/30 and 1/144 s a frame, sit on
+  `telemetry.start` while the flow test scene plays ten seconds of the game at 1/60, 1/30 and 1/144 s a frame, sit on
   the same rows at the three rates (the scripted races' laps and sectors and the box's real crossing). And the main
   scene, played: its title opens the settings by the directional pad and A, a click of the quality's `<` steps it to
   Medium and one of the window's `>` to fullscreen (kept, never applied to the editor's window), the throttle's keyboard
@@ -7383,7 +7392,14 @@ graphs alone keeps its best lap and its settings screen, and none exposes a path
   (`Settings.json`, `Input/Moto.sinput.json`) and steps the window back. Each of the telemetry case's three plays
   starts with `.strada/PlayData` removed, so that no best lap one saved is loaded by the next. And the main scene,
   played with the director's `TitleOnStart` off: `vehicle.set` lowers the definition's shift speeds below the idling
-  engine's, and the HUD's shift light is lit from the next frame, and off again once they are back.
+  engine's, and the HUD's shift light is lit from the next frame, and off again once they are back. And the main scene as
+  it opens, its title on: the director's `AttractStarted` puts the camera director in its attract mode (`Mode` 1, a
+  trackside camera showing and hearing the scene), which goes on through the countdown Enter starts from the title's
+  RACE, and its `RaceStarted` cuts it to the chase view (`Mode` 2, `Active` 8, the chase camera alone showing). Where the
+  ride's graphs and the race's meet, each pair is played on the real graphs: the director's loader and the ghost (the flow scene's keeping runs: the ghost takes the samples and rides
+  them; the HUD's live delta is the ghost graph's `Delta`), the settings' assists and the riding graph (the flow scene's
+  settings check), the director's `AttractStarted` and `RaceStarted` and the camera director (this case), and the pause
+  and the audio director (the flow scene's pause check and `PlayModeTests`' Moto case).
 - The Showcase's **Graph Garden**: chimes played by six visual scripts (`Scripts/GraphGarden`; `Tools/GraphGarden.py`
   authors them and `Tools/Author.py --exhibit GraphGarden` rebuilds the exhibit in place, with a hash guard that names
   any file outside the exhibit that changed), whose score is a Timeline; seven of the Showcase's 68 checks look at it.

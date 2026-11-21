@@ -1,4 +1,4 @@
-"""The menus' checks, a module of Checks.MODULES: they join the ride test scene (Scenes/Ride.sscene) after the HUD's, when the
+"""The menus' checks, a module of Checks.MODULES: they join the flow test scene (Scenes/Flow.sscene) after the HUD's, when the
 race director is back at its title (HudChecks abandons its last race), and they drive the menus as a player does: the
 menu actions pressed by action overrides (one press each), and buttons pressed through UIButton.Click(), which is what
 Confirm and a mouse click come to. One after another:
@@ -10,7 +10,8 @@ Confirm and a mouse click come to. One after another:
    the best lap; Confirm presses CONTINUE, back to the title;
 3. the settings: SETTINGS clicked, the screen's buttons clicked to step the quality down twice, the window's size up, the
    master volume and the Engine bus a tenth down, the linked brakes off and their share a tenth up, the automatic shifts
-   off; Settings reads each back, the stand-in rider (Rider Stand-In, which runs Menu.ASSIST_GRAPH) has the three
+   off; Settings reads each back, the menus' rider (the scene's bike, whose riding graph is Menu.ASSIST_GRAPH, standing
+   on the grid since the ride ended) has the three
    assists, the screen shows them, and BACK saves the settings and shows the title again (the window's mode is not
    clicked: a test run takes no display; the editor's case MotoPlayTests clicks it, which play mode keeps unapplied);
 4. a rebinding: the throttle's keyboard button clicked listens for a control and says so, Input.CancelRebind() ends it
@@ -36,7 +37,7 @@ import RaceChecks  # noqa: E402  (the best lap the scripted races left)
 from Checks import Suite, run  # noqa: E402
 from Graphs import private  # noqa: E402
 
-STAND_IN = "Rider Stand-In"
+RIDER = "Bike"
 # How long a check waits for the screen or the state it presses for (seconds of the game), and how many frames it lets go
 # by after a press or a click before it reads (a click lands at the next frame's start, its command then runs).
 WAIT = 5
@@ -256,7 +257,7 @@ def write_settings_clicks(b, name):
     share = b.pure("Call:Strada.Settings.Get<T>(string,T)", Name=Menu.SHARE, Fallback=b.lit("float", -1.0))
     auto = b.pure("Call:Strada.Settings.Get<T>(string,T)", Name=Menu.AUTO, Fallback=b.lit("bool", True))
     engine = b.pure("Call:Strada.Settings.GetBusVolume(string)", Bus=Menu.BUSES[0])
-    rider = b.var("RiderStandIn")
+    rider = b.var("Rider")
     read = b.set("SettingsRead", b.expr(
         f"q == 0 && w == {SIZE[0]} && h == {SIZE[1]} && abs(master - 0.9) <= {VOLUME_TOLERANCE} && "
         f"abs(engine - 20 * log(0.9) / log(10)) <= {DECIBEL_TOLERANCE} && !linked && abs(share - 0.4) <= {VOLUME_TOLERANCE} && "
@@ -401,7 +402,7 @@ def write_check(b, function, name):
 # --- The scene ---------------------------------------------------------------------------------------------------------------
 
 ENTITIES = (("Menus", Menu.ROOT, "The screen's menus, which the checks press as a player does"),
-            ("RiderStandIn", STAND_IN, "The stand-in rider, whose riding graph takes the assists' settings"))
+            ("Rider", RIDER, "The bike, the menus' rider, whose riding graph takes the assists' settings"))
 VARIABLES = (
     private("TitleShown", "bool", False), private("FirstSelected", "int", -1), private("HudShown", "bool", True),
     private("BestShown", "string", ""), private("CountingState", "string", ""), private("TitleAfter", "bool", True),
@@ -420,14 +421,9 @@ VARIABLES = (
 )
 
 
-def make(create, handles):
-    """The stand-in rider, whose graph declares what the settings' assists write."""
-    create(STAND_IN, {"VisualScript": {"Graph": handles.get(Menu.ASSIST_GRAPH, Menu.ASSIST_GRAPH)}})
-
-
 def prepare(session, found):
-    """The menus give the assists' settings to the stand-in rider."""
-    Checks.set_variables(session, found[Menu.ROOT], {"Rider": Checks.entity_value(found[STAND_IN])})
+    """The menus give the assists' settings to the scene's bike, whatever the main scene's menus have."""
+    Checks.set_variables(session, found[Menu.ROOT], {"Rider": Checks.entity_value(found[RIDER])})
 
 
-SUITE = Suite(checks, write_check, ENTITIES, VARIABLES, own=(STAND_IN,), make=make, prepare=prepare)
+SUITE = Suite(checks, write_check, ENTITIES, VARIABLES, prepare=prepare)

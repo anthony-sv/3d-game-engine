@@ -4,7 +4,12 @@ registered by one line of MODULES (the scene it joins and the module's name): a 
 written, the scene's entities its checks look at, its own entities and its helper functions (a Suite). SCENES has the
 test scenes, one line each. A module whose checks read a graph of its own (which drives what they read from an entity of
 the scene) registers it by one line of MODULE_GRAPHS. Every test scene sets the start switches of SWITCHES, one line each,
-so that a director starts as Moto started before it had one, and a scene's checks turn on what they need.
+so that a director starts as Moto started before it had one, and a scene's own switches (its TestScene's switches) turn off
+what else would act by itself as the scene starts and its modules do not read: each test scene turns on what its checks
+need and nothing else. Modules that speak for a director keep a test scene apart from the modules that run it: the ride's
+(Ride.sscene, with the bike's, the assists', the directors' and the best lap's checks, which send the race director's
+events in its place) and the race's flow (Flow.sscene, with the bike's ride again and the race's, the HUD's and the
+menus' checks, which run the race director itself), so that neither hears the other's broadcasts.
 
 The first module is this one's (CORE): Scenes/Tests.sscene and its checks: the main scene as it is without its props
 (they stand clear of all it checks and have no colliders), with a crate to drop on the road, two blocks that slide off along the asphalt and along a gravel trap, a second entity running the tour
@@ -48,6 +53,8 @@ import Circuit  # noqa: E402  (the layout)
 import EngineSound  # noqa: E402  (the engine's sound)
 import Ghost  # noqa: E402  (the ghost bike)
 import Graphs  # noqa: E402  (writing graphs)
+import Hud  # noqa: E402  (the screen, which a scene whose checks read no screen keeps hidden)
+import Menu  # noqa: E402  (the menus, likewise)
 import RacingLine  # noqa: E402  (the line the ghost rides)
 import Sound  # noqa: E402  (the mix and the audio director)
 import Tour  # noqa: E402  (the camera tour)
@@ -57,6 +64,7 @@ from Graphs import CHECK, ENTITY, EVENTS, private, public  # noqa: E402
 CHECKS = Graphs.script("Checks")
 TESTS = Graphs.script("Tests")
 RIDE_TESTS = Graphs.script("RideTests")
+FLOW_TESTS = Graphs.script("FlowTests")
 LAP_TESTS = Graphs.script("LapTests")
 LIBRARIES = (CHECKS,)
 VECTOR = "Strada.Vector3"
@@ -64,16 +72,18 @@ VECTOR = "Strada.Vector3"
 
 class TestScene:
     """A test scene: its name (Scenes/<name>.sscene), its runner entity and graph, the runner graph's description (with
-    {count}, the number of its checks), how long a test run of it may take (seconds) and the main scene's roots it leaves
-    out."""
+    {count}, the number of its checks), how long a test run of it may take (seconds), the main scene's roots it leaves
+    out, and its own start switches, set after SWITCHES: (the main scene's entity, at any depth, its graph's public
+    variable, the value)."""
 
-    def __init__(self, name, runner, graph, about, timeout, left_out=("Props",)):
+    def __init__(self, name, runner, graph, about, timeout, left_out=("Props",), switches=()):
         self.name = name
         self.runner = runner
         self.graph = graph
         self.about = about
         self.timeout = timeout
         self.left_out = left_out
+        self.switches = switches
 
     @property
     def path(self):
@@ -116,17 +126,26 @@ class Suite:
         self.frames = frames
 
 
+OFF = {"Type": "Bool", "Value": False}
+# The screens a scene whose modules read none keeps hidden: the HUD (ShowHud) and the menus (ShowMenus).
+NO_SCREENS = ((Hud.ROOT, "ShowHud", OFF), (Menu.ROOT, "ShowMenus", OFF))
+# The directors that a scene whose modules read none of what they do keep as Moto had them before the ridden bike: the
+# camera director cutting only when told (Directs), the audio director playing no ride (RideSounds).
+NO_RIDE_DIRECTORS = ((Trackside.ROOT, "Directs", OFF), (Sound.DIRECTOR, "RideSounds", OFF))
 # The test scenes, one line each.
 SCENES = (
     TestScene("Tests", "Tests", TESTS, "The test scene's checks: {count} checks of Moto's circuit, its camera tour and its ghost "
               "bike, one after another, each a latent function that acts or waits for its moment, then reports it.",
               math.ceil(Tour.LENGTH) + 30),
     TestScene("Ride", "Ride Tests", RIDE_TESTS, "The ride test scene's checks: {count} checks of the ridden bike, its rider "
-              "assists, its autopilot, the directors and the best lap's ghost, the race, the HUD, the pause and the menus, each a "
-              "latent function that waits for its reading, then reports it.", 200),
+              "assists, its autopilot, the directors and the best lap's ghost, each a latent function that waits for a reading "
+              "the ride takes, then reports it.", 200, switches=NO_SCREENS),
+    TestScene("Flow", "Flow Tests", FLOW_TESTS, "The flow test scene's checks: {count} checks of the ridden bike, the race, the "
+              "HUD, the pause and the menus, each a latent function that waits for its reading, then reports it.", 60,
+              switches=NO_RIDE_DIRECTORS),
     TestScene("Lap", "Lap Tests", LAP_TESTS, "The lap test scene's checks: {count} checks of whole laps the autopilot rides from "
               "the grid and the ghost that keeps the best of them, each a latent function that waits for a reading the laps take "
-              "in their fixed steps, then reports it.", 240),
+              "in their fixed steps, then reports it.", 240, switches=NO_SCREENS),
 )
 # The modules whose checks the test scenes run, one line each, in the order their checks run: (the scene they join, the
 # module that holds them, by its name). A module's Suite is its SUITE; it is imported when the checks are written, so a
@@ -137,9 +156,10 @@ MODULES = (
     ("Ride", "RideChecks"),
     ("Ride", "DirectorChecks"),
     ("Ride", "GhostChecks"),
-    ("Ride", "RaceChecks"),
-    ("Ride", "HudChecks"),
-    ("Ride", "MenuChecks"),
+    ("Flow", "BikeChecks"),
+    ("Flow", "RaceChecks"),
+    ("Flow", "HudChecks"),
+    ("Flow", "MenuChecks"),
     ("Lap", "LapChecks"),
 )
 # The start switches every test scene sets, one line each: (the main scene's entity, its graph's public variable, the value
@@ -956,7 +976,7 @@ def build_scene(session, handles, project, scene):
             walk(entity.get("children", []))
 
     walk(session.call("scene_hierarchy")["entities"])
-    for name, variable, value in SWITCHES:
+    for name, variable, value in SWITCHES + scene.switches:
         if name in found:
             set_variables(session, found[name], {variable: value})
     entities = [row for suite in parts for row in suite.entities]

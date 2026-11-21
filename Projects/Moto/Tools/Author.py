@@ -42,18 +42,20 @@ visual scripts alone (no C#). In order:
 12. the race part: the race (Race.py): the Race entity, which runs the race director (Scripts/RaceDirector.sgraph: the time
     trial from the title over the attract mode, through the countdown and three laps timed from the gates' interpolated
     crossings, to the results, the best lap kept in a save slot), and its children, the trigger gates at the start and
-    finish line and at the two sector arches (Scripts/Gate.sgraph), with Scripts/GhostStandIn.sgraph, what the director
-    keeps of a ghost;
+    finish line and at the two sector arches (Scripts/Gate.sgraph), the ghost's best lap kept with it and given back to
+    the ghost;
 13. the hud part: the screen (Hud.py): the Screen entity, a UI canvas that runs Scripts/Hud.sgraph, with the HUD (the
     speed, the gear, the engine speed and its shift light, the lean, the inputs, the track map with the bike's mark, the
     lap's and the sectors' times, the countdown and the delta), and under it the Menus entity, which runs
     Scripts/Menu.sgraph (Menu.py), with the title, the results, the pause and the settings screens of stepped buttons,
     every group saved hidden for the graphs to show while the game plays; the track map's image
-    (Textures/Hud/TrackMap.png); and Scripts/AssistsStandIn.sgraph, what the settings' assists write of a riding graph;
+    (Textures/Hud/TrackMap.png), the settings' assists given to the bike's riding graph;
 14. the tests part: the test scenes (Checks.py's SCENES, each the main scene with its checks and without the props:
     Scenes/Tests.sscene; Scenes/Ride.sscene, whose graph rides the bike, BikeChecks.py, and its assists and its
-    autopilot, RideChecks.py, reads the directors, DirectorChecks.py, and the best lap's ghost, GhostChecks.py; and
-    Scenes/Lap.sscene, whole laps on the autopilot, LapChecks.py) and their graphs (Checks.py);
+    autopilot, RideChecks.py, reads the directors, DirectorChecks.py, and the best lap's ghost, GhostChecks.py;
+    Scenes/Flow.sscene, whose graph rides the bike too while the race, the HUD, the pause and the menus are played,
+    RaceChecks.py, HudChecks.py and MenuChecks.py; and Scenes/Lap.sscene, whole laps on the autopilot, LapChecks.py) and
+    their graphs (Checks.py);
 15. checks: spheres dropped on the road, a kerb, a gravel trap, a verge, the ground, a barrier and the footbridge come to
     rest on their surfaces; the test scene's checks pass in a test run; the tour plays in play mode, the camera where its
     path puts it, and so does the ghost, where its line puts it; and nothing logs a warning.
@@ -190,7 +192,7 @@ def _bike_graphs(write):
 
 
 def _screen_graphs(write):
-    """Declares or writes the screen's graphs: the HUD's, then the menus' (with what their assists write)."""
+    """Declares or writes the screen's graphs: the HUD's, then the menus'."""
     def run(author):
         getattr(Hud, write)(author)
         getattr(Menu, write)(author)
@@ -206,8 +208,8 @@ GRAPH_GROUPS = (
     ("trackside", (Trackside.CAMERA_DIRECTOR,), Trackside.declare, Trackside.write),
     ("bike", (MotoLib.LIB, Vehicle.BIKE), _bike_graphs("declare"), _bike_graphs("write")),
     ("ride", (Ride.RIDE,), Ride.declare, Ride.write),
-    ("race", (Race.GHOST_STAND_IN, Race.GATE, Race.DIRECTOR), Race.declare, Race.write),
-    ("hud", (Hud.HUD, Menu.ASSISTS_STAND_IN, Menu.MENU), _screen_graphs("declare"), _screen_graphs("write")),
+    ("race", (Race.GATE, Race.DIRECTOR), Race.declare, Race.write),
+    ("hud", (Hud.HUD, Menu.MENU), _screen_graphs("declare"), _screen_graphs("write")),
 )
 # The function libraries among them, made as libraries.
 LIBRARIES = Checks.LIBRARIES + (MotoLib.LIB,)
@@ -1035,8 +1037,8 @@ PARTS = {
     "ghost": ((Ghost.ENTITY,), (MAIN, graph_file(Ghost.GHOST), REGISTRY), Moto.make_ghost),
     "trackside": ((Trackside.ROOT,), (MAIN, graph_file(Trackside.CAMERA_DIRECTOR), REGISTRY), Moto.make_trackside),
     "ride": ((Ride.ROOT,), (MAIN, graph_file(Ride.RIDE), REGISTRY), Moto.make_ride),
-    "race": ((Race.ROOT,), (MAIN, graph_file(Race.GHOST_STAND_IN), graph_file(Race.GATE), graph_file(Race.DIRECTOR), REGISTRY), Moto.make_race),
-    "hud": ((Hud.ROOT,), (MAIN, graph_file(Hud.HUD), graph_file(Menu.ASSISTS_STAND_IN), graph_file(Menu.MENU), "Assets/Textures/Hud/*.png", REGISTRY), Moto.make_hud),
+    "race": ((Race.ROOT,), (MAIN, graph_file(Race.GATE), graph_file(Race.DIRECTOR), REGISTRY), Moto.make_race),
+    "hud": ((Hud.ROOT,), (MAIN, graph_file(Hud.HUD), graph_file(Menu.MENU), "Assets/Textures/Hud/*.png", REGISTRY), Moto.make_hud),
     "tests": ((), Checks.FILES, None),
 }
 ORDER = tuple(PARTS)

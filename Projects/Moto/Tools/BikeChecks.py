@@ -1,10 +1,12 @@
 """The ridden bike's checks, a module of Checks.MODULES: they join the ride test scene (Scenes/Ride.sscene, the main scene
-without its props), whose runner, the Ride Tests entity, runs Scripts/RideTests.sgraph. Its graph rides the grid bike and
-reports what the ride read.
+without its props), whose runner, the Ride Tests entity, runs Scripts/RideTests.sgraph, and the flow test scene
+(Scenes/Flow.sscene), whose runner, the Flow Tests entity, runs Scripts/FlowTests.sgraph, the same ride in each. The runner
+rides the grid bike and reports what the ride read.
 
 The ride is driven from the graph's Event.FixedUpdate, as a function of its own count of fixed steps and of what the bike
 reads in them (its gear, its speed), never of a frame or of a time: the scene sets the bike's riding graph to its test
-driver (Vehicle.TEST), and this graph writes that graph's public Throttle, FrontBrake, RearBrake and Lean and sends it
+driver (Vehicle.TEST) with the rider assists off (the bands are the raw vehicle's, whatever the main scene's bike starts
+with), and this graph writes that graph's public Throttle, FrontBrake, RearBrake and Lean and sends it
 ShiftUp and ShiftDown, so the riding graph stays the one writer of the bike's inputs and shifts. Every reading is taken in
 the fixed step it belongs to, so the ride, and what it reads, are the same at every frame rate, step for step; the checks
 (latent functions of the update, as every test scene's) only wait for a reading and report it.
@@ -459,9 +461,15 @@ def ride_timeout():
     return next(scene.timeout for scene in Checks.SCENES if scene.name == "Ride")
 
 
+def shortest_timeout():
+    """The shortest test timeout (seconds) of the test scenes this module joins, which its checks' waits stay below."""
+    joined = {name for name, module in Checks.MODULES if module == "BikeChecks"}
+    return min(scene.timeout for scene in Checks.SCENES if scene.name in joined)
+
+
 def checks():
-    if WAIT >= ride_timeout():
-        raise ValueError(f"a ride check waits {WAIT} s, not less than the ride test scene's timeout of {ride_timeout()} s")
+    if WAIT >= shortest_timeout():
+        raise ValueError(f"a ride check waits {WAIT} s, not less than a test scene's timeout of {shortest_timeout()} s")
     return (
         ("CheckLaunch", "Launch: the speed 3 s from the grid in first gear at full throttle",
          "the bike launched from the grid in first gear on full throttle reaches its speed after 3 s"),
@@ -556,9 +564,11 @@ def write_check(b, function, name):
 
 
 def prepare_scene(session, found):
-    """The bike's riding graph takes its values from this graph: its test driver."""
+    """The bike's riding graph takes its values from this graph (its test driver) with the rider assists off, so that the
+    ride is the raw vehicle's that the bands are drawn for."""
     session.call("component_set", {"entity": found["Bike"], "component": "VisualScript", "fields": {
         "Variables": {"Driver": {"Type": "Int32", "Value": Vehicle.TEST}}}})
+    Checks.set_variables(session, found["Bike"], {name: {"Type": "Bool", "Value": False} for name in ("LeanAssist", "LinkedBrakes", "AutoShift")})
 
 
 SUITE = Suite(checks, write_check, ENTITIES, VARIABLES, HELPERS, prepare=prepare_scene, steps=STEPS)
