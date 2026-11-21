@@ -160,17 +160,17 @@ TEST_CASE("PhysicsScene: a ride whose closed and part throttles are all in gear 
 		// Out of neutral at full throttle for a step (an Automatic gearbox is in neutral as it begins, and takes first gear in
 		// its update), then a part throttle in gear, a smaller one, a closed throttle on the front brake, and a part throttle
 		// again; a Manual gearbox goes into first at the first step, up to second at the 90th and down to first at the 330th.
-		auto const inputs = [](int step)
+		auto const inputs = [](int count)
 		{
-			if (step == 0)
+			if (count == 0)
 			{
 				return Inputs(1.0f);
 			}
-			if (step < 180 || step >= 300)
+			if (count < 180 || count >= 300)
 			{
 				return Inputs(0.6f);
 			}
-			return step < 240 ? Inputs(0.2f) : Inputs(0.0f, 0.3f);
+			return count < 240 ? Inputs(0.2f) : Inputs(0.0f, 0.3f);
 		};
 		size_t equal = 0;
 		size_t closed = 0;
