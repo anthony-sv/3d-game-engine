@@ -338,8 +338,8 @@ workflow.
 
 ## Quality
 
-- **More than 3,000 tests** in five suites: 2,535 C++ test cases (doctest) for the engine, the editor and the player,
-  and 794 C# test methods (xUnit) for the scripting API and the `strada` tool.
+- **More than 3,500 tests** in five suites: 2,734 C++ test cases (doctest) for the engine, the editor and the player,
+  and 822 C# test methods (xUnit) for the scripting API and the `strada` tool.
 - **Fuzzing.** Every file format users write is fuzzed (damaged documents are refused or repaired; what loads saves and
   loads again), and so are the automation commands, with parameters built from their schemas: each must answer once,
   never with an internal error, and undoing everything must restore the scene.
