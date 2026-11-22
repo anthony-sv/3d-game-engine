@@ -2,7 +2,9 @@
 behind STRADA_LONG_RIDES=1 (MotoRideTests.cpp): the main scene without its props, the race director, the bike, the ghost
 and the screen wired as the main scene wires them, nothing standing in for any of them. The scene's switches give the race
 LAPS laps and start the autopilot with the scene (the Ride graph's Autopilot), the director idle until StartRace: the
-runner sends it in its first fixed step, as the title's RACE does. So the director puts the bike on the grid, holds it
+runner sends it in its fixed step START_STEP, as the title's RACE does (not in the scene's first: a reset in the step after
+the vehicle was made leaves it launching otherwise, Docs/Architecture.md section 15). So the director puts the bike on the
+grid, holds it
 through the countdown while the autopilot already asks for throttle, starts the race, times its laps at the gates and
 broadcasts its lap events, which the ghost records the best lap from; at the results the director saves the best lap with
 the ghost's samples in the game's save slot (Race.SLOT).
@@ -43,6 +45,10 @@ SAMPLE_ROOM = 1
 # How far into lap 1 of a run with a kept best lap the HUD's delta is read (seconds of the lap's clock).
 DELTA_AT = 3.0
 WAIT = 220
+# The runner's fixed step that sends StartRace (its first is 0): one step after the scene's first, since a vehicle reset in
+# the step after it was made launches 1.2 % slower than one reset later (Docs/Architecture.md section 15, "The race's
+# start"), and every start the game makes comes later than that.
+START_STEP = 1
 
 
 def scene_timeout():
@@ -77,9 +83,10 @@ def ghost(b, name):
 
 
 def write_race(b):
-    """Each fixed step: StartRace in the first; the hold read through the countdown; the bike's crossings of the line's
+    """Each fixed step: StartRace in START_STEP; the hold read through the countdown; the bike's crossings of the line's
     plane counted; each lap the director finishes noted; at the results the race's readings."""
-    first = b.branch(b.expr("asked < 0", asked=b.var("TAsked")), comment="The race starts with the scene, as RACE starts it")
+    first = b.branch(b.expr(f"asked < 0 && step >= {START_STEP}", asked=b.var("TAsked"), step=b.var("TStep")),
+                     comment="The race starts as the scene does, as RACE starts it")
     asked = b.set("TAsked", director(b, "Steps"))
     sent = b.send("StartRace", b.var("Race"), graph=DIRECTOR)
     counting = b.branch(b.expr("counting && steps >= asked + 2", counting=b.equal(director(b, "State"), b.lit("string", "Countdown")),

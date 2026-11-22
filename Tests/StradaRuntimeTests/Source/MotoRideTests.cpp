@@ -164,9 +164,10 @@ namespace
 	}
 
 	// The start test scene (Scenes/Start.sscene, Tools/StartChecks.py): the race's starts from the title, the results, a fall
-	// and the gravel, the hold through the countdown, a second StartRace, a pause and QUIT TO TITLE in it; its line of
-	// readings ("Moto's starts, ...", by about step 1,200) and a step of its physics state in the middle of the starts.
-	constexpr std::string_view StartChecks = "Tests passed: 8 checks";
+	// and the gravel, the hold through the countdown, a second StartRace, a pause and QUIT TO TITLE in it, and a director
+	// that stops holding; its line of readings ("Moto's starts, ...", by about step 1,220) and a step of its physics state in
+	// the middle of the starts.
+	constexpr std::string_view StartChecks = "Tests passed: 9 checks";
 	constexpr std::string_view StartScene = "Scenes/Start.sscene";
 	constexpr std::string_view StartTimeout = "90";
 	constexpr std::string_view StartHashStep = "900";

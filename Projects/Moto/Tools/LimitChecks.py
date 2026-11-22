@@ -19,7 +19,8 @@ the same at every frame rate. The phases (PHASES), one after another:
    upshift out of first and second is read in the step the riding graph decided it, the step before the gear reads one
    higher (the shift takes effect at the next physics step): the engine's speed, the road's speed in the gear (as the
    riding graph computes it), and the steps the engine stood at its red line in that gear with the road's speed within
-   Vehicle.SHIFT_SLIP_ROOM of the shift point.
+   Vehicle.SHIFT_SLIP_ROOM of the shift point; and in each gear from first to fifth the steps the engine stood at its red
+   line whatever the road's speed (the launch's wheelspin holds it there).
    Settle, after each lever: back on the grid at rest, the automatic shifts off, both brakes on and shifted down into
    neutral until its wheels stop.
 5. Stand: every reading logged; then Done, which no case of the switch runs, for modules that join the scene after this.
@@ -81,6 +82,12 @@ IDLE_ROOM = 2
 # up: the step that decides, when the rear tyre's drive slip has the engine at its limiter there (it does in first and
 # second at full throttle); by the road's speed alone it stood there 23 and 14 steps.
 LIMITER_STEPS = 1
+# The steps the engine stands at its red line in gears 1 to 5 over the climb, whatever the road's speed: the rear tyre's
+# wheelspin from the grid holds first and second there, which no shift rule frees without lugging the gear above under
+# ShiftDownRPM (Vehicle.py, the shifts). Read 171 and 86 steps in first and second and 9 in third and fourth (the shifts'
+# open clutch), 266 in all; DWELL_LIMIT is a tenth above that, which the shift by the road's speed alone passes (296).
+DWELL_GEARS = 5
+DWELL_LIMIT = 293
 # The full lever: the largest lean while it brakes (degrees: the damper holds it within 0.3; without it the first case
 # leaned 29.5 degrees and left the road, the second 50), and no step with a wheel off the road.
 LEVER_LEAN = 2.0
@@ -104,7 +111,7 @@ VARIABLES = (
     private("RevTop", "float", -1.0), private("IdleSteps", "int", -1), private("IdleMost", "float", -1.0),
     private("LastGear", "int", 0), private("LastEngine", "float", 0.0), private("LastRoad", "float", 0.0),
     private("ShiftEngine", "float[]", [-1.0, -1.0]), private("ShiftRoad", "float[]", [-1.0, -1.0]),
-    private("LimiterSteps", "int[]", [0, 0]),
+    private("LimiterSteps", "int[]", [0, 0]), private("DwellSteps", "int[]", [0] * DWELL_GEARS),
     private("LeverFrom", "float[]", [-1.0, -1.0]), private("LeverLean", "float[]", [0.0, 0.0]),
     private("LeverRough", "int[]", [0, 0]), private("LeverEnd", "float[]", [-1.0, -1.0]),
     private("LimitDone", "bool", False),
@@ -229,10 +236,16 @@ def write_climb(b, case):
                            comment="At the red line with the road's speed at the shift point")
         slot = b.expr(f"gear - {SHIFT_GEARS[0]}", gear=gear)
         counted = put(b, "LimiterSteps", slot, b.expr("count + 1", count=at(b, "LimiterSteps", slot)))
+        dwelling = b.branch(b.expr(f"gear >= 1 && gear <= {DWELL_GEARS} && engine >= most - 1", gear=gear, engine=engine(b),
+                                   most=red_line(b)), comment="At the red line in a gear, whatever the road's speed")
+        place = b.expr("gear - 1", gear=gear)
+        dwelt = put(b, "DwellSteps", place, b.expr("count + 1", count=at(b, "DwellSteps", place)))
         kept = [b.set("LastGear", gear), b.set("LastEngine", engine(b)), b.set("LastRoad", road_rpm(b))]
         b.chain(held, shifted)
-        b.chain(shifted["True"], *decided, limited)
-        b.flow(shifted["False"], limited)
+        b.chain(shifted["True"], *decided, dwelling)
+        b.flow(shifted["False"], dwelling)
+        b.chain(dwelling["True"], dwelt, limited)
+        b.flow(dwelling["False"], limited)
         b.chain(limited["True"], counted, kept[0])
         b.flow(limited["False"], kept[0])
         b.chain(kept[0], *kept[1:], fast)
@@ -291,12 +304,14 @@ def write_stand(b):
     readings = b.fmt(
         "Moto's limits: in neutral the engine closed from {Top} rpm was at idle after {Idle} steps and read at most {Most} rpm "
         "after; the automatic shift left first at {Engine1} rpm, the road's speed {Road1} rpm, and second at {Engine2} rpm, the "
-        "road's {Road2} rpm, after {Limiter1} and {Limiter2} steps at the red line; a full front lever from {From1} m/s with the "
+        "road's {Road2} rpm, after {Limiter1} and {Limiter2} steps at the red line, and stood at the red line {Dwell} steps in "
+        "gears 1 to 5 whatever the road's speed; a full front lever from {From1} m/s with the "
         "linked brakes and the lean assist on leaned it {Lean1} degrees at most, {Rough1} steps off the road, down to {End1} m/s, "
         "and from {From2} m/s with both off {Lean2} degrees, {Rough2} steps off the road, down to {End2} m/s; done at step {Step}",
         Top=b.var("RevTop"), Idle=b.var("IdleSteps"), Most=b.var("IdleMost"), Engine1=at(b, "ShiftEngine", 0),
         Road1=at(b, "ShiftRoad", 0), Engine2=at(b, "ShiftEngine", 1), Road2=at(b, "ShiftRoad", 1), Limiter1=at(b, "LimiterSteps", 0),
-        Limiter2=at(b, "LimiterSteps", 1), From1=at(b, "LeverFrom", 0), Lean1=at(b, "LeverLean", 0), Rough1=at(b, "LeverRough", 0),
+        Limiter2=at(b, "LimiterSteps", 1), Dwell=b.var("DwellSteps"), From1=at(b, "LeverFrom", 0), Lean1=at(b, "LeverLean", 0),
+        Rough1=at(b, "LeverRough", 0),
         End1=at(b, "LeverEnd", 0), From2=at(b, "LeverFrom", 1), Lean2=at(b, "LeverLean", 1), Rough2=at(b, "LeverRough", 1),
         End2=at(b, "LeverEnd", 1), Step=b.var("LimitStep"))
     log = b.call("Call:Strada.Log.Info(string)", Message=readings, comment="Every reading, the same at every frame rate")
@@ -343,7 +358,8 @@ def checks():
         ("CheckNeutralIdle", "Neutral: the engine at idle a second after the throttle closes",
          "in neutral the engine falls from its red line to idle about a second after the throttle closes, and stays there"),
         ("CheckShiftPoint", "Shift point: first and second left at the shift point",
-         "the automatic shift leaves first and second gear at the shift point, never held at the red line"),
+         "the automatic shift leaves first and second gear at the shift point, never held at the red line once the road's speed "
+         "is there, and the launch's wheelspin holds the red line no longer than its bound"),
         ("CheckLeverLinked", "Full lever: from 62 m/s, the assists on, upright",
          "a full front lever from 62 m/s with the linked brakes and the lean assist on keeps the bike upright on the road"),
         ("CheckLeverRaw", "Full lever: from 64 m/s, the assists off, upright",
@@ -374,11 +390,16 @@ def check_shift_point(b, name):
         inputs[f"road{index}"] = at(b, "ShiftRoad", index)
         inputs[f"limiter{index}"] = at(b, "LimiterSteps", index)
         parts.append(f"engine{index} >= {up} && road{index} >= {up - room} && limiter{index} <= {LIMITER_STEPS}")
+    dwell = b.expr(" + ".join(f"d{gear}" for gear in range(DWELL_GEARS)),
+                   **{f"d{gear}": at(b, "DwellSteps", gear) for gear in range(DWELL_GEARS)})
+    inputs["dwell"] = dwell
+    parts.append(f"dwell <= {DWELL_LIMIT}")
     passed = b.both(ready, b.expr(" && ".join(parts), **inputs))
     text = b.fmt(f"full throttle from the grid shifted out of first at {{E1}} rpm, the road's speed {{R1}} rpm, and out of second "
                  f"at {{E2}} rpm, the road's {{R2}} rpm (the shift point {up} rpm, the red line {most}, the road within {room} of the "
                  f"point), {{L1}} and {{L2}} steps at the red line with the road's speed there (at most {LIMITER_STEPS}: the step "
-                 f"that decides)", E1=at(b, "ShiftEngine", 0),
+                 f"that decides); {{D}} steps at the red line in gears 1 to 5 whatever the road's speed (at most {DWELL_LIMIT}: "
+                 f"the launch's wheelspin)", D=dwell, E1=at(b, "ShiftEngine", 0),
                  R1=at(b, "ShiftRoad", 0), E2=at(b, "ShiftEngine", 1), R2=at(b, "ShiftRoad", 1), L1=at(b, "LimiterSteps", 0),
                  L2=at(b, "LimiterSteps", 1))
     run(b, Checks.check(b, name, ready, WAIT, text, passed))

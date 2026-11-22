@@ -7229,10 +7229,10 @@
 								0.0
 							],
 							"Settings": {
-								"Variable": 14,
+								"Variable": 15,
 								"Graph": "9964485574798592623"
 							},
-							"Comment": "On through the countdown, off from the signal's step"
+							"Comment": "Asked at each step of the countdown, not from the signal's step; the riding graph clears it"
 						}
 					],
 					"Links": [
@@ -7320,7 +7320,7 @@
 					"Comments": [
 						{
 							"ID": 352,
-							"Text": "Hold: the subject's riding graph held on the grid while Holding",
+							"Text": "Hold: the subject's riding graph asked to hold on the grid while Holding",
 							"Position": [
 								-32.0,
 								-72.0

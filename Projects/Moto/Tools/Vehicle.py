@@ -45,7 +45,8 @@ values pass through the rider assists (LeanAssist, LinkedBrakes with LinkedBrake
 default; with all three off the vehicle gets the driver's values as given, but for the yaw damper's correction of the
 steering, which stands for the bike's own front end), and each frame the graph poses the rider and turns the fork from the
 bike as it is drawn (the rider assist's, the yaw damper's and the pose's sections below). While its public Held is on, which
-the race director (Race.py) sets on the bike that is its subject through the countdown, the step gives the vehicle no
+each step takes from HoldAsked, the request the race director (Race.py) makes of the bike that is its subject at each step
+of the countdown, the step gives the vehicle no
 throttle and both brakes full, past the linked brakes and their easing, and makes no shift, whatever the driver asks: a
 jump start is refused, and the bike waits on the grid in neutral (the hold's section below).
 
@@ -421,21 +422,29 @@ def ride_figures():
 # of them moves its shifts): out of neutral once the throttle opens; up when the engine's speed at the road's speed in the
 # gear (the rear wheel's radius, the gear's ratio and the final drive) reaches ShiftUpRPM, or when the engine itself is at its
 # shift point (ShiftUpRPM, or MaxRPM when that is lower) with the road's speed within SHIFT_SLIP_ROOM of that point: so the
-# rear tyre's drive slip at the red line, which keeps the road's speed a few percent under the engine's, never holds a gear
-# at the limiter, while a launch's or a corner exit's wheelspin (the road's speed thousands of rpm under it) and a shift's
-# slipping clutch (SHIFT_HOLD) shift nothing; down below ShiftDownRPM while the gear below stays under ShiftUpRPM less
-# SHIFT_DOWN_ROOM, never into neutral; and no shift within SHIFT_HOLD steps of the last (a shift opens the clutch for
-# SWITCH_TIME and closes it over CLUTCH_RELEASE). Each rule reads the vehicle as the last physics step left it, in the step
-# it decides. It cannot hunt whatever the definition's speeds: an upshift leaves the road's speed at SHIFT_SLIP_ROOM under
-# the shift point at most, so the gear below it reads more than SHIFT_DOWN_ROOM under the point, and no downshift follows
-# (check() asserts SHIFT_SLIP_ROOM < SHIFT_DOWN_ROOM). The rider's ShiftUp and ShiftDown shift as well. A gearbox the
+# rear tyre's drive slip at the top of a gear, which keeps the road's speed a few percent under the engine's, holds no gear
+# at the limiter past the step that decides; a shift's slipping clutch (SHIFT_HOLD) shifts nothing; down below ShiftDownRPM
+# while the gear below stays under the same shift point less SHIFT_DOWN_ROOM, never into neutral; and no shift within
+# SHIFT_HOLD steps of the last (a shift opens the clutch for SWITCH_TIME and closes it over CLUTCH_RELEASE). Each rule reads
+# the vehicle as the last physics step left it, in the step it decides. A launch's or a corner exit's wheelspin, the road's
+# speed thousands of rpm under the engine's, shifts nothing: it holds the engine at its limiter while the rear tyre spins
+# (from the grid at full throttle about 2.9 s in first, from 21 to 41 m/s, and 1.4 s in second; Docs/Architecture.md
+# section 15). An upshift on the engine alone there lands in a gear whose road speed is under ShiftDownRPM: on the
+# autopilot's lap it shifted from first to fifth under one corner exit's wheelspin and back down as the throttle eased, nine
+# times a lap, and lost 0.6 s. It cannot hunt whatever the definition's speeds: an upshift leaves the road's speed at
+# SHIFT_SLIP_ROOM under the shift point at most, so the gear below it reads more than SHIFT_DOWN_ROOM under that point, and
+# no downshift follows (check() asserts it, a shift point above MaxRPM among its cases). The rider's ShiftUp and ShiftDown
+# shift as well. A gearbox the
 # definition makes Automatic would shift by Jolt's rules alone, the same for every rider and only with an edit of the
 # definition; the assist is the rider's, a switch the player turns off to shift alone.
 #
 # The hold: every race starts from the grid. The race director (Race.py, whose part comes after this one, so it names this
 # graph and not the other way round) puts its subject back on the grid and resets its vehicle as the countdown begins, and
-# at each of its fixed steps sets the subject's Held to its own Holding: on through the countdown, off from the start
-# signal. While Held is on the step gives the vehicle throttle 0 and both brakes at HOLD_BRAKE, past the linked brakes and
+# at each of its fixed steps sets the subject's HoldAsked to its own Holding: on through the countdown, off from the start
+# signal. The riding graph takes it into Held, its read-out, at each of its steps and clears it, so the hold lapses on the
+# bike's side in its first step after one the director did not ask it in (the director gone, disabled, stopped by an error,
+# or holding another subject), whatever order the scene gives the two graphs: a director that stops asking never leaves a
+# bike held. While Held is on the step gives the vehicle throttle 0 and both brakes at HOLD_BRAKE, past the linked brakes and
 # their easing, and makes no shift (the driver's, a test's or the automatic one), whatever the driver asks: so a throttle
 # held open through the countdown moves nothing, and at the signal the automatic shift takes first gear as the throttle
 # opens, as at the scene's start. ShiftWait counts down through the hold, so a start in the middle of a shift leaves no wait
@@ -458,8 +467,9 @@ SHIFT_SLIP_ROOM = 500.0
 YAW_DAMPING = 0.002
 YAW_DAMPING_FROM = 0.5
 YAW_DAMPING_FULL = 2.0
-# The riding graph's switch the race director sets through the countdown, and the brakes the hold gives the vehicle: both
-# levers full.
+# The riding graph's request the race director sets at each step of the countdown, its read-out of the hold each step takes
+# from it, and the brakes the hold gives the vehicle: both levers full.
+HOLD_ASKED = "HoldAsked"
 HELD = "Held"
 HOLD_BRAKE = 1.0
 
@@ -496,6 +506,19 @@ def yaw_damper(steer, yaw_rate, speed, lean, max_lean=None):
     fade = max(0.0, min(1.0, (abs(speed) - YAW_DAMPING_FROM) / (YAW_DAMPING_FULL - YAW_DAMPING_FROM)))
     correction = fade * YAW_DAMPING * math.degrees(yaw_rate - steered_yaw_rate(steer, speed, lean, max_lean))
     return max(-1.0, min(1.0, steer + correction))
+
+
+def auto_shift(gear, road, engine, up, down, most):
+    """The automatic shift the riding graph decides in a gear (1 up, -1 down, 0 none) once the wait after the last shift has
+    run out, from the engine's speed at the road's speed in the gear, the engine's own and the definition's speeds."""
+    point = min(up, most)
+    if gear == 0:
+        return 0
+    if (road >= up or (engine >= point and road >= point - SHIFT_SLIP_ROOM)) and gear < len(RacingLine.GEARS):
+        return 1
+    if gear > 1 and road < down and road * RacingLine.GEARS[gear - 2] / RacingLine.GEARS[gear - 1] < point - SHIFT_DOWN_ROOM:
+        return -1
+    return 0
 
 
 def idle_steps():
@@ -625,9 +648,18 @@ def check():
     # How far the damper can steer at speed (Jolt's limit) and the yaw it then answers: past that it is held at the limit.
     authority = {speed: (lean_steer_limit(speed), lean_steer_limit(speed) / STEER_LOCK / YAW_DAMPING) for speed in (62.0, 76.0)}
     # The automatic shift cannot hunt: an upshift's road speed within SHIFT_SLIP_ROOM of the shift point leaves the gear below
-    # it further under the point than SHIFT_DOWN_ROOM, which is all the downshift's guard asks.
+    # it further under that point than SHIFT_DOWN_ROOM, which is all the downshift's guard asks, whatever the definition's
+    # speeds (a shift point above the red line among them, which a Manual gearbox may have).
     if not 0.0 < SHIFT_SLIP_ROOM < SHIFT_DOWN_ROOM:
         problems.append("the automatic upshift's room is not under the downshift's, so a shift could hunt")
+    for up, down, most in ((SHIFT_UP, SHIFT_DOWN, RacingLine.RED_LINE), (17000.0, 13000.0, RacingLine.RED_LINE),
+                           (16000.0, 15500.0, 16000.0)):
+        for gear in range(1, len(RacingLine.GEARS)):
+            ratio, higher = RacingLine.GEARS[gear - 1], RacingLine.GEARS[gear]
+            for road in (min(up, most) - SHIFT_SLIP_ROOM, min(up, most), up):
+                shifted = auto_shift(gear, road, most, up, down, most) == 1
+                if shifted and auto_shift(gear + 1, road * higher / ratio, most, up, down, most) == -1:
+                    problems.append(f"the automatic shift hunts between gears {gear} and {gear + 1} at a shift point of {up} rpm")
     # In neutral with the throttle closed the engine is at idle about a second after its red line.
     idle = idle_steps()
     if not 0.8 <= idle * COLLISION_STEP <= 1.2:
@@ -687,8 +719,10 @@ def declare(author):
         public("Fork", ENTITY_TYPE, None, "The fork, found among the bike's children at the start (a read-out)"),
         public("FrontWheel", ENTITY_TYPE, None, "The front wheel, the fork's child, found at the start (a read-out)"),
         private("ShiftWait", "int", 0),
-        public(HELD, "bool", False, "Whether the race director holds the bike on the grid (through the countdown, set by the "
-               "director): no throttle, both brakes full and no shift, whatever the driver asks"),
+        public(HELD, "bool", False, "Whether the race director holds the bike on the grid this step (through the countdown, "
+               "taken from HoldAsked): no throttle, both brakes full and no shift, whatever the driver asks"),
+        public(HOLD_ASKED, "bool", False, "Whether the race director asks to hold the bike on the grid (set by the director at "
+               "each step of the countdown; each step takes it into Held and clears it)"),
     ), events=(("ShiftUp", ()), ("ShiftDown", ())))
 
 
@@ -749,7 +783,7 @@ def write(author):
                       ratio=ratio, final=b.pure("Get:Strada.Vehicle.FinalDrive", "Value", Target=definition))
         shift = b.expr(f"auto && !held && wait <= 0 ? (gear == 0 ? (throttle > 0 ? 1 : 0) : ((rpm >= up || (engine >= min(up, most) && "
                        f"rpm >= min(up, most) - {SHIFT_SLIP_ROOM})) && gear < count ? 1 : "
-                       f"(gear > 1 && rpm < down && rpm * lower / ratio < up - {SHIFT_DOWN_ROOM} ? -1 : 0))) : 0",
+                       f"(gear > 1 && rpm < down && rpm * lower / ratio < min(up, most) - {SHIFT_DOWN_ROOM} ? -1 : 0))) : 0",
                        auto=b.var("AutoShift"), held=held, wait=b.var("ShiftWait"), gear=gear, throttle=throttle, rpm=road,
                        engine=b.pure("Get:Strada.VehicleComponent.EngineSpeed", "Value"),
                        most=b.pure("Get:Strada.Vehicle.MaxRPM", "Value", Target=definition),
@@ -758,7 +792,10 @@ def write(author):
                        down=b.pure("Get:Strada.Vehicle.ShiftDownRPM", "Value", Target=definition), lower=lower, ratio=ratio)
         auto_up = b.branch(b.expr("shift == 1", shift=shift), comment="The automatic shifts, at the definition's speeds")
         auto_down = b.branch(b.expr("shift == -1", shift=shift))
-        b.chain(fixed, steps)
+        # The hold this step: the director's request, taken and cleared, so that it lapses in the first step it is not made.
+        taken = b.set(HELD, b.var(HOLD_ASKED), comment="Held while the director asks it, step by step")
+        cleared = b.set(HOLD_ASKED, False)
+        b.chain(fixed, taken, cleared, steps)
         b.flow(steps["Then0"], ridden)
         b.flow(steps["Then1"], up)
         b.chain(up["True"], b.call(SHIFT_UP_CALL), _hold(b))

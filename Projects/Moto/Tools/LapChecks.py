@@ -52,10 +52,11 @@ DELTA_TOLERANCE = GhostChecks.DELTA_TOLERANCE
 # the heading's change since the last sample, the balancing lean atan(v x rate / g), and where that passes LEAN_FROM degrees
 # the bike's lean over it is a sample; the laps' reading is the samples' mean. The bike as drawn (its contacts as wide as its
 # tyres) read 0.07, the feel pass's contacts about two thirds (Docs/Architecture.md section 15); the bound is 85 % of the
-# weaker of the Debug and the Release readings (0.671 and 0.676), so that a bike that rides its corners upright again fails.
+# weaker of the Debug and the Release readings (with the yaw damper 0.643 and 0.6415; 0.671 and 0.676 before it), so that a
+# bike that rides its corners upright again fails.
 LEAN_EVERY = 6
 LEAN_FROM = 10.0
-LEAN_SHARE = 0.57
+LEAN_SHARE = 0.545
 # How long a check waits for its reading (seconds of the game, from when it starts); the scene's timeout stays above it.
 WAIT = 200
 

@@ -219,37 +219,48 @@
 						},
 						{
 							"ID": 51,
+							"Type": "Variable.Get",
+							"Position": [
+								0.0,
+								176.0
+							],
+							"Settings": {
+								"Variable": 7
+							}
+						},
+						{
+							"ID": 52,
 							"Type": "Expression",
 							"Position": [
 								192.0,
 								0.0
 							],
 							"Settings": {
-								"Formula": "asked < 0"
+								"Formula": "asked < 0 && step >= 1"
 							}
 						},
 						{
-							"ID": 52,
+							"ID": 53,
 							"Type": "Flow.Branch",
 							"Position": [
 								400.0,
 								0.0
 							],
-							"Comment": "The race starts with the scene, as RACE starts it"
+							"Comment": "The race starts as the scene does, as RACE starts it"
 						},
 						{
-							"ID": 53,
+							"ID": 54,
 							"Type": "Variable.Get",
 							"Position": [
 								192.0,
-								128.0
+								144.0
 							],
 							"Settings": {
 								"Variable": 2
 							}
 						},
 						{
-							"ID": 54,
+							"ID": 55,
 							"Type": "Variable.Get",
 							"Position": [
 								400.0,
@@ -261,7 +272,7 @@
 							}
 						},
 						{
-							"ID": 55,
+							"ID": 56,
 							"Type": "Variable.Set",
 							"Position": [
 								624.0,
@@ -272,7 +283,7 @@
 							}
 						},
 						{
-							"ID": 56,
+							"ID": 57,
 							"Type": "Event.Send",
 							"Position": [
 								816.0,
@@ -285,7 +296,7 @@
 							}
 						},
 						{
-							"ID": 57,
+							"ID": 58,
 							"Type": "Variable.Get",
 							"Position": [
 								400.0,
@@ -297,7 +308,7 @@
 							}
 						},
 						{
-							"ID": 58,
+							"ID": 59,
 							"Type": "Literal",
 							"Position": [
 								400.0,
@@ -309,7 +320,7 @@
 							}
 						},
 						{
-							"ID": 59,
+							"ID": 60,
 							"Type": "Operator.Equal",
 							"Position": [
 								624.0,
@@ -317,7 +328,7 @@
 							]
 						},
 						{
-							"ID": 60,
+							"ID": 61,
 							"Type": "Expression",
 							"Position": [
 								816.0,
@@ -328,7 +339,7 @@
 							}
 						},
 						{
-							"ID": 61,
+							"ID": 62,
 							"Type": "Flow.Branch",
 							"Position": [
 								1040.0,
@@ -337,7 +348,7 @@
 							"Comment": "Held on the grid: what the vehicle applied"
 						},
 						{
-							"ID": 62,
+							"ID": 63,
 							"Type": "Variable.Get",
 							"Position": [
 								816.0,
@@ -348,7 +359,7 @@
 							}
 						},
 						{
-							"ID": 63,
+							"ID": 64,
 							"Type": "Variable.Get",
 							"Position": [
 								624.0,
@@ -359,7 +370,7 @@
 							}
 						},
 						{
-							"ID": 64,
+							"ID": 65,
 							"Type": "Get:Strada.VehicleComponent.Throttle",
 							"Position": [
 								816.0,
@@ -367,7 +378,7 @@
 							]
 						},
 						{
-							"ID": 65,
+							"ID": 66,
 							"Type": "Expression",
 							"Position": [
 								1040.0,
@@ -378,7 +389,7 @@
 							}
 						},
 						{
-							"ID": 66,
+							"ID": 67,
 							"Type": "Variable.Set",
 							"Position": [
 								1264.0,
@@ -389,7 +400,7 @@
 							}
 						},
 						{
-							"ID": 67,
+							"ID": 68,
 							"Type": "Variable.Get",
 							"Position": [
 								1040.0,
@@ -400,7 +411,7 @@
 							}
 						},
 						{
-							"ID": 68,
+							"ID": 69,
 							"Type": "Get:Strada.VehicleComponent.Gear",
 							"Position": [
 								1040.0,
@@ -408,7 +419,7 @@
 							]
 						},
 						{
-							"ID": 69,
+							"ID": 70,
 							"Type": "Expression",
 							"Position": [
 								1264.0,
@@ -419,7 +430,7 @@
 							}
 						},
 						{
-							"ID": 70,
+							"ID": 71,
 							"Type": "Variable.Set",
 							"Position": [
 								1472.0,
@@ -430,7 +441,7 @@
 							}
 						},
 						{
-							"ID": 71,
+							"ID": 72,
 							"Type": "Get:Strada.TransformComponent.WorldTranslation",
 							"Position": [
 								1040.0,
@@ -438,7 +449,7 @@
 							]
 						},
 						{
-							"ID": 72,
+							"ID": 73,
 							"Type": "Literal",
 							"Position": [
 								1040.0,
@@ -454,7 +465,7 @@
 							}
 						},
 						{
-							"ID": 73,
+							"ID": 74,
 							"Type": "Literal",
 							"Position": [
 								1040.0,
@@ -470,7 +481,7 @@
 							}
 						},
 						{
-							"ID": 74,
+							"ID": 75,
 							"Type": "Expression",
 							"Position": [
 								1264.0,
@@ -481,7 +492,7 @@
 							}
 						},
 						{
-							"ID": 75,
+							"ID": 76,
 							"Type": "Variable.Get",
 							"Position": [
 								1264.0,
@@ -492,7 +503,7 @@
 							}
 						},
 						{
-							"ID": 76,
+							"ID": 77,
 							"Type": "Expression",
 							"Position": [
 								1472.0,
@@ -503,7 +514,7 @@
 							}
 						},
 						{
-							"ID": 77,
+							"ID": 78,
 							"Type": "Flow.Branch",
 							"Position": [
 								1696.0,
@@ -512,7 +523,7 @@
 							"Comment": "Forward across the start and finish line's plane since the step before"
 						},
 						{
-							"ID": 78,
+							"ID": 79,
 							"Type": "Variable.Get",
 							"Position": [
 								1472.0,
@@ -523,7 +534,7 @@
 							}
 						},
 						{
-							"ID": 79,
+							"ID": 80,
 							"Type": "Expression",
 							"Position": [
 								1696.0,
@@ -534,7 +545,7 @@
 							}
 						},
 						{
-							"ID": 80,
+							"ID": 81,
 							"Type": "Flow.Branch",
 							"Position": [
 								1920.0,
@@ -543,7 +554,7 @@
 							"Comment": "A lap of the runner's count ends"
 						},
 						{
-							"ID": 81,
+							"ID": 82,
 							"Type": "Variable.Get",
 							"Position": [
 								1696.0,
@@ -554,22 +565,11 @@
 							}
 						},
 						{
-							"ID": 82,
-							"Type": "Variable.Get",
-							"Position": [
-								1472.0,
-								336.0
-							],
-							"Settings": {
-								"Variable": 7
-							}
-						},
-						{
 							"ID": 83,
 							"Type": "Variable.Get",
 							"Position": [
 								1472.0,
-								400.0
+								336.0
 							],
 							"Settings": {
 								"Variable": 11
@@ -580,7 +580,7 @@
 							"Type": "Get:Strada.Time.FixedDeltaTime",
 							"Position": [
 								1472.0,
-								464.0
+								400.0
 							]
 						},
 						{
@@ -1055,28 +1055,28 @@
 								"Value"
 							],
 							"To": [
-								51,
+								52,
 								"asked"
 							]
 						},
 						{
 							"From": [
 								51,
-								"Result"
+								"Value"
 							],
 							"To": [
 								52,
-								"Condition"
+								"step"
 							]
 						},
 						{
 							"From": [
-								53,
-								"Value"
+								52,
+								"Result"
 							],
 							"To": [
-								54,
-								"Target"
+								53,
+								"Condition"
 							]
 						},
 						{
@@ -1086,57 +1086,17 @@
 							],
 							"To": [
 								55,
-								"Value"
+								"Target"
 							]
 						},
 						{
 							"From": [
-								53,
+								55,
 								"Value"
 							],
 							"To": [
 								56,
-								"Target"
-							]
-						},
-						{
-							"From": [
-								53,
 								"Value"
-							],
-							"To": [
-								57,
-								"Target"
-							]
-						},
-						{
-							"From": [
-								57,
-								"Value"
-							],
-							"To": [
-								59,
-								"A"
-							]
-						},
-						{
-							"From": [
-								58,
-								"Value"
-							],
-							"To": [
-								59,
-								"B"
-							]
-						},
-						{
-							"From": [
-								59,
-								"Result"
-							],
-							"To": [
-								60,
-								"counting"
 							]
 						},
 						{
@@ -1145,18 +1105,38 @@
 								"Value"
 							],
 							"To": [
-								60,
-								"steps"
+								57,
+								"Target"
 							]
 						},
 						{
 							"From": [
-								50,
+								54,
+								"Value"
+							],
+							"To": [
+								58,
+								"Target"
+							]
+						},
+						{
+							"From": [
+								58,
 								"Value"
 							],
 							"To": [
 								60,
-								"asked"
+								"A"
+							]
+						},
+						{
+							"From": [
+								59,
+								"Value"
+							],
+							"To": [
+								60,
+								"B"
 							]
 						},
 						{
@@ -1166,107 +1146,127 @@
 							],
 							"To": [
 								61,
+								"counting"
+							]
+						},
+						{
+							"From": [
+								55,
+								"Value"
+							],
+							"To": [
+								61,
+								"steps"
+							]
+						},
+						{
+							"From": [
+								50,
+								"Value"
+							],
+							"To": [
+								61,
+								"asked"
+							]
+						},
+						{
+							"From": [
+								61,
+								"Result"
+							],
+							"To": [
+								62,
 								"Condition"
 							]
 						},
 						{
 							"From": [
-								63,
+								64,
 								"Value"
 							],
 							"To": [
-								64,
+								65,
 								"Target"
 							]
 						},
 						{
 							"From": [
-								62,
+								63,
 								"Value"
 							],
 							"To": [
-								65,
+								66,
 								"most"
 							]
 						},
 						{
 							"From": [
-								64,
+								65,
 								"Value"
 							],
 							"To": [
-								65,
+								66,
 								"applied"
 							]
 						},
 						{
 							"From": [
-								65,
+								66,
 								"Result"
 							],
 							"To": [
-								66,
+								67,
 								"Value"
 							]
 						},
 						{
 							"From": [
-								63,
+								64,
 								"Value"
 							],
 							"To": [
-								68,
+								69,
 								"Target"
 							]
 						},
 						{
 							"From": [
-								67,
+								68,
 								"Value"
 							],
 							"To": [
-								69,
+								70,
 								"most"
 							]
 						},
 						{
 							"From": [
-								68,
+								69,
 								"Value"
 							],
 							"To": [
-								69,
+								70,
 								"gear"
 							]
 						},
 						{
 							"From": [
-								69,
+								70,
 								"Result"
 							],
 							"To": [
-								70,
+								71,
 								"Value"
 							]
 						},
 						{
 							"From": [
-								63,
+								64,
 								"Value"
 							],
 							"To": [
-								71,
+								72,
 								"Target"
-							]
-						},
-						{
-							"From": [
-								71,
-								"Value"
-							],
-							"To": [
-								74,
-								"at"
 							]
 						},
 						{
@@ -1275,8 +1275,8 @@
 								"Value"
 							],
 							"To": [
-								74,
-								"origin"
+								75,
+								"at"
 							]
 						},
 						{
@@ -1285,63 +1285,73 @@
 								"Value"
 							],
 							"To": [
+								75,
+								"origin"
+							]
+						},
+						{
+							"From": [
 								74,
+								"Value"
+							],
+							"To": [
+								75,
 								"forward"
 							]
 						},
 						{
 							"From": [
-								75,
+								76,
 								"Value"
 							],
 							"To": [
-								76,
+								77,
 								"last"
 							]
 						},
 						{
 							"From": [
-								74,
+								75,
 								"Result"
 							],
 							"To": [
-								76,
+								77,
 								"here"
 							]
 						},
 						{
 							"From": [
-								76,
+								77,
 								"Result"
 							],
 							"To": [
-								77,
+								78,
 								"Condition"
 							]
 						},
 						{
 							"From": [
-								78,
+								79,
 								"Value"
 							],
 							"To": [
-								79,
+								80,
 								"crossings"
 							]
 						},
 						{
 							"From": [
-								79,
+								80,
 								"Result"
 							],
 							"To": [
-								80,
+								81,
 								"Condition"
 							]
 						},
 						{
 							"From": [
-								82,
+								51,
 								"Value"
 							],
 							"To": [
@@ -1371,7 +1381,7 @@
 						},
 						{
 							"From": [
-								81,
+								82,
 								"Value"
 							],
 							"To": [
@@ -1401,7 +1411,7 @@
 						},
 						{
 							"From": [
-								78,
+								79,
 								"Value"
 							],
 							"To": [
@@ -1421,7 +1431,7 @@
 						},
 						{
 							"From": [
-								82,
+								51,
 								"Value"
 							],
 							"To": [
@@ -1431,7 +1441,7 @@
 						},
 						{
 							"From": [
-								74,
+								75,
 								"Result"
 							],
 							"To": [
@@ -1441,7 +1451,7 @@
 						},
 						{
 							"From": [
-								53,
+								54,
 								"Value"
 							],
 							"To": [
@@ -1501,7 +1511,7 @@
 						},
 						{
 							"From": [
-								53,
+								54,
 								"Value"
 							],
 							"To": [
@@ -1551,7 +1561,7 @@
 						},
 						{
 							"From": [
-								57,
+								58,
 								"Value"
 							],
 							"To": [
@@ -1631,7 +1641,7 @@
 						},
 						{
 							"From": [
-								53,
+								54,
 								"Value"
 							],
 							"To": [
@@ -1651,7 +1661,7 @@
 						},
 						{
 							"From": [
-								53,
+								54,
 								"Value"
 							],
 							"To": [
@@ -1721,7 +1731,7 @@
 						},
 						{
 							"From": [
-								53,
+								54,
 								"Value"
 							],
 							"To": [
@@ -1741,7 +1751,7 @@
 						},
 						{
 							"From": [
-								53,
+								54,
 								"Value"
 							],
 							"To": [
@@ -1781,7 +1791,7 @@
 						},
 						{
 							"From": [
-								82,
+								51,
 								"Value"
 							],
 							"To": [
@@ -1805,24 +1815,14 @@
 								"Then"
 							],
 							"To": [
-								52,
+								53,
 								"Execute"
 							]
 						},
 						{
 							"From": [
-								52,
+								53,
 								"True"
-							],
-							"To": [
-								55,
-								"Execute"
-							]
-						},
-						{
-							"From": [
-								55,
-								"Then"
 							],
 							"To": [
 								56,
@@ -1835,73 +1835,83 @@
 								"Then"
 							],
 							"To": [
-								61,
+								57,
 								"Execute"
 							]
 						},
 						{
 							"From": [
-								52,
-								"False"
-							],
-							"To": [
-								61,
-								"Execute"
-							]
-						},
-						{
-							"From": [
-								61,
-								"True"
-							],
-							"To": [
-								66,
-								"Execute"
-							]
-						},
-						{
-							"From": [
-								66,
+								57,
 								"Then"
 							],
 							"To": [
-								70,
+								62,
 								"Execute"
 							]
 						},
 						{
 							"From": [
-								70,
-								"Then"
-							],
-							"To": [
-								77,
-								"Execute"
-							]
-						},
-						{
-							"From": [
-								61,
+								53,
 								"False"
 							],
 							"To": [
-								77,
+								62,
 								"Execute"
 							]
 						},
 						{
 							"From": [
-								77,
+								62,
 								"True"
 							],
 							"To": [
-								80,
+								67,
 								"Execute"
 							]
 						},
 						{
 							"From": [
-								80,
+								67,
+								"Then"
+							],
+							"To": [
+								71,
+								"Execute"
+							]
+						},
+						{
+							"From": [
+								71,
+								"Then"
+							],
+							"To": [
+								78,
+								"Execute"
+							]
+						},
+						{
+							"From": [
+								62,
+								"False"
+							],
+							"To": [
+								78,
+								"Execute"
+							]
+						},
+						{
+							"From": [
+								78,
+								"True"
+							],
+							"To": [
+								81,
+								"Execute"
+							]
+						},
+						{
+							"From": [
+								81,
 								"True"
 							],
 							"To": [
@@ -1931,7 +1941,7 @@
 						},
 						{
 							"From": [
-								80,
+								81,
 								"False"
 							],
 							"To": [
@@ -1951,7 +1961,7 @@
 						},
 						{
 							"From": [
-								77,
+								78,
 								"False"
 							],
 							"To": [

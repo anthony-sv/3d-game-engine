@@ -37,8 +37,9 @@ director's first fixed step after it, while it is still counting down (an Abando
 is teleported to the grid's place and heading (Bike.grid_place) and its vehicle reset (VehicleComponent.ResetVehicle: at
 rest in neutral, the engine at idle), both in that one step, so the return is the same at every frame rate; a subject
 that does not run the riding graph (a test's box) stays where it is. At each fixed step the director sets the subject's
-riding graph's Held to its Holding (Vehicle.py's hold), which holds the bike on the grid through the countdown whatever
-its driver asks, and lets it go in the step of the start signal. Returns counts the returns.
+riding graph's HoldAsked to its Holding (Vehicle.py's hold), which holds the bike on the grid through the countdown whatever
+its driver asks and lets it go in the step of the start signal; the riding graph takes the request at each of its steps
+and clears it, so a bike the director stops asking for is free in its next step. Returns counts the returns.
 
 The best lap is kept in the save slot SLOT: its time, its splits and the ghost's samples (GHOST_SAMPLES, at SAMPLE_RATE a
 second, as public arrays of the graph GHOST_GRAPH on the director's Ghost). The director opens the slot once the scene has
@@ -620,11 +621,11 @@ def write_functions(author):
         b.chain(ridden["True"], moved, reset, counted, b.ret)
         for source in (asked["False"], counting["False"], ridden["False"]):
             b.flow(source, b.ret)
-    with author.region(DIRECTOR, "Hold: the subject's riding graph held on the grid while Holding", EFFECTS, "Hold") as b:
+    with author.region(DIRECTOR, "Hold: the subject's riding graph asked to hold on the grid while Holding", EFFECTS, "Hold") as b:
         subject = b.var("Subject")
         ridden = b.branch(b.runs(Vehicle.BIKE, subject))
-        held = b.set(Vehicle.HELD, b.var("Holding"), graph=Vehicle.BIKE, target=subject,
-                     comment="On through the countdown, off from the signal's step")
+        held = b.set(Vehicle.HOLD_ASKED, b.var("Holding"), graph=Vehicle.BIKE, target=subject,
+                     comment="Asked at each step of the countdown, not from the signal's step; the riding graph clears it")
         b.chain(b.entry, ridden)
         b.chain(ridden["True"], held, b.ret)
         b.flow(ridden["False"], b.ret)

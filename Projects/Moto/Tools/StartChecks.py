@@ -3,8 +3,9 @@ without its props): the race director, the bike, the ghost and the menus wired a
 standing in for any of them, the race on its title as the game opens (Docs/Architecture.md section 15, "The race's
 start"). Its runner rides the bike on its riding graph's test driver with the rider assists a new player has, and sends the
 director StartRace from its own fixed steps, as the menus' buttons send it from theirs; every race must start from the
-grid: the bike put back on the grid's place and heading and reset as it was made, then held there through the countdown
-whatever its driver asks.
+grid: the bike put back on the grid's place and heading and its vehicle reset (at rest in neutral, the engine at idle), then
+held there through the countdown whatever its driver asks. Every start here comes TITLE_STEPS or more after the scene's
+first step: a reset in the step after the vehicle was made launches it otherwise (Docs/Architecture.md section 15).
 
 It is driven from the runner graph's Event.FixedUpdate by its own count of fixed steps and by what the bike and the
 director read, never by a frame (the rule of the rides compared across frame rates), and logs every reading in one line
@@ -22,6 +23,9 @@ director read, never by a frame (the rule of the rides compared across frame rat
 4. From the gravel: the bike in the gravel trap outside Turn 6 at full throttle, its rear wheel spinning, GRAVEL_STEPS.
 5. QUIT TO TITLE in a countdown (AbandonRace, as the pause screen sends it): the director at the title, the hold ended and
    the bike ridden off again.
+6. A director that stops holding: a last StartRace, and FREE_AT steps into its countdown the director's Subject set to the
+   runner (which runs no riding graph), so that it no longer holds the bike: the hold lapses on the bike's side in the next
+   step, the countdown going on; then the Subject given back and QUIT TO TITLE.
 
 After each signal the bike launches at full throttle for LAUNCH_STEPS: the launch's speed then, which every start must
 give as the first does. The checks (latent functions of the update) wait for the line (StartsDone) and report what it
@@ -60,6 +64,10 @@ AGAIN_AT = 20
 PAUSE_AT = 20
 PAUSE_FRAMES = 10
 QUIT_AT = 10
+FREE_AT = 10
+# How many steps after the director let go of the bike it is read: the director's step, the riding graph's and the runner's
+# fall in the scene's order of its graphs, and the hold lapses in the riding graph's first step without the director's.
+FREE_STEPS = 3
 # The fall: the bike teleported where it is, rolled ROLL degrees to its right at the speed it has, then FALL_STEPS; the
 # gravel: GRAVEL_STEPS at full throttle in the trap from rest; after QUIT TO TITLE, QUIT_STEPS at full throttle.
 ROLL = 75.0
@@ -81,6 +89,7 @@ PHASES = (
     ("Fall", "StartsFall"),
     ("Gravel", "StartsGravel"),
     ("Quit", "StartsQuit"),
+    ("Free", "StartsFree"),
     ("Stand", "StartsStand"),
 )
 
@@ -97,7 +106,6 @@ IDLE_SHARE = 1.01
 LAUNCH_SHARE = 0.005
 # How long a check waits for its reading (seconds of the game, from when it starts); the scene's timeout stays above it.
 WAIT = 60
-SCENE_TIMEOUT = 90
 
 
 def scene_timeout():
@@ -131,7 +139,8 @@ VARIABLES = (
     private("PausedFrames", "int", 0), private("PauseSteps", "int", -1), private("PauseAt", VECTOR), private("PauseMoved", "float", -1.0),
     private("PauseStepsMoved", "int", -1), private("PauseSent", "bool", False), private("PauseDone", "bool", False),
     private("QuitState", "string", ""), private("QuitHeld", "bool", True), private("QuitReturns", "int", -1),
-    private("QuitGear", "int", -1), private("QuitSpeed", "float", -1.0), private("StartsDone", "bool", False),
+    private("QuitGear", "int", -1), private("QuitSpeed", "float", -1.0), private("FreeState", "string", ""),
+    private("FreeHeld", "bool", True), private("FreeThrottle", "float", -1.0), private("StartsDone", "bool", False),
 )
 
 
@@ -413,7 +422,35 @@ def write_quit(b):
     b.flow(quit_now["False"], noted)
     b.chain(noted["True"], *readings, done)
     b.flow(noted["False"], done)
-    b.chain(done["True"], *ridden, enter(b, "Stand"), b.ret)
+    b.chain(done["True"], *ridden, enter(b, "Free"), b.ret)
+    b.flow(done["False"], b.ret)
+
+
+def write_free(b):
+    """A last StartRace; FREE_AT steps into its countdown the director's Subject set to the runner, so that the director holds
+    the bike no more: FREE_STEPS steps later the bike's Held and the throttle the vehicle applied (the driver asks it full),
+    the director still counting down; then the Subject given back and QUIT TO TITLE."""
+    first, last = drive(b, 1.0)
+    begin = first_step(b)
+    asked, sent = start_race(b, comment="A race whose director lets go of the bike in its countdown")
+    away = b.branch(b.expr(f"elapsed == {FREE_AT}", elapsed=elapsed(b)))
+    changed = b.set("Subject", b.self_(), graph=DIRECTOR, target=race(b), comment="A subject that runs no riding graph")
+    noted = b.branch(b.expr(f"elapsed == {FREE_AT + FREE_STEPS}", elapsed=elapsed(b)), comment="The hold lapsed on the bike's side")
+    readings = [b.set("FreeState", director(b, "State")), b.set("FreeHeld", b.get(Vehicle.HELD, BIKE, bike(b))),
+                b.set("FreeThrottle", b.pure("Get:Strada.VehicleComponent.Throttle", "Value", Target=bike(b))),
+                b.set("Subject", bike(b), graph=DIRECTOR, target=race(b))]
+    abandoned = b.send("AbandonRace", race(b), graph=DIRECTOR, comment="QUIT TO TITLE")
+    done = b.branch(b.expr(f"elapsed >= {FREE_AT + FREE_STEPS + SETTLED}", elapsed=elapsed(b)))
+    b.chain(b.entry, first)
+    b.flow(last, begin)
+    b.flow(begin["True"], asked)
+    b.flow(sent, away)
+    b.flow(begin["False"], away)
+    b.chain(away["True"], changed, noted)
+    b.flow(away["False"], noted)
+    b.chain(noted["True"], *readings, abandoned, done)
+    b.flow(noted["False"], done)
+    b.chain(done["True"], enter(b, "Stand"), b.ret)
     b.flow(done["False"], b.ret)
 
 
@@ -427,14 +464,17 @@ def write_stand(b):
         "laps {Lap}, {Steps} steps after StartRace; through the countdowns the vehicle applied at most {Throttle} of the "
         "throttle and gears {Held}; launched to {Launch} m/s; a second StartRace in the countdown left {Again} with {Returns} "
         "returns; while paused the bike moved {Moved} m and the director counted {StepsMoved} steps; QUIT TO TITLE in a countdown "
-        "left {QuitState}, held {QuitHeld}, {QuitReturns} returns, then gear {QuitGear} at {QuitSpeed} m/s; done at step {Step}",
+        "left {QuitState}, held {QuitHeld}, {QuitReturns} returns, then gear {QuitGear} at {QuitSpeed} m/s; a director that let go of "
+        "the bike in its countdown left it held {FreeHeld}, the throttle applied {FreeThrottle}, the director {FreeState}; done at "
+        "step {Step}",
         FromSpeed=b.var("FromSpeed"), FromLean=b.var("FromLean"), FromGear=b.var("FromGear"),
         FromSpin=b.var("FromSpin"), GridOff=b.var("GridOff"), HeadingOff=b.var("HeadingOff"),
         SpinOff=b.var("SpinOff"), Engine=b.var("SignalEngine"), Gear=b.var("SignalGear"), Lap=b.var("SignalLap"),
         Steps=b.var("CountSteps"), Throttle=b.var("HeldThrottle"), Held=b.var("HeldGear"), Launch=b.var("Launch"),
         Again=b.var("AgainState"), Returns=b.var("ReturnsAfterAgain"), Moved=b.var("PauseMoved"),
         StepsMoved=b.var("PauseStepsMoved"), QuitState=b.var("QuitState"), QuitHeld=b.var("QuitHeld"),
-        QuitReturns=b.var("QuitReturns"), QuitGear=b.var("QuitGear"), QuitSpeed=b.var("QuitSpeed"), Step=b.var("SStep"))
+        QuitReturns=b.var("QuitReturns"), QuitGear=b.var("QuitGear"), QuitSpeed=b.var("QuitSpeed"), FreeHeld=b.var("FreeHeld"),
+        FreeThrottle=b.var("FreeThrottle"), FreeState=b.var("FreeState"), Step=b.var("SStep"))
     log = b.call("Call:Strada.Log.Info(string)", Message=readings, comment="Every reading, the same at every frame rate")
     b.chain(b.entry, first)
     b.chain(last, log, b.set("StartsDone", True), enter(b, "Done"), b.ret)
@@ -451,6 +491,7 @@ HELPERS = (
     (("StartsFall", False, (), (), ()), "Fall: rolled onto its side at speed, then StartRace", write_fall),
     (("StartsGravel", False, (), (), ()), "Gravel: spinning in the trap, then StartRace", write_gravel),
     (("StartsQuit", False, (), (), ()), "Quit: a countdown left for the title, the bike free again", write_quit),
+    (("StartsFree", False, (), (), ()), "Free: the director lets go of the bike, which the hold no longer holds", write_free),
     (("StartsStand", False, (), (), ()), "Stand: every reading logged", write_stand),
 )
 
@@ -501,7 +542,7 @@ def checks():
     return (
         ("CheckJumpStart", "Jump start: full throttle and ShiftUp through the countdown move nothing",
          "a throttle held open and a shift asked through the countdown move nothing: the bike waits in neutral, braked"),
-        ("CheckStartFromTitle", "Title: the race starts on the grid, the bike as new",
+        ("CheckStartFromTitle", "Title: the race starts on the grid, the bike at rest in neutral",
          "a race started from the title begins on the grid, its wheels still, the engine at idle in neutral"),
         ("CheckStartFromResults", "Results: RACE AGAIN in a shift starts on the grid",
          "a race started again from the results in the middle of a shift begins on the grid as the first did"),
@@ -515,6 +556,8 @@ def checks():
          "a pause in the countdown stops it and the bike, and the countdown goes on from where it was"),
         ("CheckQuitCountdown", "Quit: QUIT TO TITLE in a countdown ends the hold",
          "QUIT TO TITLE in a countdown goes back to the title and lets the bike go, with no return after"),
+        ("CheckFreedHold", "Let go: a director that stops holding frees the bike",
+         "a bike its director no longer holds in a countdown is free in the next step, whatever else the director does"),
     )
 
 
@@ -589,6 +632,16 @@ def check_quit_countdown(b, name):
     run(b, Checks.check(b, name, ready, WAIT, text, passed))
 
 
+def check_freed_hold(b, name):
+    ready = b.var("StartsDone")
+    passed = b.both(ready, b.expr("!held && throttle == 1", held=b.var("FreeHeld"), throttle=b.var("FreeThrottle")))
+    passed = b.both(passed, b.equal(b.var("FreeState"), b.lit("string", "Countdown")))
+    text = b.fmt(f"the director's Subject changed {FREE_AT} steps into a countdown: {FREE_STEPS} steps later the bike was held "
+                 f"{{Held}} and the vehicle applied {{Throttle}} of the throttle its driver asks, the director {{State}}",
+                 Held=b.var("FreeHeld"), Throttle=b.var("FreeThrottle"), State=b.var("FreeState"))
+    run(b, Checks.check(b, name, ready, WAIT, text, passed))
+
+
 WRITERS = {
     "CheckJumpStart": check_jump_start,
     "CheckStartFromTitle": lambda b, name: check_start(b, name, 0),
@@ -598,6 +651,7 @@ WRITERS = {
     "CheckSecondStart": check_second_start,
     "CheckPausedCountdown": check_paused_countdown,
     "CheckQuitCountdown": check_quit_countdown,
+    "CheckFreedHold": check_freed_hold,
 }
 
 
