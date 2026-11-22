@@ -620,8 +620,9 @@ TEST_CASE("MotoPlay: the title's RACE holds the bike on the grid through the cou
 {
 	// The main scene as the game opens it, the player holding the throttle (Key/W) open from the title on. Enter presses
 	// RACE: the race director (Tools/Race.py) puts its subject, the bike, on the grid and resets it as the countdown begins,
-	// and sets the riding graph's Held (Tools/Vehicle.py) through the countdown, which gives the vehicle no throttle, both
-	// brakes and no shift whatever the player asks. The countdown is 1 s here (the game's is 3 s), to keep the case short.
+	// and asks the riding graph (Tools/Vehicle.py) at each step of the countdown to hold the bike (its Held), which gives the
+	// vehicle no throttle, both brakes and no shift whatever the player asks. The countdown is 1 s here (the game's is 3 s), to keep the
+	// case short.
 	MotoPlay moto;
 	moto.SetVariable("Race", "Countdown", ScriptFieldValue::FromFloat(1.0f));
 	glm::vec3 const grid = moto.Find("Bike").GetComponent<TransformComponent>().Translation;
@@ -675,8 +676,10 @@ TEST_CASE("MotoPlay: the title's RACE holds the bike on the grid through the cou
 	REQUIRE(moto.ReadOut("Race", "State").GetString() == "Countdown");
 	Countdown const first = countDown();
 	REQUIRE(moto.ReadOut("Race", "State").GetString() == "Racing");
-	// The countdown is 1 s of fixed steps, 60 frames at 1/60 s (two of them run before Press returns).
+	// The countdown is 1 s of fixed steps, 60 frames at 1/60 s (two of them run before Press returns), with a frame of room
+	// either way.
 	CHECK(first.Frames >= 57);
+	CHECK(first.Frames <= 61);
 	CHECK(first.Held);
 	CHECK(first.Throttle == 0.0f);
 	CHECK(first.Gear == 0);
@@ -701,16 +704,48 @@ TEST_CASE("MotoPlay: the title's RACE holds the bike on the grid through the cou
 	CAPTURE(away);
 	CHECK(away > 3.0f);
 	CHECK(vehicle()["forwardSpeed"].get<float>() > 5.0f);
+	// The HUD as a raced lap leaves it, which the State set above skips: the lap's sectors and a delta on its plate, put
+	// there as the HUD's own graph shows them. A countdown clears them as it begins, so a second race never shows the last.
+	moto.Find("Sectors Text").GetComponent<UITextComponent>().Text = "S1 0:21.250";
+	moto.Find("Delta Text").GetComponent<UITextComponent>().Text = "+0.480";
+	moto.Find("Delta Plate").GetComponent<UIRectComponent>().Visible = true;
 	moto.Click("Again Button");
 	REQUIRE(moto.ReadOut("Race", "State").GetString() == "Countdown");
 	CHECK(moto.ReadOut("Race", "Returns").GetInt32() == 2);
+	moto.Advance(1);
+	CHECK(moto.IsShown("Countdown Text"));
+	CHECK(moto.GetText("Sectors Text").empty());
+	CHECK(moto.GetText("Delta Text").empty());
+	CHECK_FALSE(moto.IsShown("Delta Plate"));
 	Countdown const again = countDown();
 	REQUIRE(moto.ReadOut("Race", "State").GetString() == "Racing");
+	CHECK(again.Frames >= 56);
+	CHECK(again.Frames <= 60);
 	CHECK(again.Held);
 	CHECK(again.Throttle == 0.0f);
 	CHECK(again.Gear == 0);
 	CHECK(again.Moved < 0.03f);
 	CHECK(again.Engine <= 1.01f * 1700.0f);
+	// At the second signal the camera director cuts to the chase view as at the first (RaceStarted), and the chase camera
+	// stands behind the bike back on the grid: Tools/Trackside.py's 6.5 m behind it on the level and 2.2 m above.
+	moto.Advance(2);
+	Entity const chase = moto.Find("Chase Camera");
+	CHECK(chase.GetComponent<CameraComponent>().Primary);
+	CHECK(chase.GetComponent<AudioListenerComponent>().Active);
+	CHECK_FALSE(moto.Find("Main Camera").GetComponent<CameraComponent>().Primary);
+	Entity const ridden = moto.Find("Bike");
+	glm::mat4 const bikeWorld = ridden.GetScene()->GetWorldTransform(ridden);
+	glm::vec3 const bikeAt = glm::vec3(bikeWorld[3]);
+	glm::vec3 const bikeForward = glm::normalize(glm::vec3(bikeWorld * glm::vec4(0.0f, 0.0f, -1.0f, 0.0f)));
+	glm::vec3 const behind = glm::vec3(chase.GetScene()->GetWorldTransform(chase)[3]) - bikeAt;
+	CAPTURE(behind.x);
+	CAPTURE(behind.y);
+	CAPTURE(behind.z);
+	CHECK(fromGrid() < 1.0f);
+	CHECK(glm::dot(behind, bikeForward) < -6.0f);
+	CHECK(glm::dot(behind, bikeForward) > -7.0f);
+	CHECK(behind.y > 1.7f);
+	CHECK(behind.y < 2.7f);
 	moto.Give(Json::object({{"keys", Json::object({{"W", false}})}}));
 	moto.Stop();
 }
