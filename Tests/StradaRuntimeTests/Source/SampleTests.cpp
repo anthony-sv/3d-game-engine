@@ -18,8 +18,8 @@ using namespace Strada;
 using namespace Strada::RuntimeTesting;
 
 // The repository's sample projects, played by the player: their test scenes pass their pinned checks, again with the same
-// summary, and at another frame rate, and their games run without a word from their graphs. A ctest entry of their own
-// (StradaRuntimeTests.Samples, Shards.cmake), as they take the longest.
+// summary, and at another frame rate (Moto's in MotoShipTests.cpp), and their games run without a word from their graphs. A
+// ctest entry of their own (StradaRuntimeTests.Samples, Shards.cmake), as they take the longest.
 
 TEST_CASE("Runtime: the feature-test project passes its test run")
 {
@@ -187,14 +187,7 @@ TEST_CASE("Runtime: the Moto sample, made of graphs alone, flies its camera tour
 	CHECK(again.ExitCode == 0);
 	CHECK_FALSE(TestSummary(tests.Output).empty());
 	CHECK(TestSummary(again.Output) == TestSummary(tests.Output));
-
-	// The checks wait in seconds of the game, so they pass at another frame rate too.
-	std::vector<std::string> slower = testRun;
-	slower.insert(slower.end(), {"--timestep", "0.0333333"});
-	ProcessResult const slow = RunPlayer(slower);
-	CAPTURE(slow.Output);
-	CHECK(slow.ExitCode == 0);
-	CHECK(Contains(slow.Output, "Tests passed: 24 checks"));
+	// Its checks at other frame rates are played with the sample as it ships (MotoShipTests.cpp).
 
 	// The game's own scene, whose tour takes off at once, runs five seconds without a window and without a word from its
 	// graphs.

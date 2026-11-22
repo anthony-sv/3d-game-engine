@@ -1,6 +1,7 @@
 #include "Physics/PhysicsTestUtilities.h"
 #include "TestUtilities.h"
 
+#include "Strada/Core/Hash.h"
 #include "Strada/Project/ProjectSettings.h"
 #include "Strada/Scene/Entity.h"
 #include "Strada/Scene/Scene.h"
@@ -13,6 +14,7 @@
 #include <cmath>
 #include <cstdint>
 #include <optional>
+#include <string>
 #include <vector>
 
 using namespace Strada;
@@ -395,6 +397,87 @@ TEST_CASE("ScenePhysics: one scene gives the same state hashes at 30, 60 and 144
 	}
 	// The hash tells steps apart, and the simulation moves.
 	CHECK(HashAtStep(Step, 150) != HashAtStep(Step, 151));
+}
+
+TEST_CASE("ScenePhysics: the folded hash is every step's state hash folded in order up to the hash step, the same at 30, 60 "
+          "and 144 frames per second, and the steps a restored snapshot runs again are folded once")
+{
+	Testing::PhysicsSystemScope physics;
+	constexpr uint64_t HashStep = 240;
+	auto const folding = [](uint64_t hashStep)
+	{
+		SceneRuntimeSettings settings = PhysicsOnly(hashStep);
+		settings.FoldPhysicsHashes = true;
+		return settings;
+	};
+
+	// One step a frame: each step's own hash, folded as the definition says, and nothing before the hash step.
+	HashBuilder expected;
+	{
+		Scene scene("Fold");
+		BuildScene(scene, false);
+		scene.OnRuntimeStart(folding(HashStep));
+		uint64_t early = 0;
+		for (uint64_t step = 1; step <= HashStep + 20; step++)
+		{
+			scene.OnUpdateRuntime(Timestep(Step));
+			REQUIRE(scene.GetFixedStepCount() == step);
+			if (step <= HashStep)
+			{
+				expected.AddUInt64(scene.ComputePhysicsStateHash());
+			}
+			early += step < HashStep && scene.GetFoldedPhysicsHash().has_value() ? 1 : 0;
+		}
+		CHECK(early == 0);
+		// The steps after the hash step fold nothing more.
+		CHECK(scene.GetFoldedPhysicsHash() == expected.GetHash());
+		CHECK(scene.GetRecordedPhysicsHash().has_value());
+		CHECK(*scene.GetFoldedPhysicsHash() != *scene.GetRecordedPhysicsHash());
+		scene.OnRuntimeStop();
+	}
+
+	// However the frames divide the steps.
+	for (float const frameTime : {1.0f / 30.0f, 1.0f / 144.0f})
+	{
+		CAPTURE(frameTime);
+		Scene scene("Fold");
+		BuildScene(scene, false);
+		scene.OnRuntimeStart(folding(HashStep));
+		for (int frame = 0; !scene.GetFoldedPhysicsHash() && frame < 100000; frame++)
+		{
+			scene.OnUpdateRuntime(Timestep(frameTime));
+		}
+		CHECK(scene.GetFoldedPhysicsHash() == expected.GetHash());
+		scene.OnRuntimeStop();
+	}
+
+	// Without a hash step every step is folded, to the latest; a restored snapshot takes the fold back to its step, so the
+	// fold after the steps run again is the fold of a run that never went back. Off, there is none.
+	Scene scene("Fold");
+	BuildScene(scene, false);
+	scene.OnRuntimeStart(folding(0));
+	RunHashes(scene, 100);
+	Result<ScenePhysicsSnapshot> saved = scene.SavePhysicsState();
+	REQUIRE_MESSAGE(saved.IsOk(), (saved ? std::string() : saved.GetError()));
+	RunHashes(scene, 140);
+	std::optional<uint64_t> const straight = scene.GetFoldedPhysicsHash();
+	CHECK(straight == expected.GetHash());
+	REQUIRE(scene.RestorePhysicsState(saved.GetValue()).IsOk());
+	RunHashes(scene, 140);
+	CHECK(scene.GetFoldedPhysicsHash() == straight);
+	// A new start folds from its first step again (the scene starts where the last run left it).
+	scene.OnRuntimeStop();
+	scene.OnRuntimeStart(folding(0));
+	std::vector<uint64_t> const restarted = RunHashes(scene, 1);
+	HashBuilder first;
+	first.AddUInt64(restarted.front());
+	CHECK(scene.GetFoldedPhysicsHash() == first.GetHash());
+	scene.OnRuntimeStop();
+	scene.OnRuntimeStart(PhysicsOnly(HashStep));
+	RunHashes(scene, 240);
+	CHECK_FALSE(scene.GetFoldedPhysicsHash().has_value());
+	CHECK(scene.GetRecordedPhysicsHash().has_value());
+	scene.OnRuntimeStop();
 }
 
 TEST_CASE("ScenePhysics: a character drifting under a tenth of a millimeter a step moves its kinematic part alike at any frame rate")

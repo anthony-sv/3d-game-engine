@@ -3,6 +3,7 @@
 #include "Strada/Asset/AssetHandle.h"
 #include "Strada/Audio/AudioScene.h"
 #include "Strada/Core/Base.h"
+#include "Strada/Core/Hash.h"
 #include "Strada/Core/InputActions.h"
 #include "Strada/Core/InputCapture.h"
 #include "Strada/Core/Result.h"
@@ -110,6 +111,10 @@ namespace Strada
 		// The fixed step after which the scene records its physics state hash (Scene::GetRecordedPhysicsHash); 0 records
 		// none.
 		uint64_t PhysicsHashStep = 0;
+		// Whether the scene folds the physics state hash of every fixed step, from the first to PhysicsHashStep (or to the
+		// latest when that is 0), into one (Scene::GetFoldedPhysicsHash): two runs whose folds are equal ran the same
+		// simulation at every one of those steps. Off, no step pays for a hash it does not record.
+		bool FoldPhysicsHashes = false;
 		// The project's input actions (an InputActions asset, ProjectSettings::InputActions), which the scene evaluates once
 		// per frame for its scripts (Docs/Architecture.md §7.4); none, or an asset that does not load, reads every action as
 		// zero.
@@ -244,6 +249,15 @@ namespace Strada
 			UUID Entity = UUID::Invalid();
 			WheelDrawing Drawing;
 		};
+		// A VehicleWheel entity that a made vehicle with no step yet draws, its parent and its local translation and rotation:
+		// such a vehicle has no pose to draw its wheels from, so a restore gives the entity back its own pose in its parent's
+		// space while it has the same parent, its scale kept as every wheel write keeps it.
+		struct WheelEntity
+		{
+			UUID Entity = UUID::Invalid();
+			UUID Parent = UUID::Invalid();
+			LocalPose Pose;
+		};
 
 		PhysicsSnapshot m_Physics;
 		uint64_t m_Step = 0;
@@ -252,11 +266,15 @@ namespace Strada
 		// sequence entities made while running take their UUIDs from.
 		bool m_IsDrawnBetweenSteps = false;
 		uint64_t m_IDSequence = 0;
+		// The fold of the steps' state hashes up to the saved step (Scene::GetFoldedPhysicsHash).
+		HashBuilder m_FoldedPhysicsHash;
 		// In UUID order.
 		std::vector<Body> m_Bodies;
 		std::vector<Character> m_Characters;
 		// The vehicles the scene had made, in UUID order.
 		std::vector<VehicleWheels> m_Vehicles;
+		// The wheel entities of those of them with no step yet, in the order of their UUIDs.
+		std::vector<WheelEntity> m_WheelEntities;
 	};
 
 	// An ECS world: entities with components, an ordered hierarchy, settings and runtime state. Main thread only.
@@ -443,18 +461,32 @@ namespace Strada
 		// The hash taken right after the fixed step SceneRuntimeSettings::PhysicsHashStep (the latest time that step ran, when
 		// a snapshot went back before it); empty before that step and when none was asked for.
 		std::optional<uint64_t> GetRecordedPhysicsHash() const { return m_RecordedPhysicsHash; }
+		// With SceneRuntimeSettings::FoldPhysicsHashes, the state hash (ComputePhysicsStateHash) of each fixed step from the
+		// first to PhysicsHashStep, or to the latest step when that is 0, taken right after the step and folded in the steps'
+		// order into one 64-bit FNV-1a hash (a HashBuilder given each step's hash). A snapshot holds the fold of the steps it
+		// was saved after and a restore puts it back, so steps run again after a restore are folded once; the count, and the
+		// fold with it, start again with the running scene, so a scene that loads another folds its steps from the first.
+		// Empty when the fold is off, before the first step, and before PhysicsHashStep when that is set.
+		std::optional<uint64_t> GetFoldedPhysicsHash() const;
 		// Saves the running scene's simulation between frames (ScenePhysicsSnapshot): the physics world's state
-		// (PhysicsScene::SaveState), the fixed step count, the accumulator, the sequence of the UUIDs entities made while
-		// running take, what the scene exchanged with each body and character, and the steps each vehicle's wheels are drawn
-		// between. Physics component changes not applied yet are applied first. Fails when the scene runs no physics.
+		// (PhysicsScene::SaveState), the fixed step count, the accumulator, the fold of the steps' state hashes so far
+		// (GetFoldedPhysicsHash), the sequence of the UUIDs entities made while running take, what the scene exchanged with
+		// each body and character, the steps each vehicle's wheels are drawn between, and for a made vehicle with no step yet
+		// (one just made, or made again or reset since its last step), which has no pose to draw its wheels from, each of its
+		// wheel entities' parent and local translation and rotation. Physics component changes not applied yet are applied
+		// first. Fails when the scene runs no physics.
 		[[nodiscard]] Result<ScenePhysicsSnapshot> SavePhysicsState();
-		// Goes back to a snapshot of this run between frames: the physics world, the step count and accumulator, the UUID
-		// sequence (an ID still held by an entity made since is skipped), and the entities of bodies and characters where they
-		// were then, with the vehicles' wheels drawn as they were, so the steps that follow run as they did. Physics component
-		// changes not applied yet are applied first, as
-		// the next frame would. Then it fails, changing nothing more, when the scene runs no physics, the snapshot is of
-		// another run, or a body, joint, character or vehicle was added, removed or rebuilt since. What the simulation does
-		// not change (scripts' state, entities without bodies, settings) stays as it is.
+		// Goes back to a snapshot of this run between frames: the physics world, the step count and accumulator, the fold of
+		// the steps' hashes, the UUID sequence (an ID still held by an entity made since is skipped), and the entities of
+		// bodies and characters where they were then, and the wheel entities a made vehicle draws: drawn from the saved
+		// steps, or for a vehicle with no step yet given back their own translation and rotation in their parents' space
+		// (their scale kept), so they stand where the snapshot saw them as long as the entities between them and the chassis
+		// stand as they did, which a snapshot does not hold. So the steps that follow run as they did. A wheel entity gone
+		// since is skipped; one added since, one with another parent now, or one no made vehicle draws is left as it is.
+		// Physics component changes not applied yet are applied first, as the next frame would. Then it fails, changing
+		// nothing more, when the scene runs no physics, the snapshot is of another run, or a body, joint, character or
+		// vehicle was added, removed or rebuilt since. What the simulation does not change (scripts' state, other entities
+		// without bodies, settings) stays as it is.
 		[[nodiscard]] Result<void> RestorePhysicsState(ScenePhysicsSnapshot const& snapshot);
 		// The physics world while running; null otherwise or when physics is unavailable.
 		PhysicsScene* GetPhysicsScene() { return m_Physics.get(); }
@@ -666,7 +698,8 @@ namespace Strada
 		void StopPhysics();
 		void UpdatePhysics(float deltaTime);
 		// One fixed step: OnFixedUpdate, the physics changes it made, the syncs to physics, the physics step and the syncs back;
-		// then it is counted (and the hash recorded after SceneRuntimeSettings::PhysicsHashStep).
+		// then it is counted (and the hash recorded after SceneRuntimeSettings::PhysicsHashStep, and folded while
+		// SceneRuntimeSettings::FoldPhysicsHashes asks).
 		void RunFixedStep(float step);
 		// Telemetry's part of a fixed step (SceneTelemetry.cpp, Architecture.md section 4.5): RunFixedStep's last call, after
 		// the step is counted and its hash recorded. While Telemetry records, it records the engine's own channels of the
@@ -787,6 +820,18 @@ namespace Strada
 			std::string Wheel;
 		};
 		void SayVehicleWheelProblem(Entity wheel, WheelDrawProblem problem, Entity chassis, std::string const& name);
+		// Which made vehicle draws a VehicleWheel entity, and which of its wheels: the nearest entity above it with a Vehicle,
+		// when its vehicle is made and its definition has the wheel's name. Vehicle is null when none does, and Problem says
+		// why (Drawn with no vehicle: the Vehicle above makes none, which that Vehicle says); Chassis is the vehicle's entity
+		// once one was found made. The one resolution of DrawVehicleWheels and of the snapshot's wheel entities.
+		struct WheelDrawer
+		{
+			WheelDrawProblem Problem = WheelDrawProblem::Drawn;
+			VehicleSyncState const* Vehicle = nullptr;
+			entt::entity Chassis = entt::null;
+			size_t Index = 0;
+		};
+		WheelDrawer FindWheelDrawer(entt::entity wheel);
 		// The entities whose vehicles the scene made, in the order of their UUIDs (a snapshot's vehicles).
 		std::vector<entt::entity> GetMadeVehicleOrder() const;
 
@@ -1026,6 +1071,8 @@ namespace Strada
 		bool m_IsDrawnBetweenSteps = false;
 		uint64_t m_FixedStepCount = 0;
 		std::optional<uint64_t> m_RecordedPhysicsHash;
+		// The fold of the steps' state hashes so far (SceneRuntimeSettings::FoldPhysicsHashes).
+		HashBuilder m_FoldedPhysicsHash;
 		// While running: the state of the sequence GenerateUniqueID takes UUIDs from.
 		uint64_t m_RuntimeIDSequence = 0;
 		std::unordered_map<entt::entity, BodyState> m_Bodies;

@@ -2,8 +2,10 @@
 # as projects, and its exit codes, output and window are checked.
 
 add_executable(StradaRuntimeTests
+    Source/FoldedHashTests.cpp
     Source/Main.cpp
     Source/MotoRideTests.cpp
+    Source/MotoShipTests.cpp
     Source/MotoSoundTests.cpp
     Source/RuntimeTestUtilities.h
     Source/RuntimeTests.cpp

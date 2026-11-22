@@ -15,13 +15,18 @@ set(STRADA_RUNTIME_TEST_TEMPLATE_FILES "*StradaRuntimeTests?Source?TemplateTests
 # Moto's ride, flow and start test scenes: the ridden bike's checks, the ride's, the race's and its starts', played at several
 # frame rates, and the flow scene twice keeping its data.
 set(STRADA_RUNTIME_TEST_RIDE_FILES "*StradaRuntimeTests?Source?MotoRideTests.cpp")
+# Moto as it ships: its test scene at 1/30 and 1/144 s a frame and the first minute of its ride from the grid, every fixed
+# step's physics state compared at three frame rates, with the player's fold of those states on a generated game; and the
+# exported game, its test scene's checks and what it keeps for its player across two runs.
+set(STRADA_RUNTIME_TEST_SHIP_FILES "*StradaRuntimeTests?Source?MotoShipTests.cpp,*StradaRuntimeTests?Source?FoldedHashTests.cpp")
 
-set(STRADA_TEST_SHARDS Samples Templates Ride Core)
+set(STRADA_TEST_SHARDS Samples Templates Ride Ship Core)
 
 set(STRADA_TEST_SHARD_Samples "--source-file=${STRADA_RUNTIME_TEST_SAMPLE_FILES}")
 set(STRADA_TEST_SHARD_Templates "--source-file=${STRADA_RUNTIME_TEST_TEMPLATE_FILES}")
 set(STRADA_TEST_SHARD_Ride "--source-file=${STRADA_RUNTIME_TEST_RIDE_FILES}")
+set(STRADA_TEST_SHARD_Ship "--source-file=${STRADA_RUNTIME_TEST_SHIP_FILES}")
 # Everything else: the player's command line, test runs, exported games, windows and screenshots, profiles and logs, and
 # Moto's sound captures (MotoSoundTests.cpp: five runs of the sample's game, kept out of Samples for its time).
 set(STRADA_TEST_SHARD_Core
-    "--source-file-exclude=${STRADA_RUNTIME_TEST_SAMPLE_FILES},${STRADA_RUNTIME_TEST_TEMPLATE_FILES},${STRADA_RUNTIME_TEST_RIDE_FILES}")
+    "--source-file-exclude=${STRADA_RUNTIME_TEST_SAMPLE_FILES},${STRADA_RUNTIME_TEST_TEMPLATE_FILES},${STRADA_RUNTIME_TEST_RIDE_FILES},${STRADA_RUNTIME_TEST_SHIP_FILES}")
