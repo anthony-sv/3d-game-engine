@@ -34,9 +34,8 @@ using namespace Strada::RuntimeTesting;
 // lap beside the next; their readings of the fixed steps are logged in a third line, compared as the others are. Last, the
 // bike at its limits (Tools/LimitChecks.py): in neutral the engine falls to idle once the throttle closes, the automatic
 // shift leaves first and second at the shift point, and a full front lever from 62 and 64 m/s, the assists on and then
-// off, keeps the bike upright on the road (the riding graph's yaw damper); logged in a fourth line. The scene's
-// race director stays idle and its screens hidden (Tools/Checks.py's start switches), so nothing but these checks speaks
-// for the race there.
+// off, keeps the bike upright on the road (the riding graph's yaw damper); logged in a fourth line. The scene leaves the
+// race and its screen out (Tools/Checks.py's NO_RACE), so nothing but these checks speaks for the race there.
 //
 // The flow test scene (Scenes/Flow.sscene, the main scene without its props too) runs the race director itself, so it is a
 // scene of its own: the bike's ride again (the same graph's functions, Scripts/FlowTests.sgraph), and beside it, from the
@@ -405,12 +404,13 @@ TEST_CASE("Runtime: Moto's trial test scene rides a whole race on the real race 
 
 	// Development runs keep their game data in the project's folder (a test run's is temporary). The first rides the race to
 	// its results and saves the best lap with the ghost's samples: three fixed steps a frame, paced at 60 frames a second,
-	// so the race's 165 s of the game take about 55 s. The second loads the slot as the scene starts, gives the ghost the
-	// samples, and in lap 1 the HUD shows the ghost's live delta.
+	// so the race's 165 s of the game take about 55 s; its 3,800 frames (190 s of the game) hold the countdown and two laps
+	// at the top of the laps' band (1.25 times the racing line's 71.1 s each). The second loads the slot as the scene starts,
+	// gives the ghost the samples, and in lap 1 the HUD shows the ghost's live delta.
 	std::vector<std::string> const keeping = {"--project",  Native(project), "--scene", std::string(TrialScene),
 	                                          "--headless", "--timestep",    "0.05"};
 	std::vector<std::string> first = keeping;
-	first.insert(first.end(), {"--frames", "3500"});
+	first.insert(first.end(), {"--frames", "3800"});
 	ProcessResult const saving = RunPlayer(first, userRoot, LongRunTimeout);
 	CAPTURE(saving.Output);
 	CHECK(saving.ExitCode == 0);

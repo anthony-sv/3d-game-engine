@@ -7540,10 +7540,11 @@ graphs alone keeps its best lap and its settings screen, and none exposes a path
   return); the pause with the bike and the director's steps standing still (0 m and 0 steps) and the countdown's 60
   steps kept; and QUIT TO TITLE at the title, `Held` off, five returns for the five races, the bike riding off in first
   gear. A start sent in the scene's first fixed step, the bike made a step before, left it 5.4 mm from the grid's place
-  and launched it 1.2 % slower (13.43 m/s) than every later start, which is why the title start waits 30 steps of the
-  title, as a player reads it. The line of every reading ("Moto's starts, ...") and the physics state at step 900 are
-  the same at 1/60 and 1/30 s a frame (`MotoRideTests.cpp`, on every job). With the hold taken out the four starts stood
-  2.4 to 3.3 m from the grid at the signal, in first gear at 2,800 to 6,200 rpm, and the jump start went; with the
+  and launched it 1.2 % slower (13.43 m/s) than every later start; one sent a step later, or 2, 5, 10, 20, 29, 31 or 45
+  steps later, gave every later start's readings to the digit, so the title start's 30 steps of the title, as a player
+  reads it, stand well clear of it. The line of every reading ("Moto's starts, ...") and the physics state at step 900
+  are the same at 1/60 and 1/30 s a frame (`MotoRideTests.cpp`, on every job). With the hold taken out the four starts
+  stood 2.4 to 3.3 m from the grid at the signal, in first gear at 2,800 to 6,200 rpm, and the jump start went; with the
   return taken out the three starts after the first stood 158 to 616 m from it at 8,300 to 10,400 rpm, and the second
   start's and the quit's counts of returns read 0. The others do at a second start what they do at a first: the HUD
   shows the countdown from the director's read-outs and clears the last race's sectors and delta when the director's
