@@ -523,13 +523,13 @@ bump with its migration mechanism, and three failures only CI's other compilers 
 the next merge. It still measured no research-grade work, no feel pass and no human playtest, and it had no GPU work
 beyond Moto's draws. §4.4 keeps the factors for its later dates and gives the three slices' rates as the early end.
 
-**The fifth point: First Ride's fourth slice.** Its dates and size are recorded as the first three's are; the slice's active hours were not summed, so this point is calendar time and planned size.
+**The fifth point: First Ride's fourth slice.** Its dates and size are recorded as the first three's are.
 
 | Measure | First Ride's slice 4, "First Ride", 2026-11-18 to 2026-11-22 |
 |---|---|
-| Scope on this document's scale | 16.6 engineer-weeks planned, the spec's sizes of its eight tracks: VH (V0) 4.6, GR (the ride in graphs) 2.0, SH (Moto's standalone export and its catalog row) 1.5, TL (V7 without UDP) 2.1, SV (S2's core) 2.9, GF (the flow in graphs) 2.0, SX (the Showcase's exhibit) 0.5 and the gate N 1.0, which the earlier slices' scopes leave out. SX was not built, cut by the cut order's first step, and SH's catalog row was not added (§9), so the tracks built sum to at most 16.1. Two tracks were added during the slice and are not sized: EN, the engine's side of the feel pass (engine damping in neutral, a vehicle reset, the inspector's long lists), and BR, the race start (the yaw damper, the shift at the shift point, the start from the grid); nor are the fixes beside the slice (Jolt's upgrade to 5.7.0, the snapshot restore of a vehicle's wheel entities) |
+| Scope on this document's scale | 16.6 engineer-weeks planned, the spec's sizes of its eight tracks: VH (V0) 4.6, GR (the ride in graphs) 2.0, SH (Moto's standalone export and its catalog row) 1.5, TL (V7 without UDP) 2.1, SV (S2's core) 2.9, GF (the flow in graphs) 2.0, SX (the Showcase's exhibit) 0.5 and the gate N 1.0, which the earlier slices' scopes leave out. SX was not built, cut by the cut order's first step, and SH's catalog row was not added (§9), so the tracks built sum to at most 15.1 without the gate (16.1 with it). Two tracks were added during the slice and are not sized: EN, the engine's side of the feel pass (engine damping in neutral, a vehicle reset, the inspector's long lists), and BR, the race start (the yaw damper, the shift at the shift point, the start from the grid); nor are the fixes beside the slice (Jolt's upgrade to 5.7.0, the snapshot restore of a vehicle's wheel entities) |
 | Calendar | About 4 days, from 2026-11-18 to 2026-11-22, on lanes A and B |
-| Ratio | About 4 engineer-weeks per calendar day (at most 16.1 over about 4 days, the gate included and the unsized tracks left out), against 8.5 to 10.6 for the first three slices |
+| Ratio | About 4 engineer-weeks per calendar day (at most 15.1 over about 4 days, the gate and the unsized tracks left out, as the first three slices' scopes leave their gates out), against 8.5 to 10.6 for the first three slices |
 | Against the plan | §4.4 put the slice at 9.5 days at the pause-inclusive factors and at about 2 days at the first three slices' rates; it took about 4 |
 
 The forecast of the later efforts (§4.2 and §4.4) is not re-estimated at this gate.
@@ -544,7 +544,7 @@ joins from Phase 1 on (§8).
 | Phase | Theme | Engineer-weeks (sizes summed at S 1.5, M 4.5, L 12, XL 30) | Calendar at the measured factors | Efforts | Milestone |
 |---|---|---|---|---|---|
 | – | Distribution | ≈ 50 (about 6 built in Front Door, about 2 moved to First Ride as E11's core, about 42-44 in the backlog, not scheduled) | Front Door: from 2026-11-12 to its gate (§4.3); the rest is not scheduled | 1 | Front Door's gate |
-| 0 | Foundations | ≈ 36 (First Ride: about 55 on lanes A and B with enablers, obligations, Moto and E11's core, of which slices 1 to 3 delivered 38.2 and slice 4 up to 16.1, R5's first part (5.5) having been cut from slice 2; about 13.5 more on a third lane that has not started) | From about 2026-11-20 to 2026-12-03 (§4.4) | 2 | M1, First Ride |
+| 0 | Foundations | ≈ 36 (First Ride: about 55 on lanes A and B with enablers, obligations, Moto and E11's core, of which slices 1 to 3 delivered 38.2 and slice 4 up to 15.1, the gates not counted, R5's first part (5.5) having been cut from slice 2; about 13.5 more on a third lane that has not started) | From about 2026-11-20 to 2026-12-03 (§4.4) | 2 | M1, First Ride |
 | 1 | The simulated superbike | ≈ 120 | About 11-20 weeks (10-19 if the third lane delivered A1's first three slices) | 3, 4 | M1.5, The Rider; M2, Handles like a superbike |
 | 2 | A real circuit | ≈ 152 | About 10-16 weeks | – | M3, A real circuit |
 | 3 | Race weekend | ≈ 174 | About 13-22 weeks | – | M4, Race weekend |
@@ -613,7 +613,9 @@ profiler shows frame, physics, audio, scripts, graphs and GPU passes per subsyst
 fps on the reference machine with at most 400 draw calls; the physics state hashes are identical at 30, 60 and 144 fps
 on each platform; Moto's test scene and its exported game pass their pinned checks. The full list is in §4.3.
 
-**Status at the end of slice 4 (2026-11-22).** The fourth slice is delivered. M1's game, tools and tests are built, except the start screen's listing of the game, which waits for the maintainer's decision (§9), and except what the cut order allowed to drop (TA, splines). The status of the exit criteria is in §4.3.
+**Status at the end of slice 4 (2026-11-22).** The fourth slice is delivered. M1's game, tools and tests are built,
+except the start screen's listing of the game, which waits for the maintainer's decision (§9), and except what the cut
+order allowed to drop (TA, splines). The status of the exit criteria is in §4.3.
 
 Changes from the October M1: "textures load compressed and asynchronously" moves to M1.5, because T4 and T5 grew and
 have low readiness; "a profiled frame budget" becomes measured targets; "10,000 instanced props at 60 fps on mid-range
@@ -693,7 +695,7 @@ decision when a game needs it.
 | Effort | Content | Engineer-weeks | Calendar | Milestone |
 |---|---|---|---|---|
 | 1, Front Door | The start screen, templates, examples that open as copies and agent-ready projects, on content roots and locations; the editor test shards; these documents | About 6 | From 2026-11-12 to its gate | Front Door's gate |
-| 2, First Ride | Phase 0 as above, in four slices on lanes A and B, with a third lane below the cut line | About 55 on lanes A and B now that R5's track (5.5) was cut from slice 2, about 13.5 on the third lane; slices 1 to 3 delivered 38.2 and slice 4 up to 16.1 | Started 2026-11-13; slice 1's gate 2026-11-15, slice 2's 2026-11-16, slice 3's 2026-11-18; slice 4 ended on 2026-11-22, and M1 waits for the start screen's listing (§9); M1 was forecast between about 2026-11-20 and 2026-12-03 (§4.4) | M1 |
+| 2, First Ride | Phase 0 as above, in four slices on lanes A and B, with a third lane below the cut line | About 55 on lanes A and B now that R5's track (5.5) was cut from slice 2, about 13.5 on the third lane; slices 1 to 3 delivered 38.2 and slice 4 up to 15.1, the gates not counted | Started 2026-11-13; slice 1's gate 2026-11-15, slice 2's 2026-11-16, slice 3's 2026-11-18; slice 4 ended on 2026-11-22, and M1 waits for the start screen's listing (§9); M1 was forecast between about 2026-11-20 and 2026-12-03 (§4.4) | M1 |
 | 3, The Rider | A1's fourth slice, S3, R4 then the rest of R5, T4, T3, T5, P1's constraints, AU3, I2 | About 46 if the third lane delivered A1's first three slices, about 55 if not | About 4-5 weeks (3.5-6.5) with them, about 5-6 (4.5-7.5) without | M1.5 |
 | 4, The simulated superbike | V1-V6, P3b, V7's UDP output with E12, R12 | About 60-70 | About 9 weeks (6.5-13), with the maintainer's playtests | M2 |
 
@@ -840,15 +842,53 @@ in Effort 3 with the rest of The Rider; and the rest of distribution (§3.10), w
 9. Every ctest entry takes under 450 s on CI's Windows MSVC Debug job that runs its suite, and every CI job under 50
    minutes.
 
-Status at the end of slice 4, from the tree:
+The fourth slice is delivered. M1's game, tools and tests are built, except the start screen's listing of the game,
+which waits for the maintainer's decision (§9), and except what the cut order allowed to drop (TA, splines). The status
+of the exit criteria, from the tree:
 
-2. In place, by the tests of the slice's behavior where AGENTS.md puts them: in StradaTests the vehicle (`PhysicsVehicleTests.cpp`, `PhysicsVehicleResetTests.cpp`, `PhysicsVehicleNeutralTests.cpp`, `VehicleAssetTests.cpp`, `SceneVehicleTests.cpp`, `SceneScriptingVehicleTests.cpp`), telemetry (`TelemetryTests.cpp`, `SceneTelemetryTests.cpp`, `TelemetryCsvTests.cpp`) and saves and settings (`SaveSlotTests.cpp`, `PlayerSettingsTests.cpp`, `SceneSavesScriptingTests.cpp`); in StradaEditorTests `EditorTelemetryTests.cpp`, `TelemetryPanelTests.cpp`, `VehicleLiveEditTests.cpp` and Moto's `MotoPlayTests.cpp`, `MotoAgentTests.cpp` and `MotoCopyTests.cpp`; in StradaRuntimeTests `MotoRideTests.cpp`, `MotoShipTests.cpp`, `FoldedHashTests.cpp` and `SaveGameTests.cpp`; in ScriptCoreTests `VehicleTests.cs` and `SaveSlotTests.cs`. Whether every behavior has a test was not audited line by line at this gate.
-3. In place for the slice's new formats: `.svehicle` by `VehicleAsset: damaged definitions that load make a vehicle that rides` (`VehicleAssetTests.cpp`) and, with every registered type, `DataAssetSerializer: damaged documents of every registered type are refused, or load and save again` (`DataAssetFuzzTests.cpp`); `.ssave` by `SaveSlot: damaged slots are read, refused or found newer, and what is read writes and reads back alike` (`SaveSlotTests.cpp`); the player's `Settings.json` by `PlayerSettings: damaged settings are read, refused or found newer, and what is read writes and reads back alike` (`PlayerSettingsTests.cpp`); the project's identity settings, since slice 1, by `Project: damaged game files are refused or open, their window settings are always usable, and the identity the entry point reads is the one the game opens with` (`ProjectFileFuzzTests.cpp`). TA's anti-aliasing setting, and the scene format version 3 it would take, did not land.
-4. In place: `vehicle.create`, `vehicle.get`, `vehicle.set`, `vehicle.state`, `telemetry.start`, `telemetry.stop`, `telemetry.channels`, `telemetry.read` and `telemetry.export` have their rows in `Automation.md` (`EditorCommands: every command is documented in Docs/Automation.md`), and `AutomationFuzzTests.cpp` sends every registered command parameters built from its schema. Saves and settings have no command.
-5. In place: the slice added no built-in node kind (94, as the 94 titles of `VisualScriptNodeTitlesTests.cpp` and the unchanged `BuiltinNodes.cs` show); the nodes of its new API members (`Vehicle`, `Telemetry`, `SaveSlot`, `Settings`) are generated from the API and must analyze and run in `VisualScript: every node of the library analyzes and runs in a generated graph` (`VisualScriptNodeCoverageTests.cpp`), and `ApiCoverageTests.cs` requires FeatureTest's scripts to use every public member (`VehicleTests.cs`, `PhysicsTests.cs` and `ApplicationTests.cs` among them).
-6. No change: no golden image was added (the five of `Tests/Data/Golden/` stand, `Instancing.png` since slice 2), and TA's frame-sequence goldens and a skinning golden did not land.
-7. In place: `Runtime: the first minute of Moto's ride from the grid has the same physics state at every fixed step at 1/30, 1/60 and 1/144 s a frame` (`MotoShipTests.cpp`): the autopilot rides Moto's lap scene from the grid for 60.25 s of the game at the three frame rates, and the state hash of step 3,600 and the fold of every step's hash (the player's `--hash-every-step`) of the three runs of one machine are compared character for character; `FoldedHashTests.cpp` plays the option on a generated game.
-8. In place: Moto's test scene passes its 24 pinned checks (`Tests passed: 24 checks`) at 1/60 s a frame (`SampleTests.cpp`: `Runtime: the Moto sample, made of graphs alone, flies its camera tour and passes its tests`) and at 1/30 and 1/144 s (`MotoShipTests.cpp`: `Runtime: the Moto sample's test scene passes its pinned checks at 1/30 and at 1/144 s a frame`), and the exported game, Strada Moto, passes the same checks (`Runtime: Moto exported as Strada Moto carries the scripting API and no game assembly, passes its pinned checks and logs below its own data folder`) and keeps its player's quality, a bus volume, a binding and a best lap in its own data folder (`Runtime: exported Strada Moto keeps its player's quality, a bus volume, the throttle's binding and a best lap in its own data folder, and its next run reads them back`). These runs use `--timeout 90`; the time each run takes on CI's Debug jobs is not read here.
+2. In place, by the tests of the slice's behavior where AGENTS.md puts them: in StradaTests the vehicle
+   (`PhysicsVehicleTests.cpp`, `PhysicsVehicleResetTests.cpp`, `PhysicsVehicleNeutralTests.cpp`,
+   `VehicleAssetTests.cpp`, `SceneVehicleTests.cpp`, `SceneScriptingVehicleTests.cpp`), telemetry (`TelemetryTests.cpp`,
+   `SceneTelemetryTests.cpp`, `TelemetryCsvTests.cpp`) and saves and settings (`SaveSlotTests.cpp`,
+   `PlayerSettingsTests.cpp`, `SceneSavesScriptingTests.cpp`); in StradaEditorTests `EditorTelemetryTests.cpp`,
+   `TelemetryPanelTests.cpp`, `VehicleLiveEditTests.cpp` and Moto's `MotoPlayTests.cpp`, `MotoAgentTests.cpp` and
+   `MotoCopyTests.cpp`; in StradaRuntimeTests `MotoRideTests.cpp`, `MotoShipTests.cpp`, `FoldedHashTests.cpp` and
+   `SaveGameTests.cpp`; in ScriptCoreTests `VehicleTests.cs` and `SaveSlotTests.cs`. Whether every behavior has a test
+   was not audited line by line at this gate.
+3. In place for the slice's new formats: `.svehicle` by `VehicleAsset: damaged definitions that load make a vehicle that
+   rides` (`VehicleAssetTests.cpp`) and, with every registered type, `DataAssetSerializer: damaged documents of every
+   registered type are refused, or load and save again` (`DataAssetFuzzTests.cpp`); `.ssave` by `SaveSlot: damaged slots
+   are read, refused or found newer, and what is read writes and reads back alike` (`SaveSlotTests.cpp`); the player's
+   `Settings.json` by `PlayerSettings: damaged settings are read, refused or found newer, and what is read writes and
+   reads back alike` (`PlayerSettingsTests.cpp`); the project's identity settings, since slice 1, by `Project: damaged
+   game files are refused or open, their window settings are always usable, and the identity the entry point reads is
+   the one the game opens with` (`ProjectFileFuzzTests.cpp`). TA's anti-aliasing setting, and the scene format version 3
+   it would take, did not land.
+4. In place: `vehicle.create`, `vehicle.get`, `vehicle.set`, `vehicle.state`, `telemetry.start`, `telemetry.stop`,
+   `telemetry.channels`, `telemetry.read` and `telemetry.export` have their rows in `Automation.md` (`EditorCommands:
+   every command is documented in Docs/Automation.md`), and `AutomationFuzzTests.cpp` sends every registered command
+   parameters built from its schema. Saves and settings have no command.
+5. In place: the slice added no built-in node kind (94, as the 94 titles of `VisualScriptNodeTitlesTests.cpp` and the
+   unchanged `BuiltinNodes.cs` show); the nodes of its new API members (`Vehicle`, `Telemetry`, `SaveSlot`, `Settings`)
+   are generated from the API and must analyze and run in `VisualScript: every node of the library analyzes and runs in
+   a generated graph` (`VisualScriptNodeCoverageTests.cpp`), and `ApiCoverageTests.cs` requires FeatureTest's scripts to
+   use every public member (`VehicleTests.cs`, `PhysicsTests.cs` and `ApplicationTests.cs` among them).
+6. No change: no golden image was added (the five of `Tests/Data/Golden/` stand, `Instancing.png` since slice 2), and
+   TA's frame-sequence goldens and a skinning golden did not land.
+7. In place: `Runtime: the first minute of Moto's ride from the grid has the same physics state at every fixed step at
+   1/30, 1/60 and 1/144 s a frame` (`MotoShipTests.cpp`): the autopilot rides Moto's lap scene from the grid for 60.25 s
+   of the game at the three frame rates, and the state hash of step 3,600 and the fold of every step's hash (the
+   player's `--hash-every-step`) of the three runs of one machine are compared character for character;
+   `FoldedHashTests.cpp` plays the option on a generated game.
+8. In place: Moto's test scene passes its 24 pinned checks (`Tests passed: 24 checks`) at 1/60 s a frame
+   (`SampleTests.cpp`: `Runtime: the Moto sample, made of graphs alone, flies its camera tour and passes its tests`) and
+   at 1/30 and 1/144 s (`MotoShipTests.cpp`: `Runtime: the Moto sample's test scene passes its pinned checks at 1/30 and
+   at 1/144 s a frame`), and the exported game, Strada Moto, passes the same checks (`Runtime: Moto exported as Strada
+   Moto carries the scripting API and no game assembly, passes its pinned checks and logs below its own data folder`)
+   and keeps its player's quality, a bus volume, a binding and a best lap in its own data folder (`Runtime: exported
+   Strada Moto keeps its player's quality, a bus volume, the throttle's binding and a best lap in its own data folder,
+   and its next run reads them back`). These runs use `--timeout 90`; the time each run takes on CI's Debug jobs is not
+   read here.
 
 The third lane adds to this list only what lands: W2's component and meshes (a field table, scene seeds for the fuzz
 tests, a spline in FeatureTest's scene), A1's skeleton and clip data and its API (FeatureTest scripts, node coverage
@@ -907,7 +947,18 @@ view reads 398 of the 400 draws at the start line. The input events' dispatch, w
 cost 0.64 ms a frame over 100 graph instances and 20 C# scripts with every input changing each frame (VS7). The rows of
 features not built yet wait for their tracks.
 
-Measured at slice 4's gate (Release, one sitting on 2026-11-22 on the reference machine on mains power; the player windowed at 1920×1080 without vsync on Moto's main scene with its 10,000 props, the bike ridden by the autopilot from the grid under the title while the trackside cameras cut; the profiler's last 600 frames at three points of the lap, after 2,400, 7,000 and 13,000 frames): a frame median of 4.96, 4.00 and 5.74 ms (174 to 250 frames a second) and a 99th percentile of 7.30, 5.95 and 7.27 ms, the median against 16.6 ms and the 99th percentile against 20 ms; 191, 167 and 156 draw calls a frame (122, 88 and 100 of them shadow draw calls), against 400; graphs 0.21, 0.20 and 0.24 ms a frame, against 1.0 ms; a physics step 0.136, 0.140 and 0.139 ms, against 1.5 ms, the vehicle's part of a step 30 to 32 µs, against 50 µs. The gauge (the tree's 10,000-instance benchmark, `Renderer.Submit` plus `Renderer.Prepare`, static, entity IDs off) read 1.21 to 1.30 ms before the readings and 1.42 to 1.44 ms after them, against the band's 1.4 ms: the sitting began in band and ended just out of it, so the readings are met, the closing gauge just out of band. Not measured at this gate: the editor's scene view (the 398 of the 400 draws at the start line keep their dated reading above and were not read again), the chase camera's view during a race, and any allocation count.
+Measured at slice 4's gate (Release, one sitting on 2026-11-22 on the reference machine on mains power; the player
+windowed at 1920×1080 without vsync on Moto's main scene with its 10,000 props, the bike ridden by the autopilot from
+the grid under the title while the trackside cameras cut; the profiler's last 600 frames at three points of the lap,
+after 2,400, 7,000 and 13,000 frames): a frame median of 4.96, 4.00 and 5.74 ms (174 to 250 frames a second) and a 99th
+percentile of 7.30, 5.95 and 7.27 ms, the median against 16.6 ms and the 99th percentile against 20 ms; 191, 167 and 156
+draw calls a frame (122, 88 and 100 of them shadow draw calls), against 400; graphs 0.21, 0.20 and 0.24 ms a frame,
+against 1.0 ms; a physics step 0.136, 0.140 and 0.139 ms, against 1.5 ms, the vehicle's part of a step 30 to 32 µs,
+against 50 µs. The gauge (the tree's 10,000-instance benchmark, `Renderer.Submit` plus `Renderer.Prepare`, static,
+entity IDs off) read 1.21 to 1.30 ms before the readings and 1.42 to 1.44 ms after them, against the band's 1.4 ms: the
+sitting began in band and ended just out of it, so the readings are met, the closing gauge just out of band. Not
+measured at this gate: the editor's scene view (the 398 of the 400 draws at the start line keep their dated reading
+above and were not read again), the chase camera's view during a race, and any allocation count.
 
 #### Distribution after Front Door
 
