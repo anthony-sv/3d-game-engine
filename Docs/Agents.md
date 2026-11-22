@@ -30,7 +30,7 @@ and the [`strada-make-game`](../.claude/skills/strada-make-game/SKILL.md) skill 
 
 The editor runs an automation server: a JSON-RPC 2.0 endpoint on `127.0.0.1`. Every command runs on the editor's main
 thread through the same operations and undo history as the UI, so an agent and a person see and edit the same state. The
-editor has 124 commands in 25 domains, each with a JSON schema of its parameters (`editor.commands` lists them at run
+editor has 133 commands in 27 domains, each with a JSON schema of its parameters (`editor.commands` lists them at run
 time):
 
 | Group | Commands | What they cover |
@@ -65,7 +65,7 @@ time):
 six tools of its own that search and import [Poly Haven](https://polyhaven.com) assets (CC0):
 `polyhaven_search_hdris` and `polyhaven_import_hdri` (skies for image-based lighting), `polyhaven_search_models` and
 `polyhaven_import_model` (glTF models with their textures), and `polyhaven_search_textures` and
-`polyhaven_import_texture` (PBR texture sets, made into a material). That is 130 tools in all.
+`polyhaven_import_texture` (PBR texture sets, made into a material). That is 139 tools in all.
 
 ### The safety model
 
