@@ -1229,6 +1229,47 @@ namespace Strada
 		DrawVehicleWheels(1.0f);
 	}
 
+	Scene::WheelDrawer Scene::FindWheelDrawer(entt::entity wheel)
+	{
+		WheelDrawer drawer;
+		if (m_Bodies.contains(wheel) || m_Characters.contains(wheel))
+		{
+			drawer.Problem = WheelDrawProblem::OwnBody;
+			return drawer;
+		}
+		Entity above = GetParent(Entity(wheel, this));
+		for (size_t depth = 0; above && !above.HasComponent<VehicleComponent>() && depth < m_EntityMap.size(); depth++)
+		{
+			above = GetParent(above);
+		}
+		if (!above || !above.HasComponent<VehicleComponent>())
+		{
+			drawer.Problem = WheelDrawProblem::NoVehicleAbove;
+			return drawer;
+		}
+		auto const found = m_Vehicles.find(above.GetHandle());
+		if (found == m_Vehicles.end() || !found->second.Made)
+		{
+			return drawer;
+		}
+		std::string const& name = m_Registry.get<VehicleWheelComponent>(wheel).Wheel;
+		std::array<std::string, VehicleWheelCount> const& names = found->second.WheelNames;
+		auto const named = std::find_if(names.begin(), names.end(),
+		                                [&name](std::string const& candidate)
+		                                {
+											return IsSameVehicleWheelName(candidate, name);
+										});
+		drawer.Chassis = above.GetHandle();
+		if (named == names.end())
+		{
+			drawer.Problem = WheelDrawProblem::UnknownWheel;
+			return drawer;
+		}
+		drawer.Vehicle = &found->second;
+		drawer.Index = static_cast<size_t>(named - names.begin());
+		return drawer;
+	}
+
 	void Scene::DrawVehicleWheels(float alpha)
 	{
 		auto const wheels = m_Registry.view<VehicleWheelComponent>();
@@ -1236,48 +1277,11 @@ namespace Strada
 		{
 			Entity const wheel(handle, this);
 			// The wheel of the nearest entity above it with a Vehicle (said once when there is none to draw).
-			WheelDrawProblem problem = WheelDrawProblem::Drawn;
-			VehicleSyncState const* vehicle = nullptr;
-			Entity chassis;
-			size_t index = 0;
-			std::string const& name = m_Registry.get<VehicleWheelComponent>(handle).Wheel;
-			if (m_Bodies.contains(handle) || m_Characters.contains(handle))
-			{
-				problem = WheelDrawProblem::OwnBody;
-			}
-			else
-			{
-				Entity above = GetParent(wheel);
-				for (size_t depth = 0; above && !above.HasComponent<VehicleComponent>() && depth < m_EntityMap.size(); depth++)
-				{
-					above = GetParent(above);
-				}
-				auto const found = above && above.HasComponent<VehicleComponent>() ? m_Vehicles.find(above.GetHandle()) : m_Vehicles.end();
-				if (!above || !above.HasComponent<VehicleComponent>())
-				{
-					problem = WheelDrawProblem::NoVehicleAbove;
-				}
-				else if (found != m_Vehicles.end() && found->second.Made)
-				{
-					std::array<std::string, VehicleWheelCount> const& names = found->second.WheelNames;
-					auto const named = std::find_if(names.begin(), names.end(),
-					                                [&name](std::string const& candidate)
-					                                {
-														return IsSameVehicleWheelName(candidate, name);
-													});
-					chassis = above;
-					if (named == names.end())
-					{
-						problem = WheelDrawProblem::UnknownWheel;
-					}
-					else
-					{
-						vehicle = &found->second;
-						index = static_cast<size_t>(named - names.begin());
-					}
-				}
-			}
-			SayVehicleWheelProblem(wheel, problem, chassis, name);
+			WheelDrawer const drawer = FindWheelDrawer(handle);
+			Entity const chassis = drawer.Chassis == entt::null ? Entity() : Entity(drawer.Chassis, this);
+			SayVehicleWheelProblem(wheel, drawer.Problem, chassis, m_Registry.get<VehicleWheelComponent>(handle).Wheel);
+			VehicleSyncState const* vehicle = drawer.Vehicle;
+			size_t const index = drawer.Index;
 			// Nothing to draw before the vehicle's first step.
 			if (vehicle == nullptr || !vehicle->Wheels.HasSteps)
 			{
@@ -2158,6 +2162,25 @@ namespace Strada
 			VehicleSyncState const& state = m_Vehicles.at(handle);
 			snapshot.m_Vehicles.push_back({state.Entity, state.Wheels});
 		}
+		// The wheel entities a made vehicle with no step yet draws: it has no pose to draw them from again, so each keeps its
+		// own pose in its parent's space, and which parent that is.
+		for (entt::entity const handle : m_Registry.view<VehicleWheelComponent>())
+		{
+			WheelDrawer const drawer = FindWheelDrawer(handle);
+			TransformComponent const* transform = m_Registry.try_get<TransformComponent>(handle);
+			if (drawer.Vehicle != nullptr && !drawer.Vehicle->Wheels.HasSteps && transform != nullptr)
+			{
+				RelationshipComponent const* relationship = m_Registry.try_get<RelationshipComponent>(handle);
+				snapshot.m_WheelEntities.push_back({Entity(handle, this).GetUUID(),
+				                                    relationship != nullptr ? relationship->Parent : UUID::Invalid(),
+				                                    {transform->Translation, transform->Rotation}});
+			}
+		}
+		std::sort(snapshot.m_WheelEntities.begin(), snapshot.m_WheelEntities.end(),
+		          [](ScenePhysicsSnapshot::WheelEntity const& first, ScenePhysicsSnapshot::WheelEntity const& second)
+		          {
+					  return first.Entity.GetValue() < second.Entity.GetValue();
+				  });
 		return snapshot;
 	}
 
@@ -2239,6 +2262,30 @@ namespace Strada
 		for (size_t i = 0; i < vehicles.size(); i++)
 		{
 			m_Vehicles.at(vehicles[i]).Wheels = snapshot.m_Vehicles[i].Drawing;
+		}
+		// A vehicle with no step yet has no pose to draw its wheels from: its wheel entities get back their own translation
+		// and rotation in their parents' space, their scale kept, the one wheel write not made from the vehicle. One gone since
+		// is skipped; one with another parent now (a pose in one parent's space means nothing in another's), or that no made
+		// vehicle with no step yet draws now, is left to the drawing below or as it is.
+		for (ScenePhysicsSnapshot::WheelEntity const& saved : snapshot.m_WheelEntities)
+		{
+			entt::entity const wheel = FindHandle(saved.Entity);
+			if (wheel == entt::null || !m_Registry.valid(wheel) || !m_Registry.all_of<VehicleWheelComponent>(wheel))
+			{
+				continue;
+			}
+			RelationshipComponent const* relationship = m_Registry.try_get<RelationshipComponent>(wheel);
+			if ((relationship != nullptr ? relationship->Parent : UUID::Invalid()) != saved.Parent)
+			{
+				continue;
+			}
+			WheelDrawer const drawer = FindWheelDrawer(wheel);
+			TransformComponent* transform = m_Registry.try_get<TransformComponent>(wheel);
+			if (drawer.Vehicle != nullptr && !drawer.Vehicle->Wheels.HasSteps && transform != nullptr)
+			{
+				transform->Translation = saved.Pose.Translation;
+				transform->Rotation = saved.Pose.Rotation;
+			}
 		}
 		DrawVehicleWheels(m_IsDrawnBetweenSteps ? GetDrawingAlpha() : 1.0f);
 		// The events of the steps that are undone were taken already; the next frame's are those of the steps it runs.
