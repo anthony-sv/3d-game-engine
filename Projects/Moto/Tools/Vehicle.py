@@ -44,7 +44,10 @@ throttle and its ShiftUp reached the step it sent them in). A sent ShiftUp moves
 values pass through the rider assists (LeanAssist, LinkedBrakes with LinkedBrakeShare, AutoShift: public switches, on by
 default; with all three off the vehicle gets the driver's values as given, but for the yaw damper's correction of the
 steering, which stands for the bike's own front end), and each frame the graph poses the rider and turns the fork from the
-bike as it is drawn (the rider assist's, the yaw damper's and the pose's sections below).
+bike as it is drawn (the rider assist's, the yaw damper's and the pose's sections below). While its public Held is on, which
+the race director (Race.py) sets on the bike that is its subject through the countdown, the step gives the vehicle no
+throttle and both brakes full, past the linked brakes and their easing, and makes no shift, whatever the driver asks: a
+jump start is refused, and the bike waits on the grid in neutral (the hold's section below).
 
     python Projects/Moto/Tools/Vehicle.py      (prints the figures check() asserts)
 """
@@ -428,6 +431,16 @@ def ride_figures():
 # (check() asserts SHIFT_SLIP_ROOM < SHIFT_DOWN_ROOM). The rider's ShiftUp and ShiftDown shift as well. A gearbox the
 # definition makes Automatic would shift by Jolt's rules alone, the same for every rider and only with an edit of the
 # definition; the assist is the rider's, a switch the player turns off to shift alone.
+#
+# The hold: every race starts from the grid. The race director (Race.py, whose part comes after this one, so it names this
+# graph and not the other way round) puts its subject back on the grid and resets its vehicle as the countdown begins, and
+# at each of its fixed steps sets the subject's Held to its own Holding: on through the countdown, off from the start
+# signal. While Held is on the step gives the vehicle throttle 0 and both brakes at HOLD_BRAKE, past the linked brakes and
+# their easing, and makes no shift (the driver's, a test's or the automatic one), whatever the driver asks: so a throttle
+# held open through the countdown moves nothing, and at the signal the automatic shift takes first gear as the throttle
+# opens, as at the scene's start. ShiftWait counts down through the hold, so a start in the middle of a shift leaves no wait
+# behind. Where no director sets it (a scene without the race, or a bike that is not the director's subject), Held stays
+# off and the bike rides as before.
 
 # The wheelbase as Jolt measures it (between the suspensions' farthest reach, along the bike's forward axis:
 # MotorcycleController::GetWheelBase), the cosine of the steering axis' caster angle and the slowest speed the mapping takes.
@@ -445,6 +458,10 @@ SHIFT_SLIP_ROOM = 500.0
 YAW_DAMPING = 0.002
 YAW_DAMPING_FROM = 0.5
 YAW_DAMPING_FULL = 2.0
+# The riding graph's switch the race director sets through the countdown, and the brakes the hold gives the vehicle: both
+# levers full.
+HELD = "Held"
+HOLD_BRAKE = 1.0
 
 
 def assist_steer(request, speed):
@@ -670,6 +687,8 @@ def declare(author):
         public("Fork", ENTITY_TYPE, None, "The fork, found among the bike's children at the start (a read-out)"),
         public("FrontWheel", ENTITY_TYPE, None, "The front wheel, the fork's child, found at the start (a read-out)"),
         private("ShiftWait", "int", 0),
+        public(HELD, "bool", False, "Whether the race director holds the bike on the grid (through the countdown, set by the "
+               "director): no throttle, both brakes full and no shift, whatever the driver asks"),
     ), events=(("ShiftUp", ()), ("ShiftDown", ())))
 
 
@@ -705,16 +724,20 @@ def write(author):
         damped = b.library(MotoLib.LIB, "YawDamper", output="Damped", Steer=asked,
                            YawRate=b.expr("spin.Y", spin=b.pure("Get:Strada.RigidBodyComponent.AngularVelocity", "Value")),
                            Speed=speed, Lean=lean, MaxLean=b.pure("Get:Strada.Vehicle.MaxLeanAngle", "Value", Target=definition)).out
-        ridden = b.call(SET_INPUT, comment="The assists off give each input as the driver gave it, the steering damped",
-                        Throttle=throttle,
-                        FrontBrake=b.expr("linked ? front * ease : front", linked=linked, front=front, ease=ease),
-                        RearBrake=b.expr("linked ? max(rear, share * front) * ease : rear", linked=linked, rear=rear,
-                                         share=b.var("LinkedBrakeShare"), front=front, ease=ease),
+        held = b.var(HELD)
+        ridden = b.call(SET_INPUT, comment="The assists off give each input as the driver gave it, the steering damped; held on "
+                        "the grid, no throttle and both brakes full",
+                        Throttle=b.expr("held ? 0.0 : throttle", held=held, throttle=throttle),
+                        FrontBrake=b.expr(f"held ? {HOLD_BRAKE} : (linked ? front * ease : front)", held=held, linked=linked,
+                                          front=front, ease=ease),
+                        RearBrake=b.expr(f"held ? {HOLD_BRAKE} : (linked ? max(rear, share * front) * ease : rear)", held=held,
+                                         linked=linked, rear=rear, share=b.var("LinkedBrakeShare"), front=front, ease=ease),
                         Lean=damped)
-        up = b.branch(b.expr(f"driver == {PLAYER} && pressed", driver=b.var("Driver"), pressed=b.pure(ACTION_PRESSED, Action="ShiftUp")),
-                      comment="Each press is seen by one step")
-        down = b.branch(b.expr(f"driver == {PLAYER} && pressed", driver=b.var("Driver"),
-                               pressed=b.pure(ACTION_PRESSED, Action="ShiftDown")))
+        up = b.branch(b.expr(f"driver == {PLAYER} && pressed && !held", driver=b.var("Driver"),
+                             pressed=b.pure(ACTION_PRESSED, Action="ShiftUp"), held=held),
+                      comment="Each press is seen by one step; none while held")
+        down = b.branch(b.expr(f"driver == {PLAYER} && pressed && !held", driver=b.var("Driver"),
+                               pressed=b.pure(ACTION_PRESSED, Action="ShiftDown"), held=held))
         gear = b.pure("Get:Strada.VehicleComponent.Gear", "Value")
         lower = b.pure("Call:Strada.Vehicle.GetGearRatio(int)", Target=definition, Gear=b.expr("gear - 1", gear=gear))
         ratio = b.pure("Call:Strada.Vehicle.GetGearRatio(int)", Target=definition, Gear=gear)
@@ -724,10 +747,10 @@ def write(author):
         # SHIFT_SLIP_ROOM of it (the tyre's drive slip) shifts up too, so that no gear is held at the limiter.
         road = b.expr(f"max(speed, 0) / {round(Bike.REAR_RADIUS, 6)} * ratio * final * {round(30.0 / math.pi, 6)}", speed=speed,
                       ratio=ratio, final=b.pure("Get:Strada.Vehicle.FinalDrive", "Value", Target=definition))
-        shift = b.expr(f"auto && wait <= 0 ? (gear == 0 ? (throttle > 0 ? 1 : 0) : ((rpm >= up || (engine >= min(up, most) && "
+        shift = b.expr(f"auto && !held && wait <= 0 ? (gear == 0 ? (throttle > 0 ? 1 : 0) : ((rpm >= up || (engine >= min(up, most) && "
                        f"rpm >= min(up, most) - {SHIFT_SLIP_ROOM})) && gear < count ? 1 : "
                        f"(gear > 1 && rpm < down && rpm * lower / ratio < up - {SHIFT_DOWN_ROOM} ? -1 : 0))) : 0",
-                       auto=b.var("AutoShift"), wait=b.var("ShiftWait"), gear=gear, throttle=throttle, rpm=road,
+                       auto=b.var("AutoShift"), held=held, wait=b.var("ShiftWait"), gear=gear, throttle=throttle, rpm=road,
                        engine=b.pure("Get:Strada.VehicleComponent.EngineSpeed", "Value"),
                        most=b.pure("Get:Strada.Vehicle.MaxRPM", "Value", Target=definition),
                        up=b.pure("Get:Strada.Vehicle.ShiftUpRPM", "Value", Target=definition),
@@ -749,7 +772,8 @@ def write(author):
     with author.region(BIKE, "Shifts: the autopilot or a test sends ShiftUp and ShiftDown", EFFECTS) as b:
         for event, call in (("ShiftUp", SHIFT_UP_CALL), ("ShiftDown", SHIFT_DOWN_CALL)):
             sent = b.custom(event)
-            driven = b.branch(b.expr(f"driver != {PLAYER}", driver=b.var("Driver")), comment="The player shifts on the actions")
+            driven = b.branch(b.expr(f"driver != {PLAYER} && !held", driver=b.var("Driver"), held=b.var(HELD)),
+                              comment="The player shifts on the actions; none while held")
             b.chain(sent, driven)
             b.chain(driven["True"], b.call(call), _hold(b))
     with author.region(BIKE, "Start: the rider, the fork and the front wheel, among the children", EVENTS) as b:

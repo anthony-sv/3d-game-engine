@@ -470,9 +470,19 @@
 			"Path": "Scenes/Ride.sscene"
 		},
 		{
+			"Handle": "3746151918820799600",
+			"Type": "Scene",
+			"Path": "Scenes/Start.sscene"
+		},
+		{
 			"Handle": "758468017170119869",
 			"Type": "Scene",
 			"Path": "Scenes/Tests.sscene"
+		},
+		{
+			"Handle": "16499756012531400418",
+			"Type": "Scene",
+			"Path": "Scenes/Trial.sscene"
 		},
 		{
 			"Handle": "15368667258106452273",
@@ -560,6 +570,11 @@
 			"Path": "Scripts/RideTests.sgraph"
 		},
 		{
+			"Handle": "7234389158738985339",
+			"Type": "VisualScript",
+			"Path": "Scripts/StartTests.sgraph"
+		},
+		{
 			"Handle": "7930426497277894226",
 			"Type": "VisualScript",
 			"Path": "Scripts/Tests.sgraph"
@@ -568,6 +583,11 @@
 			"Handle": "3374653363641307568",
 			"Type": "VisualScript",
 			"Path": "Scripts/Tour.sgraph"
+		},
+		{
+			"Handle": "13982603940889142645",
+			"Type": "VisualScript",
+			"Path": "Scripts/TrialTests.sgraph"
 		},
 		{
 			"Handle": "1115383244513682738",

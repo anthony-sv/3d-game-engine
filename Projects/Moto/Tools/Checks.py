@@ -9,14 +9,20 @@ what else would act by itself as the scene starts and its modules do not read: e
 need and nothing else. Modules that speak for a director keep a test scene apart from the modules that run it: the ride's
 (Ride.sscene, with the bike's, the assists', the directors' and the best lap's checks, which send the race director's
 events in its place) and the race's flow (Flow.sscene, with the bike's ride again and the race's, the HUD's and the
-menus' checks, which run the race director itself), so that neither hears the other's broadcasts.
+menus' checks, which run the race director itself), so that neither hears the other's broadcasts. The scenes whose checks
+stand in for the race director (the ride's and the lap's) leave the race and the screen out with the props (NO_RACE), so
+that their bike rides as it does without a race; two scenes play the race with nothing standing in, wired as the main
+scene is: its starts (Start.sscene, StartChecks.py) and a whole race whose best lap the slot keeps (Trial.sscene,
+TrialChecks.py, behind STRADA_LONG_RIDES=1 in MotoRideTests.cpp).
 
 The first module is this one's (CORE): Scenes/Tests.sscene and its checks: the main scene as it is without its props
 (they stand clear of all it checks and have no colliders), with a crate to drop on the road, two blocks that slide off along the asphalt and along a gravel trap, a second entity running the tour
 that waits to be sent it (the Waiting Tour) and the Tests entity, whose graph checks the circuit's surfaces, the camera
 tour, the ghost bike, its engine's sound, the camera director and the audio director one after another, then reports to
 the test run. Its own entities keep their IDs when it is made again. The scene's ghost sets out Ghost.TEST_START_AT
-seconds into its lap, so that it leans through Turn 6 and crosses the start and finish line while the tour flies.
+seconds into its lap, so that it leans through Turn 6 and crosses the start and finish line while the tour flies. No ride
+is checked here: a bike ridden straight in this scene meets its test bodies (the Asphalt Slider stands 358 m into the lap,
+1.5 m off the line), so the scenes that ride hold none.
 
 - Checks.sgraph, a function library: reporting a check, and comparing points and directions.
 - Tests.sgraph (the Tests entity): each check a latent function that acts or waits for its moment, then reports through
@@ -55,7 +61,9 @@ import Ghost  # noqa: E402  (the ghost bike)
 import Graphs  # noqa: E402  (writing graphs)
 import Hud  # noqa: E402  (the screen, which a scene whose checks read no screen keeps hidden)
 import Menu  # noqa: E402  (the menus, likewise)
+import Race  # noqa: E402  (the race, which a scene whose checks stand in for its director leaves out)
 import RacingLine  # noqa: E402  (the line the ghost rides)
+import Ride  # noqa: E402  (the autopilot, which the trial scene starts with)
 import Sound  # noqa: E402  (the mix and the audio director)
 import Tour  # noqa: E402  (the camera tour)
 import Trackside  # noqa: E402  (the trackside cameras and their director)
@@ -66,6 +74,8 @@ TESTS = Graphs.script("Tests")
 RIDE_TESTS = Graphs.script("RideTests")
 FLOW_TESTS = Graphs.script("FlowTests")
 LAP_TESTS = Graphs.script("LapTests")
+START_TESTS = Graphs.script("StartTests")
+TRIAL_TESTS = Graphs.script("TrialTests")
 LIBRARIES = (CHECKS,)
 VECTOR = "Strada.Vector3"
 
@@ -132,6 +142,22 @@ NO_SCREENS = ((Hud.ROOT, "ShowHud", OFF), (Menu.ROOT, "ShowMenus", OFF))
 # The directors that a scene whose modules read none of what they do keep as Moto had them before the ridden bike: the
 # camera director cutting only when told (Directs), the audio director playing no ride (RideSounds).
 NO_RIDE_DIRECTORS = ((Trackside.ROOT, "Directs", OFF), (Sound.DIRECTOR, "RideSounds", OFF))
+# The roots a scene whose checks stand in for the race director leaves out with the props: the race (its gates and the
+# director, which would load a kept best lap into the ghost) and the screen (whose menus would give stored settings to the
+# bike); its riding graph, which no director holds, rides as it does without a race.
+NO_RACE = ("Props", Race.ROOT, Hud.ROOT)
+ON = {"Type": "Bool", "Value": True}
+# The race of the start test scene (StartChecks.py): on its title as the game opens, a countdown of START_COUNTDOWN seconds
+# and START_LAPS laps, so that the starts follow one another; and the trial test scene's (TrialChecks.py): TRIAL_LAPS laps
+# the autopilot rides from the scene's start, the menus hidden.
+START_COUNTDOWN = 1.0
+START_LAPS = 1
+TRIAL_LAPS = 2
+START_SWITCHES = NO_RIDE_DIRECTORS + NO_SCREENS + (
+    (Race.ROOT, "TitleOnStart", ON), (Race.ROOT, "Countdown", {"Type": "Float", "Value": START_COUNTDOWN}),
+    (Race.ROOT, "Laps", {"Type": "Int32", "Value": START_LAPS}))
+TRIAL_SWITCHES = NO_RIDE_DIRECTORS + (
+    (Menu.ROOT, "ShowMenus", OFF), (Race.ROOT, "Laps", {"Type": "Int32", "Value": TRIAL_LAPS}), (Ride.ROOT, "Autopilot", ON))
 # The test scenes, one line each.
 SCENES = (
     TestScene("Tests", "Tests", TESTS, "The test scene's checks: {count} checks of Moto's circuit, its camera tour and its ghost "
@@ -139,13 +165,20 @@ SCENES = (
               math.ceil(Tour.LENGTH) + 30),
     TestScene("Ride", "Ride Tests", RIDE_TESTS, "The ride test scene's checks: {count} checks of the ridden bike, its rider "
               "assists, its autopilot, the directors, the best lap's ghost and the bike at its limits, each a latent function "
-              "that waits for a reading the ride takes, then reports it.", 240, switches=NO_SCREENS),
+              "that waits for a reading the ride takes, then reports it.", 240, left_out=NO_RACE),
     TestScene("Flow", "Flow Tests", FLOW_TESTS, "The flow test scene's checks: {count} checks of the ridden bike, the race, the "
               "HUD, the pause and the menus, each a latent function that waits for its reading, then reports it.", 60,
               switches=NO_RIDE_DIRECTORS),
     TestScene("Lap", "Lap Tests", LAP_TESTS, "The lap test scene's checks: {count} checks of whole laps the autopilot rides from "
               "the grid and the ghost that keeps the best of them, each a latent function that waits for a reading the laps take "
-              "in their fixed steps, then reports it.", 240, switches=NO_SCREENS),
+              "in their fixed steps, then reports it.", 240, left_out=NO_RACE),
+    TestScene("Start", "Start Tests", START_TESTS, "The start test scene's checks: {count} checks of the race's starts from the "
+              "title, the results, a fall and the gravel, the hold through the countdown, a second start, a pause and a quit in "
+              "it, each a latent function that waits for a reading the starts take in their fixed steps, then reports it.", 90,
+              switches=START_SWITCHES),
+    TestScene("Trial", "Trial Tests", TRIAL_TESTS, "The trial test scene's checks: {count} checks of a whole race the autopilot "
+              "rides on the real race director and ghost, each a latent function that waits for a reading the race takes in its "
+              "fixed steps, then reports it.", 240, switches=TRIAL_SWITCHES),
 )
 # The modules whose checks the test scenes run, one line each, in the order their checks run: (the scene they join, the
 # module that holds them, by its name). A module's Suite is its SUITE; it is imported when the checks are written, so a
@@ -162,6 +195,8 @@ MODULES = (
     ("Flow", "HudChecks"),
     ("Flow", "MenuChecks"),
     ("Lap", "LapChecks"),
+    ("Start", "StartChecks"),
+    ("Trial", "TrialChecks"),
 )
 # The start switches every test scene sets, one line each: (the main scene's entity, its graph's public variable, the value
 # that makes it start as Moto started before it had that director), so that a test scene's checks turn on what they need.

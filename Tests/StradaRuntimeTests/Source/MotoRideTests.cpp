@@ -56,6 +56,13 @@ using namespace Strada::RuntimeTesting;
 // screen's QUIT TO TITLE. The pause inserts frames without fixed steps, so the ride's and the race's readings and the state
 // at the hash's step stay what they are.
 //
+// The start test scene (Scenes/Start.sscene) plays the race wired as the main scene wires it, nothing standing in: its graph
+// (Tools/StartChecks.py) sends the race director StartRace from the title, from the results, from a fall and from the gravel,
+// and every race starts from the grid, the bike put back and reset by the director and held through the countdown by its
+// riding graph whatever its driver asks. Behind STRADA_LONG_RIDES=1 the trial test scene (Scenes/Trial.sscene,
+// Tools/TrialChecks.py) rides a whole race of two laps on the autopilot, which the director times and the ghost records, and
+// two development runs show the slot's best lap given to the ghost of the next.
+//
 // A ctest entry of its own (StradaRuntimeTests.Ride, Shards.cmake), which later rides of the sample join. The scenes have
 // no props, so a start of the player on one costs less than the 25 s one on Moto's main scene takes on CI's macOS runners:
 // the shard's starts stay well within its 200 s there.
@@ -133,12 +140,13 @@ namespace
 		return start == std::string_view::npos ? std::string_view() : summary.substr(start + 2);
 	}
 
-	// A test run of a test scene of a copy of Moto: at 1/60 s a frame, a test run's, or at a frame's time step.
+	// A test run of a test scene of a copy of Moto: at 1/60 s a frame, a test run's, or at a frame's time step; its summary
+	// gives the physics state at a step.
 	std::vector<std::string> SceneRun(std::filesystem::path const& project, std::string_view scene, std::string_view timeout,
-	                                  char const* timestep = nullptr)
+	                                  char const* timestep = nullptr, std::string_view hashStep = HashStep)
 	{
 		std::vector<std::string> arguments = {"--project", Native(project),      "--scene",     std::string(scene),   "--test",
-		                                      "--timeout", std::string(timeout), "--hash-step", std::string(HashStep)};
+		                                      "--timeout", std::string(timeout), "--hash-step", std::string(hashStep)};
 		if (timestep != nullptr)
 		{
 			arguments.insert(arguments.end(), {"--timestep", timestep});
@@ -155,6 +163,27 @@ namespace
 	{
 		return SceneRun(project, FlowScene, FlowTimeout, timestep);
 	}
+
+	// The start test scene (Scenes/Start.sscene, Tools/StartChecks.py): the race's starts from the title, the results, a fall
+	// and the gravel, the hold through the countdown, a second StartRace, a pause and QUIT TO TITLE in it; its line of
+	// readings ("Moto's starts, ...", by about step 1,200) and a step of its physics state in the middle of the starts.
+	constexpr std::string_view StartChecks = "Tests passed: 8 checks";
+	constexpr std::string_view StartScene = "Scenes/Start.sscene";
+	constexpr std::string_view StartTimeout = "90";
+	constexpr std::string_view StartHashStep = "900";
+	constexpr std::string_view StartReadings = "Moto's starts, ";
+
+	std::vector<std::string> StartRun(std::filesystem::path const& project, char const* timestep = nullptr)
+	{
+		return SceneRun(project, StartScene, StartTimeout, timestep, StartHashStep);
+	}
+
+	// The trial test scene (Scenes/Trial.sscene, Tools/TrialChecks.py): a whole race of two laps on the real race director,
+	// ghost and HUD, about 9,900 fixed steps.
+	constexpr std::string_view TrialChecks = "Tests passed: 4 checks";
+	constexpr std::string_view TrialScene = "Scenes/Trial.sscene";
+	constexpr std::string_view TrialReadings = "Moto's trial: ";
+	constexpr std::string_view KeptReadings = "Moto's kept lap: ";
 }
 
 TEST_CASE("Runtime: Moto's ride test scene rides the grid bike through its checks at 1/60 and 1/30 s a frame, with the same "
@@ -327,4 +356,79 @@ TEST_CASE("Runtime: Moto's lap test scene rides two whole laps on the autopilot 
 	CHECK(laps.ExitCode == 0);
 	CHECK(Contains(laps.Output, LapChecks));
 	CHECK_FALSE(RideReadings(laps.Output, "Moto's laps: ").empty());
+}
+
+TEST_CASE("Runtime: Moto's start test scene starts every race from the grid, held through the countdown, at 1/60 and 1/30 s a "
+          "frame, with the same readings and physics state at both")
+{
+	// The race director, the bike, the ghost and the menus as the main scene wires them, the race on its title: the scene's
+	// graph sends StartRace from its fixed steps from the title, from the results in the middle of a shift, from a fall and
+	// from the gravel, rides the bike's test driver at full throttle through each countdown and launches it after each
+	// signal; every reading is of the fixed steps, so the line is the same at both rates (the countdown's pause inserts
+	// frames without steps).
+	Testing::TemporaryDirectory directory;
+	std::filesystem::path const project = CopyRepositoryProject("Moto", directory.GetPath());
+	Testing::IsolatedUserRoot const userRoot;
+
+	ProcessResult const sixty = RunPlayer(StartRun(project), userRoot);
+	CAPTURE(sixty.Output);
+	CHECK(sixty.ExitCode == 0);
+	CHECK(Contains(sixty.Output, StartChecks));
+	REQUIRE_FALSE(RideReadings(sixty.Output, StartReadings).empty());
+	REQUIRE_FALSE(PhysicsState(sixty.Output).empty());
+	CHECK(Contains(PhysicsState(sixty.Output), std::string("at step ") + std::string(StartHashStep)));
+
+	ProcessResult const thirty = RunPlayer(StartRun(project, "0.0333333"), userRoot);
+	CAPTURE(thirty.Output);
+	CHECK(thirty.ExitCode == 0);
+	CHECK(Contains(thirty.Output, StartChecks));
+	CHECK(RideReadings(thirty.Output, StartReadings) == RideReadings(sixty.Output, StartReadings));
+	CHECK(PhysicsState(thirty.Output) == PhysicsState(sixty.Output));
+}
+
+TEST_CASE("Runtime: Moto's trial test scene rides a whole race on the real race director and ghost, whose best lap the slot "
+          "keeps for the next run, which rides it" *
+          doctest::skip(!Platform::ReadEnvironmentVariable("STRADA_LONG_RIDES")))
+{
+	// The test run: two laps of about 80 s on the autopilot, about 9,900 fixed steps, which is why it is not on CI.
+	constexpr std::chrono::seconds LongRunTimeout = std::chrono::minutes(10);
+	Testing::TemporaryDirectory directory;
+	std::filesystem::path const project = CopyRepositoryProject("Moto", directory.GetPath());
+	Testing::IsolatedUserRoot const userRoot;
+
+	ProcessResult const trial = RunPlayer({"--project", Native(project), "--scene", std::string(TrialScene), "--test", "--timeout", "240"},
+	                                      userRoot, LongRunTimeout);
+	CAPTURE(trial.Output);
+	CHECK(trial.ExitCode == 0);
+	CHECK(Contains(trial.Output, TrialChecks));
+	REQUIRE_FALSE(RideReadings(trial.Output, TrialReadings).empty());
+
+	// Development runs keep their game data in the project's folder (a test run's is temporary). The first rides the race to
+	// its results and saves the best lap with the ghost's samples: three fixed steps a frame, paced at 60 frames a second,
+	// so the race's 165 s of the game take about 55 s. The second loads the slot as the scene starts, gives the ghost the
+	// samples, and in lap 1 the HUD shows the ghost's live delta.
+	std::vector<std::string> const keeping = {"--project",  Native(project), "--scene", std::string(TrialScene),
+	                                          "--headless", "--timestep",    "0.05"};
+	std::vector<std::string> first = keeping;
+	first.insert(first.end(), {"--frames", "3500"});
+	ProcessResult const saving = RunPlayer(first, userRoot, LongRunTimeout);
+	CAPTURE(saving.Output);
+	CHECK(saving.ExitCode == 0);
+	std::string_view const saved = RideReadings(saving.Output, TrialReadings);
+	REQUIRE_FALSE(saved.empty());
+	CHECK(Contains(saved, "saved 1 times"));
+	CHECK(std::filesystem::is_regular_file(project.parent_path() / ".strada" / "PlayData" / "Saves" / "bestlap.ssave"));
+	std::string const samples(RaceReading(saved, "the slot keeping ", " samples"));
+	REQUIRE_FALSE(samples.empty());
+
+	std::vector<std::string> second = keeping;
+	second.insert(second.end(), {"--frames", "200"});
+	ProcessResult const loading = RunPlayer(second, userRoot, LongRunTimeout);
+	CAPTURE(loading.Output);
+	CHECK(loading.ExitCode == 0);
+	std::string_view const kept = RideReadings(loading.Output, KeptReadings);
+	REQUIRE_FALSE(kept.empty());
+	CHECK(Contains(kept, "the ghost riding it True with "));
+	CHECK(RaceReading(kept, "the ghost riding it True with ", " samples") == samples);
+	CHECK(Contains(kept, "the HUD's delta plate shown True"));
 }

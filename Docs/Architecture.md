@@ -7165,9 +7165,10 @@ graphs alone keeps its best lap and its settings screen, and none exposes a path
   The graph rides in `Event.FixedUpdate`, so the assists are a function of the simulation (rule of the rides compared
   across frame rates); with the three off it gives the vehicle the driver's values, but for the yaw damper (the feel
   pass, below), which stands for the bike's own front end and steers with every assist on or off, so the ridden bike's
-  seven checks above ride the vehicle with its damper (the ride scene starts with the three off). While the race director
-  holds the bike on the grid it gives the vehicle neither the driver's throttle nor the brakes ("The race's start",
-  below). **The rider's pose**, in its `Event.Update`
+  seven checks above ride the vehicle with its damper (the ride scene starts with the three off). While its public `Held`
+  is on, which the race director sets on its subject through the countdown, it gives the vehicle no throttle and both
+  brakes full and makes no shift, whatever the driver asks ("The race's start", below). **The rider's pose**, in its
+  `Event.Update`
   from the bike as drawn: the rigid rider (a child of the bike, so he leans with it) hangs off to the inside, his hips
   0.12 m and his body 10° further over at the lean limit and in proportion below it, and tucks in from 20 to 45 m/s (a
   smoothstep: 0.09 m lower, 0.08 m towards the bars, 14° forward); the fork turns about the steering axis by the front
@@ -7496,56 +7497,81 @@ graphs alone keeps its best lap and its settings screen, and none exposes a path
   `LapFinished(Lap, Time, Best)` (Best when the lap beats the best lap, or there was none) and, at the finish,
   `RaceFinished(Total)` (from lap 1's start). It publishes `State`, `Lap`, `LapTime` and `BestLapTime`, with
   `LastLapTime`, `RaceTime`, `CountdownLeft`, `Holding`, `Splits` and `BestSplits`, and for the checks `Steps`,
-  `StartStep`, `SubjectAt`, `Crossings`, `LastGate`, `LastStep`, `LastFraction`, `Entries`, `LoadedLapTime` and `Saves`.
+  `StartStep`, `SubjectAt`, `Crossings`, `LastGate`, `LastStep`, `LastFraction`, `Entries`, `LoadedLapTime`, `Saves` and
+  `Returns`.
   **The race's start**: every race starts from the grid. `StartRace`, from any state it is taken in (the title, a race,
   its results, idle), sets `Holding` and asks for the return; at its first `Event.FixedUpdate` at or after the request,
-  before it tracks the gates and only while its `State` is still `Countdown` (an `AbandonRace` before that step drops the
-  request with the countdown, so a bike left at the title is never moved), the director teleports its `Subject` to the grid's place and rotation (`Bike.grid_place()`:
-  9 m before the line, 3 m left of the center line, facing along the lap) and resets its vehicle (`ResetVehicle()`,
-  section 8, "The reset"), both in that one fixed step, so the return is the same at every frame rate; a subject that
-  does not run the riding graph (the box the flow scene's checks send through the gates) is left where it is. While `Holding` is true (the countdown
-  alone) the riding graph of the bike that is the director's `Subject` gives its vehicle throttle 0 and both brakes full,
-  past the linked brakes and their easing, and makes no shift, whatever its driver asks (the player's actions, the
-  autopilot or a test): a jump start is refused, and the bike waits in neutral, where the reset left it, the engine at
-  idle; at the signal the driver's inputs reach the vehicle again and the automatic shift takes first gear as the
-  throttle opens, as at the scene's start. The hold refuses the shifts only: the riding graph's own wait after a shift
-  (`ShiftWait`, 12 steps) counts down through it, so a start pressed in the middle of an automatic shift leaves no wait
-  behind at the signal. The hold's last step is the one before the director's `StartStep` when the riding graph runs
-  after the director in a step, `StartStep` itself when it runs first (the scene's order of its graphs, the same in every
-  run and at every frame rate): a check of a jump start reads the gear and the applied throttle at `StartStep - 1`.
+  before it tracks the gates and only while its `State` is still `Countdown` (an `AbandonRace` before that step drops
+  the request with the countdown, so a bike left at the title is never moved), the director teleports its `Subject` to
+  the grid's place and rotation (`Bike.grid_place()`: 9 m before the line, 3 m left of the center line, facing along the
+  lap) and resets its vehicle (`ResetVehicle()`, section 8, "The reset"), both in that one fixed step, so the return is
+  the same at every frame rate, and counts it (`Returns`); a subject that does not run the riding graph (the box the
+  flow scene's checks send through the gates) is left where it is. At each of its fixed steps, after the countdown's,
+  the director sets its subject's riding graph's public `Held` to its `Holding` (the bike's part comes before the
+  race's, so the director's graph names the riding graph and not the other way round). While `Held` is on (the countdown
+  alone) the riding graph gives its vehicle throttle 0 and both brakes full, past the linked brakes and their easing,
+  and makes no shift, whatever its driver asks (the player's actions, the autopilot or a test): a jump start is refused,
+  and the bike waits in neutral, where the reset left it, the engine at idle; at the signal the driver's inputs reach
+  the vehicle again and the automatic shift takes first gear as the throttle opens, as at the scene's start. The hold
+  refuses the shifts only: the riding graph's own wait after a shift (`ShiftWait`, 12 steps) counts down through it, so
+  a start pressed in the middle of an automatic shift leaves no wait behind at the signal. Where no director sets it (a
+  scene without the `Race` root, a bike that is not the director's subject: the flow scene's, whose director times the
+  box), `Held` stays off and the bike rides as before. The scene's order of its graphs, the same in every run and at
+  every frame rate, puts the hold's steps: read step by step in the editor on the start test scene, `StartRace` sent in
+  a step, the return and the hold come in the next, and the last held step is the one before the director's `StartStep`.
   A second `StartRace` in the countdown is refused (the director's rule), so the hold and the one return stand; a pause
   in the countdown stops the game (time scale 0) and with it the countdown and the hold; QUIT TO TITLE in the countdown
-  ends the hold in the director's next fixed step, at the title, with no return. The riding graph finds the director by its name at its start (its read-out
-  `Race`, as it finds the rider among its children) and reads the director's `Holding` and `Subject` at each fixed step
-  (its read-out `Held`); where no entity of that name runs the director's graph, or the bike is not its subject, it holds
-  nothing, so a scene without the `Race` root rides as before, and so does the flow scene's bike, whose director times
-  the box. Which of the two graphs runs first in a step does not matter: the reset keeps the latest inputs and the
-  hold gives them from the step after `StartRace` at the latest (from the first step of its frame when the menus send it,
-  in an update). Read in the main scene through the menus (the title's RACE, the results' RACE AGAIN), the player's
-  throttle held open and `ShiftUp` pressed through the countdown, from the grid, after riding under the title (27 m/s in
-  first at the limiter), after a fall (past 55° on a full lever from 64 m/s with the linked brakes off, its wheels off
-  the ground at 21 m/s as RACE was pressed; in Debug that lever ran the bike into the gravel at 30 m/s instead), in the
-  gravel outside Turn 6 (the rear spinning at the limiter) and from the results at 62 m/s in third, at 60 and 30 frames a second: at the signal the bike stood the
-  same in every case, 15 mm from the grid's place and 0.5 mm above it (a new bike settling on its springs), 0.001° off
-  its heading, its wheels still, the engine at 1,700 rpm in neutral, and launched to 20.56 m/s in 3 s (in Debug, each
-  case the same too: 15.1 mm and 20.56 m/s), also with the
-  engine's `NeutralDamping` at 0 (the reset puts the engine at idle). The others do at a second start what they do at
-  a first: the HUD shows the countdown from the director's read-outs and clears the last race's sectors and delta when
-  the director's `State` turns to `Countdown` (where it cleared them only at `RaceStarted`, a second countdown would show
-  the race before), the camera director cuts to the chase view at
-  `RaceStarted` and the chase camera jumps with the bike (it snaps to its place when the bike moved more than 20 m in a
-  frame), the ghost sets out on its best lap at `LapStarted` and records the new lap, and the audio director follows the
-  bike, whose teleport gives no doppler (section 9.8). The ride and the lap test scenes leave the `Race` and `Screen`
-  roots out (`TestScene.left_out`; their lines, frames and checks read the same so, the ride scene's step-1750 hash goes
-  back to the world before the race joined it): their checks stand in for the director's events, so its gates' trigger bodies, its
-  loading of a kept best lap into the ghost and the menus' giving of stored settings to the bike have no place there, and
-  their riding graph, finding no director, holds nothing; `MotoAgentTests` rides the lap scene so. Two test scenes of
-  their own play the race with nothing standing in, the director, the bike, the ghost and the menus wired as the main
-  scene wires them: the starts (`Scenes/Start.sscene`, from the title, the results, a fall and the gravel, ridden by the
-  player's actions once, and a second `StartRace`, a pause and a resume, a pause and QUIT TO TITLE, and a start pressed
-  in the middle of an automatic shift, each in the countdown) and a whole
-  race of two laps whose best lap the ghost records and the slot keeps for the next run (`Scenes/Trial.sscene`, behind
-  `STRADA_LONG_RIDES=1`).
+  ends the hold in the director's next fixed step, at the title, with no return. **The start test scene**
+  (`Scenes/Start.sscene`, `Tools/StartChecks.py`, a line of `Checks.SCENES`: the main scene without its props, the
+  director, the bike, the ghost and the menus wired as the main scene wires them, nothing standing in; the race on its
+  title, a countdown of 1 s and one lap, the screens hidden and the camera and audio directors as the test scene has
+  them) rides the bike's test driver with the assists a new player has and sends `StartRace` from its fixed steps, full
+  throttle asked through every countdown: from the title after 30 steps of it (`ShiftUp` sent and a second `StartRace`
+  in the countdown); from the results, reached by the bike's real crossing of the line and the gates then sent as
+  crossed, in the step the automatic shift took second gear at 41.0 m/s (the countdown paused for ten frames and
+  resumed); from a fall (the bike teleported onto its side at 13.8 m/s, 45 steps later leaned 59.9°); and from the
+  gravel outside Turn 6 (90 steps at full throttle from rest, the rear wheel spinning at 135 rad/s); then a fifth race
+  left by `AbandonRace` in its countdown. Its eight checks: at the signal each start's bike within 20 mm of the grid's
+  place and 0.01° of its heading, its wheels within 0.01 rad/s of still, the engine within 1.01 times its idle in
+  neutral, lap 0, the countdown's 60 steps after `StartRace`, the vehicle given no throttle and no gear through the
+  countdown, and a launch of 120 steps within 0.5 % of the first start's (read in every start 5.5 mm from the grid's
+  place, a new bike settling on its springs, 0.0005° off its heading, its wheels still, 1,700 rpm in neutral, launched
+  to 13.593 m/s; 5.4 mm and 13.596 m/s in Debug); the jump start held in neutral; the second `StartRace` refused (one
+  return); the pause with the bike and the director's steps standing still (0 m and 0 steps) and the countdown's 60
+  steps kept; and QUIT TO TITLE at the title, `Held` off, five returns for the five races, the bike riding off in first
+  gear. A start sent in the scene's first fixed step, the bike made a step before, left it 5.4 mm from the grid's place
+  and launched it 1.2 % slower (13.43 m/s) than every later start, which is why the title start waits 30 steps of the
+  title, as a player reads it. The line of every reading ("Moto's starts, ...") and the physics state at step 900 are
+  the same at 1/60 and 1/30 s a frame (`MotoRideTests.cpp`, on every job). With the hold taken out the four starts stood
+  2.4 to 3.3 m from the grid at the signal, in first gear at 2,800 to 6,200 rpm, and the jump start went; with the
+  return taken out the three starts after the first stood 158 to 616 m from it at 8,300 to 10,400 rpm, and the second
+  start's and the quit's counts of returns read 0. The others do at a second start what they do at a first: the HUD
+  shows the countdown from the director's read-outs and clears the last race's sectors and delta when the director's
+  `State` turns to `Countdown` (where it cleared them only at `RaceStarted`, a second countdown would show the race
+  before), the camera director cuts to the chase view at `RaceStarted` and the chase camera jumps with the bike (it
+  snaps to its place when the bike moved more than 20 m in a frame), the ghost sets out on its best lap at `LapStarted`
+  and records the new lap, and the audio director follows the bike, whose teleport gives no doppler (section 9.8).
+  `MotoPlayTests` plays the main scene with the title's RACE pressed by Enter and the throttle's key held from the title
+  on (the countdown set to 1 s): the bike held on the grid, in neutral at idle, `Held` on, through the countdown and
+  ridden off in first gear after the signal; then the director's `State` is set to `Results` (riding the laps to them is
+  the start and trial test scenes'), the results' RACE AGAIN clicked with the bike riding on, and the bike back on the
+  grid, held, through the second countdown. The ride and the lap test scenes leave the `Race` and `Screen` roots out
+  (`TestScene.left_out`, `Checks.NO_RACE`: their lines, frames and checks read the same so): their checks stand in for
+  the director's events, so its gates' trigger bodies, its loading of a kept best lap into the ghost and the menus'
+  giving of stored settings to the bike have no place there, and their riding graph, which no director holds, rides as
+  before; `MotoAgentTests` rides the lap scene so. **A whole race** (`Scenes/Trial.sscene`, `Tools/TrialChecks.py`,
+  behind `STRADA_LONG_RIDES=1`): the main scene without its props wired as the main scene is, two laps, the autopilot on
+  from the scene's start and the menus hidden; the runner sends `StartRace` in its first fixed step, and the director
+  puts the bike on the grid and holds it through the countdown while the autopilot already asks for throttle, starts the
+  race, times its laps at the gates and broadcasts its lap events, from which the ghost records the best lap; at the
+  results the director saves the best lap with the ghost's samples. Its four checks: one return, the countdown's 180
+  steps and no throttle or gear given through it; each lap the director timed within two fixed steps of the runner's own
+  count of the steps between the bike's crossings of the line's plane, within 1 to 1.25 times the racing line's lap, the
+  race's time their sum; the ghost's best lap the race's, its samples one either way of ten a second; the slot saved
+  once with the ghost's samples (read 82.429 and 79.127 s against 82.433 and 79.133 s, a race of 161.556 s, 792 samples;
+  82.439 and 79.150 s against 82.450 and 79.150 s in Debug). Two development runs of the scene then show the slot kept:
+  the first rides to the results and saves it (three fixed steps a frame), the second loads it as the scene starts, the
+  ghost riding its samples, and in lap 1 the HUD shows the ghost's live delta (`MotoRideTests.cpp`).
   **The best lap** is kept in the save slot `BestLap` (§13.1): `LapTime`, `Splits` and, with the ghost's samples,
   `SampleRate` (10) and the ghost's arrays of the best lap's samples, ten a second (`BestLapPositions`,
   `BestLapRotations`, `BestLapEngineSpeeds`, `BestLapLoads`, `Race.GHOST_SAMPLES`; a list of 4,096 holds a lap of up to
