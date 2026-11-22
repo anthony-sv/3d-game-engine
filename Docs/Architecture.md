@@ -6692,7 +6692,7 @@ graphs alone keeps its best lap and its settings screen, and none exposes a path
   skips, command-line errors, a windowed run's presented image, its screenshot and its `--resolution`). ctest runs it as
   shards defined in `Tests/StradaRuntimeTests/Shards.cmake`: `StradaRuntimeTests.Samples` (`SampleTests.cpp`: the
   sample projects, each played several times), `.Templates` (`TemplateTests.cpp`: a project made from each template),
-  `.Ride` (`MotoRideTests.cpp`: Moto's ride, flow and lap test scenes), `.Ship` (`MotoShipTests.cpp`: Moto's test scene
+  `.Ride` (`MotoRideTests.cpp`: Moto's ride, flow, lap, start and trial test scenes), `.Ship` (`MotoShipTests.cpp`: Moto's test scene
   at 1/30 and 1/144 s a frame, the first minute of its ride at three frame rates, and the exported game's test scene and
   the player's data it keeps across two runs; `FoldedHashTests.cpp`: the player's fold of every step's physics state
   hash) and `.Core` (every other file), with
@@ -7823,8 +7823,8 @@ graphs alone keeps its best lap and its settings screen, and none exposes a path
   `Tests.sscene` passes its 24 checks at 1/30 and 1/144 s a frame (`SampleTests.cpp` plays it at 1/60, twice), and the
   first minute of a ride from the grid is the same simulation at every fixed step at 1/30, 1/60 and 1/144 s a frame.
   The ride is the lap test scene's: the autopilot rides the bike from the grid as the scene starts, its inputs set in
-  the fixed steps from what the bike reads, the race director idle, no props. Its checks report after two whole laps,
-  so a minute of it is a test run cut by its timeout, 60.25 s of the game (8,640 frames of 1/144 s, added up in floats,
+  the fixed steps from what the bike reads, the `Race` and `Screen` roots left out with the props. Its checks report
+  after two whole laps, so a minute of it is a test run cut by its timeout, 60.25 s of the game (8,640 frames of 1/144 s, added up in floats,
   may fall short of step 3,600 by one): it ends unfinished (exit code 1, no check failed, no script exception), and its
   summary gives the state hash of step 3,600 and, with the player's `--hash-every-step`, the fold of every step's hash
   from the first to it. The three runs' are compared character for character, and nothing of the ride (a hash, a time,
@@ -7855,7 +7855,7 @@ graphs alone keeps its best lap and its settings screen, and none exposes a path
   an example (the project copy's rules, its root `.gitignore` left behind) holds `Assets/` and `Moto.sproj` alone,
   what `SampleTests.cpp`'s Moto case copies by hand: no `Tools/`, and no `Scripts/`, so no script project for an SDK
   to build; the editor opens it and plays its title over the attract mode, the ghost riding. `SampleProjectsTests`
-  (StradaTests) holds such a copy under 20 MB (20,000,000 bytes): it weighs 16.5 MB, of which the main scene with its
+  (StradaTests) holds such a copy under 20 MB (20,000,000 bytes): it weighs 17.2 MB, of which the main scene with its
   props is 6.8 MB. The export adds the player, the runtime libraries and the scripting API: 27.5 MB in 147 files on
   Windows. **How a lap is measured**: a copy of the project whose main scene runs one more graph, which presses RACE on
   the title by an action override (`Confirm`) ten frames in and sends the `Ride` entity `StartAutopilot` at the
