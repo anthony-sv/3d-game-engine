@@ -7162,8 +7162,8 @@ graphs alone keeps its best lap and its settings screen, and none exposes a path
     a corner exit's, the engine at its limiter with the road's speed 2,000 rpm and more below it, shifts nothing, so
     from the grid at full throttle the engine stands at its limiter 171 steps in first (2.9 s, from 21 to 41 m/s, the
     road's speed rising from 7,800 rpm) and 86 in second (1.4 s), 266 steps in gears 1 to 5 in all, and on the
-    autopilot's lap 14 % of the steps. The spec's "never holds the limiter" is not met there, and no rule of the gearbox
-    meets it: shifting on the engine alone (whatever the slip) went from first to fourth in 0.8 s of the launch, the
+    autopilot's lap 14 % of the steps. The shift does not keep the engine off its limiter there, and no rule of the
+    gearbox does: shifting on the engine alone (whatever the slip) went from first to fourth in 0.8 s of the launch, the
     road's speed in fourth 6,500 rpm, under `ShiftDownRPM`, and on the lap shifted up under every corner exit's
     wheelspin and back down as the throttle eased (nine reversals within a second in a lap, 0.6 s lost), with the
     downshift held while the throttle is open or ruled by the engine's speed alike; only less torque at the rear tyre, a
@@ -7604,8 +7604,8 @@ graphs alone keeps its best lap and its settings screen, and none exposes a path
   steps and no throttle or gear given through it; each lap the director timed within two fixed steps of the runner's own
   count of the steps between the bike's crossings of the line's plane, within 1 to 1.25 times the racing line's lap, the
   race's time their sum; the ghost's best lap the race's, its samples one either way of ten a second; the slot saved
-  once with the ghost's samples (read 82.429 and 79.127 s against 82.433 and 79.133 s, a race of 161.556 s, 792 samples;
-  82.439 and 79.150 s against 82.450 and 79.150 s in Debug). Two development runs of the scene then show the slot kept:
+  once with the ghost's samples (read 82.457 and 79.152 s against 82.467 and 79.150 s, a race of 161.609 s, 792 samples;
+  82.455 and 79.150 s against 82.467 and 79.150 s in Debug). Two development runs of the scene then show the slot kept:
   the first rides to the results and saves it (three fixed steps a frame), the second loads it as the scene starts, the
   ghost riding its samples, and in lap 1 the HUD shows the ghost's live delta (`MotoRideTests.cpp`).
   **The best lap** is kept in the save slot `BestLap` (§13.1): `LapTime`, `Splits` and, with the ghost's samples,
