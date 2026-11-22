@@ -26,7 +26,7 @@ step (Docs/Architecture.md section 15, rule of the rides compared across frame r
 1 and writes its public Throttle, FrontBrake, RearBrake and Lean, which the riding graph gives the vehicle through the rider
 assists (Vehicle.py), never SetDriverInput itself, and the assists shift for it. It steers onto a curvature: the line's own
 CURVE_LEAD seconds ahead (LineCurvature) times UNDERSTEER (the bike's turn builds behind its steering, so it asks for more
-than the line's curvature: found by probing the ride), less its heading's error from the line's over HEADING_TIME seconds of its speed, where the heading it aims for
+than the line's curvature: found by riding whole laps), less its heading's error from the line's over HEADING_TIME seconds of its speed, where the heading it aims for
 turns it back onto the line from its offset over OFFSET_TIME seconds (at most OFFSET_HEADING radians); and it asks the
 assist for the lean that turns on that curvature (MotoLib's CurvatureLean), whose steering the assist gives. It holds the
 speed of the line LEAD_TIME ahead (LineSpeed times Pace): the throttle opens by THROTTLE_GAIN
@@ -57,12 +57,13 @@ BIKE = Vehicle.BIKE
 # The line's arrays: a point every SPACING meters of the line's own length.
 SPACING = 2.0
 # The autopilot's speeds: the most sideways grip it rides a corner at (in g) and the braking it slows for one at (m/s^2,
-# besides the air's and the road's drag), within what the bike's tyres give (Vehicle.py): a hard front brake at speed sets
-# the bike weaving, so it rides the line at a rider's careful pace rather than the point mass's, and its brake goes on
-# gently (BRAKE_GAIN, BRAKE_MAX) for the same reason. The feel pass (Docs/Architecture.md section 15) chose the grip with the
-# bike's narrow contacts (Vehicle.py) by probing whole laps: on them the bike leans into its corners, and at 0.75 with
-# UNDERSTEER at 1.15 the laps stay on the line and the road with each one-notch change of either (0.725 and 0.775, 1.1 and
-# 1.2); with UNDERSTEER at 1.3 (the upright bike's) or at 1.0, the probed grips of 0.7 to 0.8 ran exits onto the grass.
+# besides the air's and the road's drag), within what the bike's tyres give (Vehicle.py): it rides the line at a rider's
+# careful pace rather than the point mass's, and its brake goes on gently (BRAKE_GAIN, BRAKE_MAX), as it was tuned before
+# the riding graph's yaw damper held a hard front lever at speed upright. The feel pass (Docs/Architecture.md section 15)
+# chose the grip with the bike's narrow contacts (Vehicle.py) by riding whole laps: on them the bike leans into its corners,
+# and at 0.75 the laps stay on the line and the road with each one-notch change of it (0.725 and 0.775). UNDERSTEER sits in
+# the middle of the window in which the lap scene's two laps stay on the road with the yaw damper: clean from 1.10 to
+# 1.225, off the road at 1.075 and 1.25; with 1.3 (the upright bike's) or 1.0, exits ran onto the grass.
 AUTO_GRIP = 0.75
 AUTO_BRAKING = 4.0
 # How it steers (above): the line's curvature it takes from CURVE_LEAD seconds ahead, and how fast it turns its heading back
@@ -70,7 +71,7 @@ AUTO_BRAKING = 4.0
 # OFFSET_HEADING radians), at a speed of STEER_SPEED at least. How it holds its speed: the lead of the speed it holds
 # (seconds), the throttle's and the brake's gains (per m/s) and the brake's margin (m/s) and limit.
 CURVE_LEAD = 0.3
-UNDERSTEER = 1.15
+UNDERSTEER = 1.16
 HEADING_TIME = 0.4
 OFFSET_TIME = 1.2
 OFFSET_HEADING = 0.3

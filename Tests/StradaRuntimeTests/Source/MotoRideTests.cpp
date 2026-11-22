@@ -31,7 +31,10 @@ using namespace Strada::RuntimeTesting;
 // them, and their checks pass at every rate. Then the best lap's checks (Tools/GhostChecks.py) stand in for the race
 // director's LapStarted and LapFinished: the autopilot rides short laps from the grid, the ghost (Scripts/Ghost.sgraph) keeps
 // the faster, refuses a lap too long for its samples, sets its Delta against the best at the same place and replays the best
-// lap beside the next; their readings of the fixed steps are logged in a third line, compared as the others are. The scene's
+// lap beside the next; their readings of the fixed steps are logged in a third line, compared as the others are. Last, the
+// bike at its limits (Tools/LimitChecks.py): in neutral the engine falls to idle once the throttle closes, the automatic
+// shift leaves first and second at the shift point, and a full front lever from 62 and 64 m/s, the assists on and then
+// off, keeps the bike upright on the road (the riding graph's yaw damper); logged in a fourth line. The scene's
 // race director stays idle and its screens hidden (Tools/Checks.py's start switches), so nothing but these checks speaks
 // for the race there.
 //
@@ -60,26 +63,27 @@ using namespace Strada::RuntimeTesting;
 namespace
 {
 	// The ride test scene's checks: the bike's seven (Tools/BikeChecks.py), the assists', the autopilot's and the rest in
-	// gear's eight, the directors' nine, then the best lap's five.
-	constexpr std::string_view RideChecks = "Tests passed: 29 checks";
+	// gear's eight, the directors' nine, the best lap's five, then the limits' four.
+	constexpr std::string_view RideChecks = "Tests passed: 33 checks";
 	// The flow test scene's checks: the bike's seven, the race's nine, the HUD's and the pause's eight, the menus' seven.
 	constexpr std::string_view FlowChecks = "Tests passed: 31 checks";
 	// The lap test scene's checks (Tools/LapChecks.py): the laps' times, the line, the ghost, the lean.
 	constexpr std::string_view LapChecks = "Tests passed: 4 checks";
 	// The test scenes and their test timeouts (seconds of the game, Tools/Checks.py's SCENES): the ride scene's rides take
-	// about 158 s, the flow scene's checks about 36 s. A Debug run of the ride scene's 9,500 frames on a slow runner can pass
-	// RunTimeout's two minutes, so its runs have a process timeout of their own.
+	// about 186 s, the flow scene's checks about 36 s. A Debug run of the ride scene's 11,190 frames on a slow runner can
+	// pass RunTimeout's two minutes, so its runs have a process timeout of their own.
 	constexpr std::string_view RideScene = "Scenes/Ride.sscene";
-	constexpr std::string_view RideTimeout = "200";
+	constexpr std::string_view RideTimeout = "240";
 	constexpr std::string_view FlowScene = "Scenes/Flow.sscene";
 	constexpr std::string_view FlowTimeout = "60";
 	constexpr std::chrono::seconds RideRunTimeout = std::chrono::minutes(5);
-	// A fixed step of the ride after it was teleported into the gravel trap and back (by about step 1,650) and before it ends
-	// (about step 1,870): the physics state there is the same at every frame rate.
+	// A fixed step after the ride was teleported into the gravel trap and back (by about step 1,650) and onto the grid at
+	// rest (it ends at step 1,749), as the assists' ride starts: the physics state there is the same at every frame rate.
 	constexpr std::string_view HashStep = "1750";
-	// The start of the line of the assists' and the autopilot's readings, and of the best lap's.
+	// The start of the line of the assists' and the autopilot's readings, of the best lap's and of the limits'.
 	constexpr std::string_view AssistReadings = "Moto's assists and autopilot: ";
 	constexpr std::string_view GhostReadings = "Moto's ghost: ";
+	constexpr std::string_view LimitReadings = "Moto's limits: ";
 
 	// The line that begins with a prefix, to its end; empty without one.
 	std::string_view LineFrom(std::string_view output, std::string_view prefix)
@@ -95,7 +99,7 @@ namespace
 
 	// The line in which the ride's graph logs every reading of a part of the ride it took ("Moto's ride: ..." for the bike's,
 	// "Moto's assists and autopilot: ..." for the assists' and the autopilot's, "Moto's ghost: ..." for the best lap's,
-	// "Moto's laps: ..." for the lap test scene's); empty without one.
+	// "Moto's limits: ..." for the bike at its limits', "Moto's laps: ..." for the lap test scene's); empty without one.
 	std::string_view RideReadings(std::string_view output, std::string_view part = "Moto's ride: ")
 	{
 		return LineFrom(output, part);
@@ -167,6 +171,7 @@ TEST_CASE("Runtime: Moto's ride test scene rides the grid bike through its check
 	REQUIRE_FALSE(RideReadings(sixty.Output).empty());
 	REQUIRE_FALSE(RideReadings(sixty.Output, AssistReadings).empty());
 	REQUIRE_FALSE(RideReadings(sixty.Output, GhostReadings).empty());
+	REQUIRE_FALSE(RideReadings(sixty.Output, LimitReadings).empty());
 	REQUIRE_FALSE(PhysicsState(sixty.Output).empty());
 
 	// Two fixed steps a frame: the ride's inputs change between them as they do between frames at 1/60 s.
@@ -177,6 +182,7 @@ TEST_CASE("Runtime: Moto's ride test scene rides the grid bike through its check
 	CHECK(RideReadings(thirty.Output) == RideReadings(sixty.Output));
 	CHECK(RideReadings(thirty.Output, AssistReadings) == RideReadings(sixty.Output, AssistReadings));
 	CHECK(RideReadings(thirty.Output, GhostReadings) == RideReadings(sixty.Output, GhostReadings));
+	CHECK(RideReadings(thirty.Output, LimitReadings) == RideReadings(sixty.Output, LimitReadings));
 	CHECK(PhysicsState(thirty.Output) == PhysicsState(sixty.Output));
 	CHECK(Contains(PhysicsState(sixty.Output), std::string("at step ") + std::string(HashStep)));
 }
@@ -205,6 +211,8 @@ TEST_CASE("Runtime: Moto's ride test scene rides the grid bike through its check
 	CHECK(RideReadings(fast.Output, AssistReadings) == RideReadings(sixty.Output, AssistReadings));
 	REQUIRE_FALSE(RideReadings(sixty.Output, GhostReadings).empty());
 	CHECK(RideReadings(fast.Output, GhostReadings) == RideReadings(sixty.Output, GhostReadings));
+	REQUIRE_FALSE(RideReadings(sixty.Output, LimitReadings).empty());
+	CHECK(RideReadings(fast.Output, LimitReadings) == RideReadings(sixty.Output, LimitReadings));
 	REQUIRE_FALSE(PhysicsState(sixty.Output).empty());
 	CHECK(PhysicsState(fast.Output) == PhysicsState(sixty.Output));
 }

@@ -138,8 +138,8 @@ SCENES = (
               "bike, one after another, each a latent function that acts or waits for its moment, then reports it.",
               math.ceil(Tour.LENGTH) + 30),
     TestScene("Ride", "Ride Tests", RIDE_TESTS, "The ride test scene's checks: {count} checks of the ridden bike, its rider "
-              "assists, its autopilot, the directors and the best lap's ghost, each a latent function that waits for a reading "
-              "the ride takes, then reports it.", 200, switches=NO_SCREENS),
+              "assists, its autopilot, the directors, the best lap's ghost and the bike at its limits, each a latent function "
+              "that waits for a reading the ride takes, then reports it.", 240, switches=NO_SCREENS),
     TestScene("Flow", "Flow Tests", FLOW_TESTS, "The flow test scene's checks: {count} checks of the ridden bike, the race, the "
               "HUD, the pause and the menus, each a latent function that waits for its reading, then reports it.", 60,
               switches=NO_RIDE_DIRECTORS),
@@ -156,6 +156,7 @@ MODULES = (
     ("Ride", "RideChecks"),
     ("Ride", "DirectorChecks"),
     ("Ride", "GhostChecks"),
+    ("Ride", "LimitChecks"),
     ("Flow", "BikeChecks"),
     ("Flow", "RaceChecks"),
     ("Flow", "HudChecks"),

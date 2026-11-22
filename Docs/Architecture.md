@@ -7074,15 +7074,21 @@ graphs alone keeps its best lap and its settings screen, and none exposes a path
   into the gravel trap outside Turn 6 at the speed it had, facing along the lap with its wheels turning on, for 1 s more;
   then back onto the main straight, 3 m right of its center line, first gear up to 15 m/s, the coast, and a lean of -0.5 for
   1 s. At the end it is teleported back onto the grid at rest, braked until it stops, and left in neutral with no input:
-  the ride writes nothing more, for the checks that join the scene later. It takes 1,865 steps in Release and 1,866 in
-  Debug (31 s), and about 15 s more when a brake never stops the bike (a stop gives up after 900 steps). A module whose
-  checks join `Ride.sscene` (a line of `MODULES` naming `Ride`) runs them after the seven, from about step 1,865, with the bike on
-  the grid in neutral and `Driver` still 2, and raises the scene's test timeout (200 s since the best lap's checks joined, in
-  `Checks.SCENES` and in `MotoRideTests.cpp`'s `--timeout`) by what they add; a check's wait (`BikeChecks.WAIT`) stays
+  the ride writes nothing more, for the checks that join the scene later. It takes 1,749 steps (1,748 in Debug, 29 s; 1,865 before the
+  engine wound down in neutral), and about 15 s more when a brake never stops the bike (a stop gives up after 900 steps). A
+  module whose checks join `Ride.sscene` (a line of `MODULES` naming `Ride`) runs them after the seven, from about step
+  1,749, with the bike on the grid in neutral and `Driver` still 2, and raises the scene's test timeout (240 s since the
+  limits' checks joined, in `Checks.SCENES` and in `MotoRideTests.cpp`'s `--timeout`) by what they add; a check's wait (`BikeChecks.WAIT`) stays
   below it. Since the assists' and the autopilot's checks joined after the seven (the ride in graphs, below), a module
-  registered after theirs starts its ride when their ride's phase (`AssistPhase`) is `Done`, at about step 5,040, the
+  registered after theirs starts its ride when their ride's phase (`AssistPhase`) is `Done`, at about step 4,950, the
   bike again on the grid at rest in neutral, `Driver` 2 and the assists off; since the best lap's checks joined after
-  those, one registered after them starts when `GhostPhase` is `Done`, at about step 9,505, the bike left the same way. A
+  those, one registered after them starts when `GhostPhase` is `Done`, at about step 9,390, the bike left the same way.
+  The bike at its limits (`Tools/LimitChecks.py`) is that module, so one registered after it starts when `LimitPhase` is
+  `Done`, at about step 11,190, the bike left the same way: in neutral on the grid, both brakes on, full throttle to the
+  red line and the throttle closed, the steps to idle; then twice from the grid at full throttle on the automatic shifts
+  up to 62 and 64 m/s and a full front lever, the assists on and then off, the largest lean down to 30 m/s, the first
+  climb reading each upshift out of first and second in the step that decided it; its four checks are the feel pass's
+  (the ride in graphs, below), and it logs one line ("Moto's limits: ..."). A
   module that
   needs the bike from the grid at the first step (a ride compared across frame rates from the start) registers a test
   scene of its own instead, one line of `SCENES`: it too is the main scene without its props, its runner runs only the
@@ -7093,21 +7099,22 @@ graphs alone keeps its best lap and its settings screen, and none exposes a path
   checks, each a band drawn from the figures
   `Vehicle.py`'s `ride_figures()` gives (closed forms from the definition), with the room each form leaves:
   (1) the speed 3 s after the launch, 18.92 m/s by the form, in 0.9 to 1.3 times it (the form takes the spinning rear tyre at its
-  sliding friction throughout, where it grips up to its peak whenever it spins less), read 20.45 (20.43 in Release); (2) the front brake
+  sliding friction throughout, where it grips up to its peak whenever it spins less), read 20.42 (20.44 in Release); (2) the front brake
   alone from 20 m/s, 24.17 m, in 0.85 to 1.25 times it (the form moves the weight to the front at once, where the
-  springs' pitch moves it over the first tenths of a second), read 25.62 (25.61 in Release); (3) the rear brake alone from 20 m/s, 50.04 m,
+  springs' pitch moves it over the first tenths of a second), read 25.61 (25.62 in Release); (3) the rear brake alone from 20 m/s, 50.04 m,
   in the same room and longer than the front's, read 52.75 (52.78 in Release); (4) upright with no lean asked over the launch and the
-  asphalt's coast, within 3°, read 0.12° at most; (5) the coast in the gravel losing more than the one on the asphalt by
+  asphalt's coast, within 3°, read 0.14° at most; (5) the coast in the gravel losing more than the one on the asphalt by
   the forms' 2.28 m/s (rolling resistance 0.25 against 0.015), in 0.75 to 1.25 times it, read 2.68 against 0.51 m/s;
   (6) each of the five `ShiftUp`s (from neutral four times, from first once) one gear up, exactly, counted 10 steps after
   each; (7) the lean to the left leaning the bike more than 5° to the left and turning its heading more than 5° to the
-  left, read -27.86° and 49.2° (the same in Release). Release
+  left, read -27.88° and 49.2° (the same in Release). Release
   reads within 1.3 % of Debug, and each the same at every frame rate. The graph logs every reading in one line ("Moto's ride: ..."). `MotoRideTests.cpp` (the shard
   `StradaRuntimeTests.Ride`) plays the scene at 1/60 and at 1/30 s a frame and requires the same line and the same physics
   state at step 1,750, after both teleports; behind `STRADA_LONG_RIDES=1`, with a timeout of 10 minutes, it also plays it at
   1/144 s a frame. The scene has no props, so the shard's two starts of the player stay well within its 200 s on CI's
   macOS runners, where one start on Moto with its props costs about 25 s. `Tests.sscene` keeps its 24 checks and gains no
-  ride. `PlayModeTests` rides the main scene's bike on an injected gamepad (`input.set`'s `gamepads`) with the rider
+  ride: a bike ridden straight there meets its test bodies (the Asphalt Slider stands 358 m into the lap, 1.5 m off the
+  line), so the scenes that ride hold none. `PlayModeTests` rides the main scene's bike on an injected gamepad (`input.set`'s `gamepads`) with the rider
   assists a new player has (the ride in graphs, below): the right trigger alone takes it out of neutral into first and
   more than 8 m off the grid at over 8 m/s in 2 s (it reads 13.5), the left stick asks for a lean to the left and then to
   the right (the steering applied and the lean's sign), the left trigger slows it by more than 2 m/s in 1 s still in
@@ -7139,16 +7146,20 @@ graphs alone keeps its best lap and its settings screen, and none exposes a path
     into neutral, and none within 12 steps of the last shift. It reads the engine's speed at the road's speed in the gear
     (the rear wheel's radius, the gear's ratio and the final drive), which a rear tyre spinning on a full throttle or a
     slipping clutch does not raise, and shifts up when that speed reaches `ShiftUpRPM`, or when the engine itself is at
-    `ShiftUpRPM` or above while the road's speed is within 500 rpm of it (`Vehicle.SHIFT_SLIP_ROOM`), so at the shift
-    point whatever the rear tyre's drive slip there. By the road's speed alone, the drive slip at the red line (3 to 4 %)
-    held first gear at the limiter on the lap's short straights: after Turn 3 the engine sat at 16,000 rpm from 27.8 to
-    42.05 m/s and never shifted. A launch's or a corner exit's wheelspin (the engine at its limiter with the road's speed
-    2,000 rpm and more below it) and a shift's slipping clutch (the 12 steps) shift nothing. It cannot hunt: an upshift
-    leaves the road's speed in the next gear at no less than 0.78 of 15,000 rpm (first to second, the gearbox's largest
-    step), 11,700 rpm, above `ShiftDownRPM` (10,500), so no downshift follows until the bike slows (`Vehicle.check()`
-    asserts it for every gear). From the grid at full throttle it shifts at 40.9, 52.3 and 60.5 m/s (the road's speed
-    15,015, 14,971 and 14,987 rpm, the engine at its limiter) where the road's speed alone shifted at 42.2, 54.2 and
-    62.5 m/s, and on the autopilot's laps no gear stays at the limiter past the shift point. An assist over the `Manual` gearbox rather than the definition's `Automatic` mode, so
+    its shift point (`ShiftUpRPM`, or `MaxRPM` when that is lower, so a definition whose shift point the engine cannot
+    reach shifts at the limiter) while the road's speed is within 500 rpm of it (`Vehicle.SHIFT_SLIP_ROOM`): so at the
+    shift point whatever the rear tyre's drive slip there. Each rule reads the vehicle as the last step left it, in the
+    fixed step that decides; the shift takes effect at the next physics step, so the gear reads one higher a step later.
+    By the road's speed alone the drive slip at full throttle (the engine at its limiter, the road's speed 3 to 6 % under
+    it) held a gear at the limiter until the slip let the road's speed reach the point: from the grid 23 steps in first
+    and 14 in second with the road's speed within 500 rpm of it, shifting at 42.2 and 54.2 m/s. Now it shifts in the step
+    the road's speed comes within the room: at 40.9 and 52.3 m/s, the engine at 16,000 and 15,929 rpm and the road's
+    speed 15,025 and 15,022 rpm in the steps that decided (the ride scene's checks read them). A launch's or a corner
+    exit's wheelspin (the engine at its limiter with the road's speed 2,000 rpm and more below it) and a shift's slipping
+    clutch (the 12 steps) shift nothing. It cannot hunt, whatever the definition's speeds: an upshift happens with
+    the road's speed at most 500 rpm under the shift point in the gear it leaves, and the downshift goes back into a gear
+    only while that gear would read more than 1,000 rpm under it, so none follows until the bike slows
+    (`Vehicle.check()` asserts the one room under the other). An assist over the `Manual` gearbox rather than the definition's `Automatic` mode, so
     that the player turns it off in a settings screen while the definition stays one file, and an edit of the shift
     speeds (`vehicle.set`) moves the shifts at once. A closed throttle stays exactly 0 (the clutch rule of section 8).
   The graph rides in `Event.FixedUpdate`, so the assists are a function of the simulation (rule of the rides compared
@@ -7165,8 +7176,8 @@ graphs alone keeps its best lap and its settings screen, and none exposes a path
   rider, the fork and the front wheel among the bike's children at its start (public read-outs `Rider`, `Fork`,
   `FrontWheel`). **The graph library** `Scripts/MotoLib.sgraph` (`Tools/MotoLib.py`, written with the riding graph,
   which calls it): `AssistSteer`, `CurvatureLean` (the lean request whose lean turns on a curvature), `BrakeEase`,
-  `LineDistance` (a point's foot on a stretch of the line, along the lap) and `Kmh`, each the formula of a figure the
-  tools state. **The ride** (the `ride` part, `Tools/Ride.py`): the `Ride` root runs `Scripts/Ride.sgraph`, which holds the
+  `LineDistance` (a point's foot on a stretch of the line, along the lap), `Kmh` and `YawDamper` (the feel pass, below),
+  each the formula of a figure the tools state. **The ride** (the `ride` part, `Tools/Ride.py`): the `Ride` root runs `Scripts/Ride.sgraph`, which holds the
   racing line as private arrays (`Line`, its 1,306 points every 2 m of its 2,612 m; `LineDistance`, the center line's
   lap distance at each; `LineSpeed`, the autopilot's speeds; `LineCurvature`), none public, so the inspector, which reads
   a selected entity's public lists back whole on every draw while a game plays, never copies them. Each fixed step,
@@ -7176,8 +7187,8 @@ graphs alone keeps its best lap and its settings screen, and none exposes a path
   `Ride.Speed` (km/h) and `Ride.Offset`. **The autopilot** (`Autopilot`, off: Moto starts as it did, the player riding;
   the events `StartAutopilot` and `StopAutopilot`) rides by the simulation alone from that fixed step: it sets the riding
   graph's `Driver` to 1 and writes its public inputs, never `SetDriverInput`, and the assists steer, brake and shift for
-  it. It steers onto a curvature, the line's own 0.3 s ahead times 1.24 (the bike's turn builds behind its steering, so it
-  asks for more than the line's curvature: found by probing the ride), less its heading's error from the line's over 0.4 s of its speed, the heading it aims for bringing
+  it. It steers onto a curvature, the line's own 0.3 s ahead times 1.16 (the bike's turn builds behind its steering, so it
+  asks for more than the line's curvature: found by riding whole laps), less its heading's error from the line's over 0.4 s of its speed, the heading it aims for bringing
   it back from its offset over 1.2 s (at most 0.3 rad); it asks the assist for the lean that turns on that curvature. It
   holds the speed of the line 0.5 s ahead: `LineSpeed` is the line's corners at 0.75 g, slowed for at 4 m/s² besides the
   drag, never faster than the line's own point mass, times `Pace` (1); the throttle opens by 0.5 for each m/s below it
@@ -7257,18 +7268,19 @@ graphs alone keeps its best lap and its settings screen, and none exposes a path
   turn, `Checks.Suite.steps`): from the bike's ride's end, the assists on, (8) the throttle alone puts it in first gear
   20 steps later; (9) from 20 m/s in neutral the front lever with the linked brakes stops it within 0.85 to 1.25 times
   the 20.1 m (read 21.3 m) and shorter than the front brake alone in the same run (25.6 m), the rear applied at the
-  share eased by the lean (0.287 to 0.3; read 0.299); (10) a lean request of −0.4 (20.1°) held 1.5 s from 20 m/s turns
+  share eased by the lean (0.287 to 0.3; read 0.298); (10) a lean request of −0.4 (20.1°) held 1.5 s from 20 m/s turns
   the bike, over its last 0.5 s, at 0.6 to 1.25 times the rate at which that lean balances the turn at the speed then,
-  g tan(lean) / v (read 8.5°/s against 8.3). The lean itself is read and logged, not checked: −12.2° at the end, where
+  g tan(lean) / v (read 8.7°/s against 8.5). The lean itself is read and logged, not checked: −12.5° at the end, where
   20.1° balances the turn (the bike as drawn read −0.9°, before the feel pass); (11) at over 47 m/s the rider stands where the
   pose puts him tucked, within 1 cm; (12) leaned over 5° he hangs to its side where the pose puts him, within 1 cm, the
   fork's axle within 0.5° of the front wheel's; (13, 14) the autopilot from the grid at rest for 20 s and then 15 s more
   covers 0.75 to 1.15 times the lap distance a point mass riding `LineSpeed` covers (`Ride.predict`: 676 and 401 m at
   the feel pass's 0.75 g; the point mass takes each speed at once, where the autopilot's throttle and brake follow by their
-  gains, so the ride covers less, or a little more, never much more; read 638.5 and 430.6), never more than 3 m off the
-  line (read 1.9 and 1.9), with no step of a wheel on gravel or grass, never leaned past the line's 52° (read 31.2° and
-  32.5°), and through Turns 1 and 2 leaned 24.9° at least, 80 % of the weaker of the Debug and the Release readings (31.4°
-  and 31.2°; the bike as drawn read 9.2°), so that a bike that takes Turn 1 upright again fails on every platform. Then the
+  gains, so the ride covers less, or a little more, never much more; read 639.3 and 430.6), never more than 3 m off the
+  line (read 2.0 and 1.9), with no step of a wheel on gravel or grass, never leaned past the line's 52° (read 26.4° and
+  29.7°; 27.6° and 30.0° in Debug), and through Turns 1 and 2 leaned 24.9° at least, 80 % of the weaker of the Debug and
+  the Release readings before the yaw damper (31.4° and 31.2°; the bike as drawn read 9.2°), so that a bike that takes
+  Turn 1 upright again fails on every platform. Then the
   ride stops the autopilot, puts the riding graph on its test driver with the assists still on and the bike on the main
   straight at 20 m/s in the gear the autopilot left, and stops it on the front lever alone, held 30 steps more while its
   wheels stop; (15) let go, every input 0, for 120 steps, the bike waits in first gear (the automatic shifts took it down
@@ -7307,7 +7319,7 @@ graphs alone keeps its best lap and its settings screen, and none exposes a path
   step and ends 660 m along the lap, past Turn 1, its time the steps since. Laps 1, 2 and 3 ride at a `Pace` of 0.8, 1 and
   0.9, then lap 4, of 180 steps, rides while the ghost's `MaxSamples` is 20. (25) Lap 4, the race's best, is longer than
   the ghost keeps: timed, not kept, the ghost's best lap cleared and the racing line ridden. (26) The ghost keeps lap 1, then
-  lap 2 in its place, and not lap 3 (read 24.63, 21.03 and 22.58 s), its `BestLapTime` the kept lap's, lap 2's samples
+  lap 2 in its place, and not lap 3 (read 24.6, 20.98 and 22.55 s; 20.97 for lap 2 in Debug), its `BestLapTime` the kept lap's, lap 2's samples
   within one of its time's count, each the bike's position at its step within 10 µm: the ghost's first sample is in its
   first fixed step at or after `LapStarted`, the step the lap starts in or the next as the scene orders the graphs within a
   step, so the module takes the bike's samples from both and compares the ghost's with the grid they lie on (read
@@ -7322,22 +7334,24 @@ graphs alone keeps its best lap and its settings screen, and none exposes a path
   with their time and `BestLapLoaded` sent are ridden; with the rotations emptied, `BestLapLoaded` is refused and the ghost
   rides the line. Then the ride stands the bike on the grid in neutral, as the assists' ride left it, and
   enters `Done` (`GhostPhase`). Their readings of the fixed steps are logged in one line ("Moto's ghost: ..."), which
-  `MotoRideTests.cpp` requires the same at 1/60 and 1/30 s a frame (and at 1/144 behind `STRADA_LONG_RIDES=1`). The scene
-  holds 29 checks in about 9,500 frames, within its timeout of 200 s (in `Checks.SCENES` and `MotoRideTests.cpp`, whose two
-  runs have a process timeout of 5 minutes of their own: a slow runner's Debug run of 9,500 frames passes the two minutes
-  `RunProgram` gives). `PlayModeTests` reads the recorded `Ride.Distance` and `Ride.Speed` against the bike's own distance
+  `MotoRideTests.cpp` requires the same at 1/60 and 1/30 s a frame (and at 1/144 behind `STRADA_LONG_RIDES=1`). With the bike
+  at its limits' four after them (the tests part, above, and the feel pass, below), the scene holds 33 checks in about
+  11,190 frames, within its timeout of 240 s (in `Checks.SCENES` and `MotoRideTests.cpp`, whose two runs have a process
+  timeout of 5 minutes of their own: a slow runner's Debug run of 11,190 frames passes the two minutes `RunProgram`
+  gives). `PlayModeTests` reads the recorded `Ride.Distance` and `Ride.Speed` against the bike's own distance
   and speed. Every authoring run plays the raw vehicle's launch and stops with the assists off.
   **Whole laps** (`Tools/LapChecks.py`, the lap test scene `Scenes/Lap.sscene`, a line of `Checks.SCENES`: the main scene
   without its props, its `Ride` with `Autopilot` on and its ghost recording the bike): the autopilot rides two laps from
   the grid while the scene's graph stands in for the race director, sending `LapFinished` and `LapStarted` in the step the
   bike's `Distance` crosses the start and finish line, each lap's time its steps since the crossing that began it. Its
-  four checks: each lap within 1 to 1.25 times the racing line's 71.1 s (read 82.53 and 79.28 s; 82.57 and 79.28 in Debug); never more than 3 m off
-  the line, no step of a wheel on gravel or grass, never leaned past 52° (read 2.26 m, 0 steps, 39.1°); the ghost
-  keeping the faster lap, with its `Delta` at the second's end within 0.033 s of the laps' difference (read −3.253 s against
-  −3.250; −3.290 against −3.283 in Debug);
+  four checks: each lap within 1 to 1.25 times the racing line's 71.1 s (read 82.55 and 79.15 s; 82.53 and 79.13 in Debug); never more than 3 m off
+  the line, no step of a wheel on gravel or grass, never leaned past 52° (read 2.05 m, 0 steps, 35.0°); the ghost
+  keeping the faster lap, with its `Delta` at the second's end within 0.033 s of the laps' difference (read −3.400 s against
+  −3.400; −3.401 against −3.400 in Debug);
   and the bike leaning into its corners: ten times a second the lean that balances the turn, atan(v × the heading's rate
   since the last sample / g), and where that passes 10° the bike's lean over it; the samples' mean at least 0.57, 85 % of
-  the weaker of the Debug and the Release readings (0.671 and 0.676 over about 1,110 samples; the bike as drawn read 0.07). A line
+  the weaker of the Debug and the Release readings before the yaw damper (0.671 and 0.676 over about 1,110 samples; 0.643
+  and 0.642 since; the bike as drawn read 0.07). A line
   "Moto's laps: ..." logs the readings. `MotoRideTests.cpp` plays it behind `STRADA_LONG_RIDES=1` with a process timeout of
   10 minutes (about 10,000 frames). **The feel pass** found why the bike rode its corners upright and gave it contacts of
   its own. As drawn, its wheels cast cylinders 120 and 200 mm wide against the ground (the definition's `Width`), and the
@@ -7358,7 +7372,7 @@ graphs alone keeps its best lap and its settings screen, and none exposes a path
   200 mm wide; the lean spring goes from 5,000 to 10,000 with its damping held at 400 (a stiffer spring with
   the damping held leans the bike deeper and faster: on these contacts Turn 1's peak roll rate read 31, 38, 43 and 61°/s
   at 5,000, 7,500, 10,000 and 15,000; a damping raised with the spring, towards the roll inertia's bound of 589, slows the
-  lean instead); and the autopilot takes `LineSpeed`'s corners at 0.75 g with an understeer of 1.15 (1.24 since the yaw damper, below; on the narrow contacts
+  lean instead); and the autopilot takes `LineSpeed`'s corners at 0.75 g with an understeer of 1.15 (1.16 since the yaw damper, below; on the narrow contacts
   the upright bike's 0.8 g and 1.3 ran exits onto the grass). The tune was chosen by its margin: it rides the lap and ride
   scenes clean in Debug and Release, and so does each one-notch change of it on the lap scene in Release (the grip by
   ±0.025, the understeer by ±0.05, each contact width by ±10 %, the spring by ±10 %: first laps of 81.72 to 83.33 s, 1.97 to
@@ -7380,47 +7394,62 @@ graphs alone keeps its best lap and its settings screen, and none exposes a path
   rate departs first, the lean after it. Not the cause: the contact widths, the fixed step, the fork's rake, the lean
   spring, its damping and smoothing, the gear and a locking front. A fall from 58 m/s at a lever of 0.45, first taken for
   a weave, was the test scene's own Asphalt Slider, which a bike ridden straight there meets 358 m into the lap. **The yaw
-  damper** stands in the riding graph for what a motorcycle's free front end does by
-  itself, so it steers whatever `LeanAssist` says and for every driver, after the assist's mapping and before
-  `SetDriverInput`: the steering the vehicle gets is clamp(s + `Vehicle.YAW_DAMPING` × degrees(ω + max(v, 4) sin(28° × s)
-  cos(caster) / wheelbase), −1, 1), where s is the steering the lean asked for gives (the assist's with `LeanAssist` on,
-  the rider's own input off), ω the chassis's yaw rate (`RigidBodyComponent.AngularVelocity`'s Y, positive to the left)
-  and v its `ForwardSpeed`, both as the last step left them, read in `Event.FixedUpdate` with every other input (the rule
-  of the rides compared across frame rates). The second term is the yaw rate the steering itself asks for in Jolt's
-  geometry (the assist's mapping read the other way, with the same wheelbase and caster), so the damper counter-steers
-  the yaw beyond what the bars ask and leaves a straight alone. `YAW_DAMPING` is 0.002 of the lock per degree a second;
-  `Vehicle.check()` states its gain against the steering's own, 0.034 × v (2.6 at 76 m/s), and the steering it gives a
-  weave's 10° a second, 0.02 of the lock. It is not zero in a corner: the undamped bike yaws 15 to 20 % past its
-  steering's geometry on its lean in the lap's steady corners (Turns 1 to 10 on the autopilot's lap), so there it takes
-  11 to 25 % of the assist's steering back, which the autopilot's understeer rides. With it, a full lever from 76.0 m/s
-  kept the bike within 0.63° on the road to 27 m/s with the linked brakes on and within 0.24° with them off (0.25° and
-  0.14° in Debug), the same with `LeanAssist` off; a lever of 0.8 within 0.54°, 0.6 within 0.41°; a full lever from 58, 62 and 64 m/s within 0.54°. A
-  damper inside the assist's branch alone left the bike as it was with `LeanAssist` off (a full lever from 76 m/s off the
-  road in 0.5 s), which is why it acts on either steering. It moves the raw vehicle's ride a little (the ride scene's
-  launch 20.429 → 20.412 m/s, its front stop 25.606 → 25.623 m, its lean to the left −27.861 → −27.865°), inside every
-  band. **The autopilot's understeer** goes from 1.15 to 1.24, the middle of the window in which the lap scene's two
-  laps stay on the road with the damper, the automatic shift above and the engine in neutral below: clean from 1.20 to
-  1.275, off the road at 1.175 and 1.30 (22 and 9 steps); the one-notch changes ride the laps clean (the understeer at 1.19
-  and 1.29, `YAW_DAMPING` at 0.00175 and 0.00225). At 1.24 the laps
-  read 82.47 and 79.07 s, 2.24 m off the line at most, 35.3° at the deepest and 0.641 of the balancing lean (82.43 and
-  79.08 s, 2.24 m, 35.9° and 0.645 in Debug; the pin 0.57);
-  the rider's pose checks, whose bounds are 10 mm and 0.5°, read his hips 0.75 mm from their pose and the fork 0.10° from
-  the wheel at 1.20, 1.24 and 1.275 alike. **In neutral the engine winds down** by Moto's `NeutralDamping` of 2.245 a
-  second on top of its `AngularDamping` of 0.005 (section 8, "The engine in neutral"; the sum is 2.25): from its red line,
-  the throttle closed, it is at idle (1.01 × 1,700 rpm) 59 collision steps later, 0.983 s, which `Vehicle.check()` computes
-  and the ride read, and never rises again; at 0.005 alone it lost 80 rpm a second, so a throttle blipped on the grid left
-  it screaming. In gear nothing moves: the lap scene's two laps ride to the bit with the field at 0 and set. **M1's sixth step** (`MotoAgentTests.cpp`, StradaEditorTests): in the lap
+  damper** stands in the riding graph for what a motorcycle's free front end does by itself, so it steers whatever
+  `LeanAssist` says and for every driver, after the assist's mapping and before `SetDriverInput`: the steering the vehicle
+  gets is clamp(s + `Vehicle.YAW_DAMPING` × degrees(ω − ω_s), −1, 1) (`MotoLib`'s `YawDamper`, faded at a crawl), where s is the steering
+  the lean asked for gives (the assist's with `LeanAssist` on, the rider's own input off), ω the chassis's yaw rate
+  (`RigidBodyComponent.AngularVelocity`'s Y, positive to the left) and ω_s the yaw rate the steering itself turns the bike
+  at: −v sin(δ) cos(caster) / (wheelbase × cos φ), with v the signed `ForwardSpeed`, φ the `LeanAngle` (within the
+  definition's `MaxLeanAngle`) and δ the steer Jolt applies, s × 28° within its lean steering limit at the speed
+  (asin(wheelbase × g × tan(`MaxLeanAngle`) / (v² cos(caster))), `MotorcycleController.cpp:149-179`; the definition turns
+  it on). All of it is read in `Event.FixedUpdate` as the last step left it (the rule of the rides compared across frame
+  rates). Jolt turns the bike on wheelbase / (sin δ cos(caster)) upright (`MotorcycleController.cpp:141-147`); a leaned
+  front wheel's steered axle tilts with the chassis (`VehicleConstraint.cpp:116-125`, `:256-261`), which turns its
+  contact by 1/cos φ more (1.15 at 30°, 1.22 at 35°), so ω_s holds in a steady corner and the damper takes nothing there:
+  on the autopilot's lap its correction is 1.0 % of the assist's steering at the median of the steady corners' steps (the
+  corners' medians −11 to +13 %; a reference without the lean and on the steering asked for took 4.4 % back). It
+  fades in between 0.5 and 2 m/s either way (`Vehicle.YAW_DAMPING_FROM` and `YAW_DAMPING_FULL`), so a bike at rest or at a
+  crawl gets the steering as asked and its body sleeps when it stands (a correction that changed at every step kept it
+  awake, and the grid bike in neutral crept 48 mm in 10 s on the grid's slope); it counter-steers the right way rolling
+  backwards, and leaves a straight alone. `YAW_DAMPING` is 0.002 of the lock per degree a second; at speed Jolt's limit is its authority
+  (`Vehicle.check()`: the steer it applies is at most 0.29° at 62 m/s and 0.19° at 76, 0.010 and 0.0069 of the lock, which
+  the damper asks at 5.2 and 3.4° a second of yaw beyond the steering's), and its one-step loop settles into a small
+  cycle at speed: the applied steering changes sign at about every other step on the main straight and under a full lever, by
+  at most 0.0014 of the lock (0.04°). With it, a full lever from 76.0 m/s (240 m into a flying lap) kept the bike within 0.65° on
+  the road down to 27 m/s with the linked brakes on and within 0.27° with them off, the same with `LeanAssist` off (a
+  lever ridden upright steers nothing either way), and one from 83.2 m/s (the most the straight gave, in sixth) within
+  0.97° until the straight ended; with `LeanAssist` off a raw steering held off zero at speed is a turn the rider asks
+  for (0.003 of the lock leans the bike past 25° at 76 m/s), and under a full lever it left the road as it did without
+  the damper; from the grid, a full
+  lever from 62 m/s with the assists on within 0.30° and from 64 m/s with them off within 0.29° (the ride scene's
+  checks), where without the damper the bike leaned 29.5° and left the road, and fell to 50°. A damper inside the
+  assist's branch alone left the bike as it was with `LeanAssist` off (the second of those fell to 62° off the road),
+  which is why it acts on either steering. It moves the raw vehicle's ride a little (the ride scene's launch 20.429 →
+  20.436 m/s, its front stop 25.606 → 25.625 m, its lean to the left −27.861 → −27.880°), inside every band. **The
+  autopilot's understeer** goes from 1.15 to 1.16, the middle of the window in which the lap scene's two laps stay on the
+  road with the damper, the automatic shift above and the engine in neutral below: clean from 1.10 to 1.225, off the road
+  at 1.075 and 1.25 (60 and 10 steps); the one-notch changes ride the laps clean (the understeer at 1.11 and 1.21,
+  `YAW_DAMPING` at 0.00175 and 0.00225). At 1.16 the laps read 82.55 and 79.15 s, 2.05 m off the line at most, 35.0° at
+  the deepest and 0.642 of the balancing lean (the pin 0.57; 0.668 without the damper); the rider's pose checks, whose
+  bounds are 10 mm and 0.5°, read his hips 0.73 mm from their pose and the fork 0.18° from the wheel at 1.10 and 1.16,
+  0.09° at 1.225. **In neutral the engine winds down** by Moto's `NeutralDamping` of 2.245 a second on top of its
+  `AngularDamping` of 0.005 (section 8, "The engine in neutral"; the sum is 2.25): from its red line, the throttle
+  closed, it is at idle (1.01 × 1,700 rpm) 59 collision steps later, 0.983 s, which `Vehicle.check()` computes and the ride
+  scene's checks read, and never rises again; at 0.005 alone it lost 80 rpm a second, so a throttle blipped on the grid
+  left it screaming (not at idle 180 steps later). In gear nothing moves: the lap scene's two laps ride to the bit with
+  the field at 0 and set. **M1's sixth step** (`MotoAgentTests.cpp`, StradaEditorTests): in the lap
   test scene, the autopilot riding from the grid, an agent rides twice through Turn 1's turn-in, `vehicle.set` editing
   the definition a second into each ride: the first raises the shift point and the red line by 1,000 rpm, the second
   raises them the same and doubles the lean spring, its damping left as it was (the definition is set back between the
   two). The rides differ by the spring alone, so the bike turns in at the same speed in both and the quicker roll is the
   spring's. The riding vehicle takes the spring in place before its next step and rides on; `telemetry.read` of the
-  vehicle's channels shows the first upshift at a road speed whose engine speed in first gear is above the old shift
-  point by more than 500 rpm (read 16,505 rpm at 45.0 m/s), the engine past the old red line (read 17,000 rpm, the new
-  one: the rear tyre's drive slip holds the road's speed a little under the shift point while the engine runs at its
-  limit), and a quicker roll into Turn 1: from the turn-in (the first step past 500 m along the lap leaned 2°) to 10° of
-  lean, 0.650 s in the first ride and 0.517 s in the second (0.650 and 0.533 in Release), on either side of the case's
-  0.59 s; and `profiler.capture` of the frames writes a capture whose subsystems hold `Physics`.
+  vehicle's channels shows the first upshift, in the step the assist decided it, with the engine at the new shift point
+  or past it and past the old red line (read 17,000 rpm, the new one: the rear tyre's drive slip holds the road's speed a
+  little under the engine's at its limit, and the assist shifts there with the road's speed within 500 rpm of the
+  point) and the road's speed in first gear above the old shift point (read 16,001 rpm at 43.6 m/s, 16,028 at 43.7 in
+  Release), and a quicker roll into Turn 1: from the turn-in (the first step past 500 m along the lap leaned 2°) to 10°
+  of lean, 0.733 s in the first ride and 0.600 s in the second (0.750 and 0.600 in Release; the yaw damper steers
+  against the turn-in's yaw), on either side of the case's 0.665 s; and `profiler.capture` of the frames writes a capture whose subsystems hold `Physics`.
   **The race**: the gates, the race director, the HUD, the pause and the menus, all graphs.
   **The gates** (`Tools/Race.py`, the `race` part, which makes the `Race` root; the circuit part's solid arches and its
   `Sector Gate` entities stay as they are): `Line` at the start and finish line under the gantry, `Gate 1` and `Gate 2` at
@@ -7470,7 +7499,8 @@ graphs alone keeps its best lap and its settings screen, and none exposes a path
   `StartStep`, `SubjectAt`, `Crossings`, `LastGate`, `LastStep`, `LastFraction`, `Entries`, `LoadedLapTime` and `Saves`.
   **The race's start**: every race starts from the grid. `StartRace`, from any state it is taken in (the title, a race,
   its results, idle), sets `Holding` and asks for the return; at its first `Event.FixedUpdate` at or after the request,
-  before it tracks the gates, the director teleports its `Subject` to the grid's place and rotation (`Bike.grid_place()`:
+  before it tracks the gates and only while its `State` is still `Countdown` (an `AbandonRace` before that step drops the
+  request with the countdown, so a bike left at the title is never moved), the director teleports its `Subject` to the grid's place and rotation (`Bike.grid_place()`:
   9 m before the line, 3 m left of the center line, facing along the lap) and resets its vehicle (`ResetVehicle()`,
   section 8, "The reset"), both in that one fixed step, so the return is the same at every frame rate; a subject that
   does not run the riding graph (the box the flow scene's checks send through the gates) is left where it is. While `Holding` is true (the countdown
@@ -7478,7 +7508,14 @@ graphs alone keeps its best lap and its settings screen, and none exposes a path
   past the linked brakes and their easing, and makes no shift, whatever its driver asks (the player's actions, the
   autopilot or a test): a jump start is refused, and the bike waits in neutral, where the reset left it, the engine at
   idle; at the signal the driver's inputs reach the vehicle again and the automatic shift takes first gear as the
-  throttle opens, as at the scene's start. The riding graph finds the director by its name at its start (its read-out
+  throttle opens, as at the scene's start. The hold refuses the shifts only: the riding graph's own wait after a shift
+  (`ShiftWait`, 12 steps) counts down through it, so a start pressed in the middle of an automatic shift leaves no wait
+  behind at the signal. The hold's last step is the one before the director's `StartStep` when the riding graph runs
+  after the director in a step, `StartStep` itself when it runs first (the scene's order of its graphs, the same in every
+  run and at every frame rate): a check of a jump start reads the gear and the applied throttle at `StartStep - 1`.
+  A second `StartRace` in the countdown is refused (the director's rule), so the hold and the one return stand; a pause
+  in the countdown stops the game (time scale 0) and with it the countdown and the hold; QUIT TO TITLE in the countdown
+  ends the hold in the director's next fixed step, at the title, with no return. The riding graph finds the director by its name at its start (its read-out
   `Race`, as it finds the rider among its children) and reads the director's `Holding` and `Subject` at each fixed step
   (its read-out `Held`); where no entity of that name runs the director's graph, or the bike is not its subject, it holds
   nothing, so a scene without the `Race` root rides as before, and so does the flow scene's bike, whose director times
@@ -7493,7 +7530,9 @@ graphs alone keeps its best lap and its settings screen, and none exposes a path
   its heading, its wheels still, the engine at 1,700 rpm in neutral, and launched to 20.56 m/s in 3 s (in Debug, each
   case the same too: 15.1 mm and 20.56 m/s), also with the
   engine's `NeutralDamping` at 0 (the reset puts the engine at idle). The others do at a second start what they do at
-  a first: the HUD shows the countdown from the director's read-outs, the camera director cuts to the chase view at
+  a first: the HUD shows the countdown from the director's read-outs and clears the last race's sectors and delta when
+  the director's `State` turns to `Countdown` (where it cleared them only at `RaceStarted`, a second countdown would show
+  the race before), the camera director cuts to the chase view at
   `RaceStarted` and the chase camera jumps with the bike (it snaps to its place when the bike moved more than 20 m in a
   frame), the ghost sets out on its best lap at `LapStarted` and records the new lap, and the audio director follows the
   bike, whose teleport gives no doppler (section 9.8). The ride and the lap test scenes leave the `Race` and `Screen`
@@ -7502,7 +7541,9 @@ graphs alone keeps its best lap and its settings screen, and none exposes a path
   loading of a kept best lap into the ghost and the menus' giving of stored settings to the bike have no place there, and
   their riding graph, finding no director, holds nothing; `MotoAgentTests` rides the lap scene so. Two test scenes of
   their own play the race with nothing standing in, the director, the bike, the ghost and the menus wired as the main
-  scene wires them: the starts (`Scenes/Start.sscene`, from the title, the results, a fall and the gravel) and a whole
+  scene wires them: the starts (`Scenes/Start.sscene`, from the title, the results, a fall and the gravel, ridden by the
+  player's actions once, and a second `StartRace`, a pause and a resume, a pause and QUIT TO TITLE, and a start pressed
+  in the middle of an automatic shift, each in the countdown) and a whole
   race of two laps whose best lap the ghost records and the slot keeps for the next run (`Scenes/Trial.sscene`, behind
   `STRADA_LONG_RIDES=1`).
   **The best lap** is kept in the save slot `BestLap` (§13.1): `LapTime`, `Splits` and, with the ghost's samples,
@@ -7657,8 +7698,8 @@ graphs alone keeps its best lap and its settings screen, and none exposes a path
   to BACK and `Back` saves and leaves; (6) `Pause` shows the pause screen with time standing still, and `Confirm`
   presses RESUME while it does; (7) RACE clicked, a lap 1 of 83 s sent the director, faster than the best, then `Pause`
   and QUIT TO TITLE clicked before the race's end: the director, which saved nothing while racing, saves once as it
-  goes back to the title, and the slot opened again holds the lap. The scene runs 31 checks in 2,159 frames at 1/60 s in Release and 2,160 in Debug (the bike's ride, as in the ride scene,
-  ends at step 1,865 in Release and 1,866 in Debug)
+  goes back to the title, and the slot opened again holds the lap. The scene runs 31 checks in 2,043 frames at 1/60 s in Release and 2,042 in Debug (the bike's ride, as in the ride scene,
+  ends at step 1,749 in Release and 1,748 in Debug)
   (its timeout is 60 s). **In the
   editor** (`MotoPlayTests.cpp`, StradaEditorTests): a conditional breakpoint `Lap == 3` on the director's `LapStarted`
   broadcast in `BeginLap`, playing the flow test scene, is reached at each lap's start and holds at the first scripted
