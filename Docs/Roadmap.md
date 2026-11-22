@@ -846,6 +846,9 @@ The fourth slice is delivered. M1's game, tools and tests are built, except the 
 which waits for the maintainer's decision (§9), and except what the cut order allowed to drop (TA, splines). The status
 of the exit criteria, from the tree:
 
+1. Met at the slice's last merge (2026-11-22): every suite was green on all 11 CI jobs (the ten build jobs on Windows,
+   Linux and macOS, and the format check) and on the ThreadSanitizer run. The targets build with warnings as errors,
+   so Debug and Release built warning-free there.
 2. In place, by the tests of the slice's behavior where AGENTS.md puts them: in StradaTests the vehicle
    (`PhysicsVehicleTests.cpp`, `PhysicsVehicleResetTests.cpp`, `PhysicsVehicleNeutralTests.cpp`,
    `VehicleAssetTests.cpp`, `SceneVehicleTests.cpp`, `SceneScriptingVehicleTests.cpp`), telemetry (`TelemetryTests.cpp`,
@@ -889,6 +892,8 @@ of the exit criteria, from the tree:
    Strada Moto keeps its player's quality, a bus volume, the throttle's binding and a best lap in its own data folder,
    and its next run reads them back`). These runs use `--timeout 90`; the time each run takes on CI's Debug jobs is not
    read here.
+9. Met at the slice's last merge: the slowest ctest entry on CI's Windows MSVC Debug jobs took 193 s
+   (`StradaTests.Rendering`), and the longest CI job 39.6 minutes (Windows MSVC Release, editor and player tests).
 
 The third lane adds to this list only what lands: W2's component and meshes (a field table, scene seeds for the fuzz
 tests, a spline in FeatureTest's scene), A1's skeleton and clip data and its API (FeatureTest scripts, node coverage
