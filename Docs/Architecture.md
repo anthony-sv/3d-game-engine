@@ -3212,7 +3212,9 @@ wheel all of its torque).
   keeps its listeners in a list from which a removal moves the last one into the removed slot (`PhysicsSystem.cpp:123-131`),
   and a listener per vehicle would have to be taken out and put back in order at every change, as the constraints are.
 - **The reset** (`PhysicsScene::ResetVehicle`, `Scene::ResetVehicle`, and for scripts and graphs
-  `VehicleComponent.ResetVehicle()`). A reset puts a vehicle back as it was made, at rest where its body stands.
+  `VehicleComponent.ResetVehicle()`). A reset puts a vehicle back as it was made, at rest where its body stands (one
+  known difference is open: a vehicle reset in the step after it was made rides on otherwise than one reset later,
+  section 15, "The race's start").
   **The world makes the vehicle again** on the body it stands on, with the values it runs with and carrying nothing
   (`MakeVehicle` without a carried state), rather than clearing values in place: much of what a ridden vehicle holds has
   no setter in Jolt (the gearbox's clutch and three timers, `VehicleTransmission.h:80-84`; the controller's last step's
@@ -7148,25 +7150,41 @@ graphs alone keeps its best lap and its settings screen, and none exposes a path
     slipping clutch does not raise, and shifts up when that speed reaches `ShiftUpRPM`, or when the engine itself is at
     its shift point (`ShiftUpRPM`, or `MaxRPM` when that is lower, so a definition whose shift point the engine cannot
     reach shifts at the limiter) while the road's speed is within 500 rpm of it (`Vehicle.SHIFT_SLIP_ROOM`): so at the
-    shift point whatever the rear tyre's drive slip there. Each rule reads the vehicle as the last step left it, in the
+    shift point whatever the rear tyre's drive slip at the top of the gear. Each rule reads the vehicle as the last step
+    left it, in the
     fixed step that decides; the shift takes effect at the next physics step, so the gear reads one higher a step later.
     By the road's speed alone the drive slip at full throttle (the engine at its limiter, the road's speed 3 to 6 % under
     it) held a gear at the limiter until the slip let the road's speed reach the point: from the grid 23 steps in first
     and 14 in second with the road's speed within 500 rpm of it, shifting at 42.2 and 54.2 m/s. Now it shifts in the step
-    the road's speed comes within the room: at 40.9 and 52.3 m/s, the engine at 16,000 and 15,929 rpm and the road's
-    speed 15,025 and 15,022 rpm in the steps that decided (the ride scene's checks read them). A launch's or a corner
-    exit's wheelspin (the engine at its limiter with the road's speed 2,000 rpm and more below it) and a shift's slipping
-    clutch (the 12 steps) shift nothing. It cannot hunt, whatever the definition's speeds: an upshift happens with
+    the road's speed comes within the room: at 40.9 and 52.3 m/s, out of first with the engine at 16,000 rpm and the
+    road's speed 15,030 rpm (15,000 in Debug), out of second at 15,928 and 15,027 rpm (15,919 and 15,034 in Debug), in
+    the steps that decided (the ride scene's checks read them). **The wheelspin still holds the limiter**: a launch's or
+    a corner exit's, the engine at its limiter with the road's speed 2,000 rpm and more below it, shifts nothing, so
+    from the grid at full throttle the engine stands at its limiter 171 steps in first (2.9 s, from 21 to 41 m/s, the
+    road's speed rising from 7,800 rpm) and 86 in second (1.4 s), 266 steps in gears 1 to 5 in all, and on the
+    autopilot's lap 14 % of the steps. The spec's "never holds the limiter" is not met there, and no rule of the gearbox
+    meets it: shifting on the engine alone (whatever the slip) went from first to fourth in 0.8 s of the launch, the
+    road's speed in fourth 6,500 rpm, under `ShiftDownRPM`, and on the lap shifted up under every corner exit's
+    wheelspin and back down as the throttle eased (nine reversals within a second in a lap, 0.6 s lost), with the
+    downshift held while the throttle is open or ruled by the engine's speed alike; only less torque at the rear tyre, a
+    traction control the riding graph does not have, would keep the engine off its limiter there. The ride scene's shift
+    check bounds the dwell at 293 steps (a tenth above its reading; by the road's speed alone it reads 296). A shift's
+    slipping clutch (the 12 steps) shifts nothing either. It cannot hunt, whatever the definition's speeds: an upshift
+    happens with
     the road's speed at most 500 rpm under the shift point in the gear it leaves, and the downshift goes back into a gear
-    only while that gear would read more than 1,000 rpm under it, so none follows until the bike slows
-    (`Vehicle.check()` asserts the one room under the other). An assist over the `Manual` gearbox rather than the definition's `Automatic` mode, so
+    only while that gear would read more than 1,000 rpm under the same shift point (`ShiftUpRPM`, or `MaxRPM` when that
+    is lower), so none follows until the bike slows (`Vehicle.check()` asserts it for Moto's speeds and for a shift
+    point above `MaxRPM`; against `ShiftUpRPM` itself, a `Manual` definition's shift point of 17,000 rpm over the 16,000
+    red line had first and second gear swap every 12 steps). An assist over the `Manual` gearbox rather than the
+    definition's `Automatic` mode, so
     that the player turns it off in a settings screen while the definition stays one file, and an edit of the shift
     speeds (`vehicle.set`) moves the shifts at once. A closed throttle stays exactly 0 (the clutch rule of section 8).
   The graph rides in `Event.FixedUpdate`, so the assists are a function of the simulation (rule of the rides compared
   across frame rates); with the three off it gives the vehicle the driver's values, but for the yaw damper (the feel
   pass, below), which stands for the bike's own front end and steers with every assist on or off, so the ridden bike's
   seven checks above ride the vehicle with its damper (the ride scene starts with the three off). While its public `Held`
-  is on, which the race director sets on its subject through the countdown, it gives the vehicle no throttle and both
+  is on, which each of its steps takes from `HoldAsked`, the request the race director makes of its subject at each step
+  of the countdown, it gives the vehicle no throttle and both
   brakes full and makes no shift, whatever the driver asks ("The race's start", below). **The rider's pose**, in its
   `Event.Update`
   from the bike as drawn: the rigid rider (a child of the bike, so he leans with it) hangs off to the inside, his hips
@@ -7279,8 +7297,9 @@ graphs alone keeps its best lap and its settings screen, and none exposes a path
   the feel pass's 0.75 g; the point mass takes each speed at once, where the autopilot's throttle and brake follow by their
   gains, so the ride covers less, or a little more, never much more; read 639.3 and 430.6), never more than 3 m off the
   line (read 2.0 and 1.9), with no step of a wheel on gravel or grass, never leaned past the line's 52° (read 26.4° and
-  29.7°; 27.6° and 30.0° in Debug), and through Turns 1 and 2 leaned 24.9° at least, 80 % of the weaker of the Debug and
-  the Release readings before the yaw damper (31.4° and 31.2°; the bike as drawn read 9.2°), so that a bike that takes
+  29.7°; 27.6° and 30.0° in Debug), and through Turns 1 and 2 leaned 21.1° at least, 80 % of the weaker of the Debug and
+  the Release readings (27.6° and 26.4°; 31.4° and 31.2° before the yaw damper, the bike as drawn 9.2°), so that a bike
+  that takes
   Turn 1 upright again fails on every platform. Then the
   ride stops the autopilot, puts the riding graph on its test driver with the assists still on and the bike on the main
   straight at 20 m/s in the gear the autopilot left, and stops it on the front lever alone, held 30 steps more while its
@@ -7350,9 +7369,9 @@ graphs alone keeps its best lap and its settings screen, and none exposes a path
   keeping the faster lap, with its `Delta` at the second's end within 0.033 s of the laps' difference (read −3.400 s against
   −3.400; −3.401 against −3.400 in Debug);
   and the bike leaning into its corners: ten times a second the lean that balances the turn, atan(v × the heading's rate
-  since the last sample / g), and where that passes 10° the bike's lean over it; the samples' mean at least 0.57, 85 % of
-  the weaker of the Debug and the Release readings before the yaw damper (0.671 and 0.676 over about 1,110 samples; 0.643
-  and 0.642 since; the bike as drawn read 0.07). A line
+  since the last sample / g), and where that passes 10° the bike's lean over it; the samples' mean at least 0.545, 85 %
+  of the weaker of the Debug and the Release readings (0.643 and 0.642 over about 1,110 samples; 0.671 and 0.676 before
+  the yaw damper; the bike as drawn read 0.07). A line
   "Moto's laps: ..." logs the readings. `MotoRideTests.cpp` plays it behind `STRADA_LONG_RIDES=1` with a process timeout of
   10 minutes (about 10,000 frames). **The feel pass** found why the bike rode its corners upright and gave it contacts of
   its own. As drawn, its wheels cast cylinders 120 and 200 mm wide against the ground (the definition's `Width`), and the
@@ -7417,7 +7436,8 @@ graphs alone keeps its best lap and its settings screen, and none exposes a path
   the damper asks at 5.2 and 3.4° a second of yaw beyond the steering's), and its one-step loop settles into a small
   cycle at speed: the applied steering changes sign at about every other step on the main straight and under a full lever, by
   at most 0.0014 of the lock (0.04°). With it, a full lever from 76.0 m/s (240 m into a flying lap) kept the bike within 0.65° on
-  the road down to 27 m/s with the linked brakes on and within 0.27° with them off, the same with `LeanAssist` off (a
+  the road down to 27 m/s with the linked brakes on and within 0.27° with them off (0.78° and 0.73° in Debug, down to 27
+  and 33 m/s in 5 s), the same with `LeanAssist` off (a
   lever ridden upright steers nothing either way), and one from 83.2 m/s (the most the straight gave, in sixth) within
   0.97° until the straight ended; with `LeanAssist` off a raw steering held off zero at speed is a turn the rider asks
   for (0.003 of the lock leans the bike past 25° at 76 m/s), and under a full lever it left the road as it did without
@@ -7431,7 +7451,7 @@ graphs alone keeps its best lap and its settings screen, and none exposes a path
   road with the damper, the automatic shift above and the engine in neutral below: clean from 1.10 to 1.225, off the road
   at 1.075 and 1.25 (60 and 10 steps); the one-notch changes ride the laps clean (the understeer at 1.11 and 1.21,
   `YAW_DAMPING` at 0.00175 and 0.00225). At 1.16 the laps read 82.55 and 79.15 s, 2.05 m off the line at most, 35.0° at
-  the deepest and 0.642 of the balancing lean (the pin 0.57; 0.668 without the damper); the rider's pose checks, whose
+  the deepest and 0.642 of the balancing lean (the pin 0.545; 0.668 without the damper); the rider's pose checks, whose
   bounds are 10 mm and 0.5°, read his hips 0.73 mm from their pose and the fork 0.18° from the wheel at 1.10 and 1.16,
   0.09° at 1.225. **In neutral the engine winds down** by Moto's `NeutralDamping` of 2.245 a second on top of its
   `AngularDamping` of 0.005 (section 8, "The engine in neutral"; the sum is 2.25): from its red line, the throttle
@@ -7507,8 +7527,12 @@ graphs alone keeps its best lap and its settings screen, and none exposes a path
   lap) and resets its vehicle (`ResetVehicle()`, section 8, "The reset"), both in that one fixed step, so the return is
   the same at every frame rate, and counts it (`Returns`); a subject that does not run the riding graph (the box the
   flow scene's checks send through the gates) is left where it is. At each of its fixed steps, after the countdown's,
-  the director sets its subject's riding graph's public `Held` to its `Holding` (the bike's part comes before the
-  race's, so the director's graph names the riding graph and not the other way round). While `Held` is on (the countdown
+  the director sets its subject's riding graph's public `HoldAsked` to its `Holding` (the bike's part comes before the
+  race's, so the director's graph names the riding graph and not the other way round); the riding graph takes the
+  request into its read-out `Held` at each of its steps and clears it, so the hold lapses on the bike's side in its
+  first step after one the director made no request in (a director deleted, disabled, stopped by an error or given
+  another subject), whatever order the scene gives the two graphs, and no bike stays held by a director that stopped.
+  While `Held` is on (the countdown
   alone) the riding graph gives its vehicle throttle 0 and both brakes full, past the linked brakes and their easing,
   and makes no shift, whatever its driver asks (the player's actions, the autopilot or a test): a jump start is refused,
   and the bike waits in neutral, where the reset left it, the engine at idle; at the signal the driver's inputs reach
@@ -7531,7 +7555,8 @@ graphs alone keeps its best lap and its settings screen, and none exposes a path
   crossed, in the step the automatic shift took second gear at 41.0 m/s (the countdown paused for ten frames and
   resumed); from a fall (the bike teleported onto its side at 13.8 m/s, 45 steps later leaned 59.9°); and from the
   gravel outside Turn 6 (90 steps at full throttle from rest, the rear wheel spinning at 135 rad/s); then a fifth race
-  left by `AbandonRace` in its countdown. Its eight checks: at the signal each start's bike within 20 mm of the grid's
+  left by `AbandonRace` in its countdown, and a sixth (below). Its checks: at the signal each start's bike within 20 mm
+  of the grid's
   place and 0.01° of its heading, its wheels within 0.01 rad/s of still, the engine within 1.01 times its idle in
   neutral, lap 0, the countdown's 60 steps after `StartRace`, the vehicle given no throttle and no gear through the
   countdown, and a launch of 120 steps within 0.5 % of the first start's (read in every start 5.5 mm from the grid's
@@ -7539,10 +7564,16 @@ graphs alone keeps its best lap and its settings screen, and none exposes a path
   to 13.593 m/s; 5.4 mm and 13.596 m/s in Debug); the jump start held in neutral; the second `StartRace` refused (one
   return); the pause with the bike and the director's steps standing still (0 m and 0 steps) and the countdown's 60
   steps kept; and QUIT TO TITLE at the title, `Held` off, five returns for the five races, the bike riding off in first
-  gear. A start sent in the scene's first fixed step, the bike made a step before, left it 5.4 mm from the grid's place
-  and launched it 1.2 % slower (13.43 m/s) than every later start; one sent a step later, or 2, 5, 10, 20, 29, 31 or 45
-  steps later, gave every later start's readings to the digit, so the title start's 30 steps of the title, as a player
-  reads it, stand well clear of it. The line of every reading ("Moto's starts, ...") and the physics state at step 900
+  gear; and a sixth race whose director is given another subject 10 steps into its countdown, its bike then free in the
+  next steps (`Held` off, the throttle it is asked given) while the countdown goes on, so nine checks. **A known
+  difference of the reset** (section 8, "The reset"), not a rule of the race: a vehicle reset in the step after it was
+  made (a start sent in the scene's first fixed step) stood at the signal 5.4 mm from the grid's place as the others do
+  but launched 1.2 % slower (13.43 m/s) than one reset later; a start sent 1, 2, 5, 10, 20, 29, 31 or 45 steps later
+  gave every later start's readings to the digit, and a bike never reset, left on the grid through the same countdown,
+  launched to 13.53 m/s. What the reset leaves that depends on when it is taken is not found here (no case compares a
+  first-step start, which would fail); every start the game makes comes later than that step, and the start test scene's
+  title start (after 30 steps of the title, as a player reads it) and the trial's (after one) stand clear of it. The
+  line of every reading ("Moto's starts, ...") and the physics state at step 900
   are the same at 1/60 and 1/30 s a frame (`MotoRideTests.cpp`, on every job). With the hold taken out the four starts
   stood 2.4 to 3.3 m from the grid at the signal, in first gear at 2,800 to 6,200 rpm, and the jump start went; with the
   return taken out the three starts after the first stood 158 to 616 m from it at 8,300 to 10,400 rpm, and the second
@@ -7555,14 +7586,18 @@ graphs alone keeps its best lap and its settings screen, and none exposes a path
   `MotoPlayTests` plays the main scene with the title's RACE pressed by Enter and the throttle's key held from the title
   on (the countdown set to 1 s): the bike held on the grid, in neutral at idle, `Held` on, through the countdown and
   ridden off in first gear after the signal; then the director's `State` is set to `Results` (riding the laps to them is
-  the start and trial test scenes'), the results' RACE AGAIN clicked with the bike riding on, and the bike back on the
-  grid, held, through the second countdown. The ride and the lap test scenes leave the `Race` and `Screen` roots out
+  the start and trial test scenes'), the HUD given a lap's sectors and a delta as a raced lap leaves them, the results'
+  RACE AGAIN clicked with the bike riding on, and the bike back on the grid, held, through the second countdown, which
+  shows its seconds with the sectors and the delta cleared; after the second signal the chase camera shows and stands
+  6.5 m behind the bike on the grid and 2.2 m above it. Both countdowns are bounded either side of their 60 frames. The
+  ride and the lap test scenes leave the `Race` and `Screen` roots out
   (`TestScene.left_out`, `Checks.NO_RACE`: their lines, frames and checks read the same so): their checks stand in for
   the director's events, so its gates' trigger bodies, its loading of a kept best lap into the ghost and the menus'
   giving of stored settings to the bike have no place there, and their riding graph, which no director holds, rides as
   before; `MotoAgentTests` rides the lap scene so. **A whole race** (`Scenes/Trial.sscene`, `Tools/TrialChecks.py`,
   behind `STRADA_LONG_RIDES=1`): the main scene without its props wired as the main scene is, two laps, the autopilot on
-  from the scene's start and the menus hidden; the runner sends `StartRace` in its first fixed step, and the director
+  from the scene's start and the menus hidden; the runner sends `StartRace` in its second fixed step (the known
+  difference above), and the director
   puts the bike on the grid and holds it through the countdown while the autopilot already asks for throttle, starts the
   race, times its laps at the gates and broadcasts its lap events, from which the ghost records the best lap; at the
   results the director saves the best lap with the ghost's samples. Its four checks: one return, the countdown's 180
