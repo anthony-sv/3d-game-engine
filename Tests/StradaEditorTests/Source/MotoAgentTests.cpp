@@ -146,8 +146,9 @@ namespace
 // both and the quicker roll is the spring's. In the second, the first upshift, about 6 s from the grid, comes at a road
 // speed whose engine speed in first gear is above the old shift point, with the engine past the old red line; the riding
 // vehicle takes the new spring in place, before its next step; and at Turn 1's turn-in, about 16 s from the grid, the bike
-// rolls from 2 to 10 degrees of lean in less time than in the first ride, on either side of RollSeconds (read 0.650 and
-// 0.533 s in Release, 0.650 and 0.517 s in Debug). The capture holds the physics' zones.
+// rolls from 2 to 10 degrees of lean in less time than in the first ride, on either side of RollSeconds (read 0.750 and
+// 0.600 s in Release, 0.733 and 0.600 s in Debug, the riding graph's yaw damper steering against the turn-in's yaw). The
+// capture holds the physics' zones.
 TEST_CASE("MotoAgent: vehicle.set while the autopilot rides makes the bike shift later and lean faster, telemetry.read shows "
           "the next upshift above the old shift point and a quicker roll into Turn 1, and profiler.capture holds the physics")
 {
@@ -178,7 +179,7 @@ TEST_CASE("MotoAgent: vehicle.set while the autopilot rides makes the bike shift
 	// two rides' readings.
 	constexpr int RideFrames = 1050;
 	constexpr int EditFrame = 60;
-	constexpr float RollSeconds = 0.59f;
+	constexpr float RollSeconds = 0.665f;
 	Json const shiftLater = Json::object(
 		{{"Engine", Json::object({{"MaxRPM", oldRedLine + 1000.0f}})}, {"Transmission", Json::object({{"ShiftUpRPM", newShiftUp}})}});
 	fixture.Ok("telemetry.start");
@@ -258,15 +259,18 @@ TEST_CASE("MotoAgent: vehicle.set while the autopilot rides makes the bike shift
 		}
 	}
 	REQUIRE(upshift.has_value());
-	// The engine's speed that the road's speed gives in first gear, the step before the upshift (the assist shifts by it).
+	// The step before the upshift is the one the assist decided it in, from what the step before that left: the engine at
+	// the new shift point or past it (the assist shifts up there with the road's speed within Vehicle.SHIFT_SLIP_ROOM of
+	// it, the rear tyre's drive slip at full throttle), past the old red line, which only the edit lets it reach, and the
+	// engine's speed that the road's speed gives in first gear above the old shift point.
 	float const roadSpeed = speeds[*upshift - 1].get<float>();
 	float const roadEngineSpeed = roadSpeed / rearRadius * firstGear * 60.0f / (2.0f * std::numbers::pi_v<float>);
+	float const shiftEngineSpeed = engine[*upshift - 1].get<float>();
 	MESSAGE("the first upshift at " << roadSpeed << " m/s: " << roadEngineSpeed << " rpm in first gear (the old shift point " << oldShiftUp
-	                                << ", the new " << newShiftUp << "); the engine at " << engine[*upshift - 1].get<float>() << " rpm");
-	CHECK(roadEngineSpeed > oldShiftUp + 500.0f);
-	// The engine at the new red line before the upshift (the rear tyre's drive slip holds the road's speed a little under
-	// the shift point while the engine runs at its limit), which only the edit lets it reach.
-	CHECK(engine[*upshift - 1].get<float>() > oldRedLine);
+	                                << ", the new " << newShiftUp << "); the engine at " << shiftEngineSpeed << " rpm");
+	CHECK(shiftEngineSpeed >= newShiftUp);
+	CHECK(shiftEngineSpeed > oldRedLine);
+	CHECK(roadEngineSpeed > oldShiftUp);
 
 	// Leaning faster: from 2 to 10 degrees at Turn 1's turn-in in less time than the ride that only shifted later took, on
 	// either side of the time between the two rides' readings.

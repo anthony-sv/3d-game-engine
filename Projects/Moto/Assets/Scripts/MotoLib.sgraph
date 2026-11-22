@@ -5,7 +5,7 @@
 	},
 	"VisualScript": {
 		"Kind": "Library",
-		"Description": "Moto's library: the rider assist's mapping, the lean a curvature takes, the linked brakes' easing by the lean, a point's distance along the lap and units. Tools/MotoLib.py writes it.",
+		"Description": "Moto's library: the rider assist's mapping, the lean a curvature takes, the linked brakes' easing by the lean, a point's distance along the lap, units and the yaw damper. Tools/MotoLib.py writes it.",
 		"Variables": [],
 		"Functions": [
 			{
@@ -48,7 +48,7 @@
 							]
 						},
 						{
-							"ID": 16,
+							"ID": 19,
 							"Type": "Expression",
 							"Position": [
 								192.0,
@@ -66,7 +66,7 @@
 								"Request"
 							],
 							"To": [
-								16,
+								19,
 								"request"
 							]
 						},
@@ -76,13 +76,13 @@
 								"Speed"
 							],
 							"To": [
-								16,
+								19,
 								"speed"
 							]
 						},
 						{
 							"From": [
-								16,
+								19,
 								"Result"
 							],
 							"To": [
@@ -93,7 +93,7 @@
 					],
 					"Comments": [
 						{
-							"ID": 17,
+							"ID": 20,
 							"Text": "Assist steer: the steering that holds a lean request at the speed",
 							"Position": [
 								-32.0,
@@ -153,7 +153,7 @@
 							]
 						},
 						{
-							"ID": 18,
+							"ID": 21,
 							"Type": "Expression",
 							"Position": [
 								192.0,
@@ -171,7 +171,7 @@
 								"Speed"
 							],
 							"To": [
-								18,
+								21,
 								"speed"
 							]
 						},
@@ -181,13 +181,13 @@
 								"Curvature"
 							],
 							"To": [
-								18,
+								21,
 								"curvature"
 							]
 						},
 						{
 							"From": [
-								18,
+								21,
 								"Result"
 							],
 							"To": [
@@ -198,7 +198,7 @@
 					],
 					"Comments": [
 						{
-							"ID": 19,
+							"ID": 22,
 							"Text": "Curvature lean: the lean request that turns on a curvature",
 							"Position": [
 								-32.0,
@@ -254,7 +254,7 @@
 							]
 						},
 						{
-							"ID": 20,
+							"ID": 23,
 							"Type": "Expression",
 							"Position": [
 								192.0,
@@ -272,13 +272,13 @@
 								"Lean"
 							],
 							"To": [
-								20,
+								23,
 								"lean"
 							]
 						},
 						{
 							"From": [
-								20,
+								23,
 								"Result"
 							],
 							"To": [
@@ -289,7 +289,7 @@
 					],
 					"Comments": [
 						{
-							"ID": 21,
+							"ID": 24,
 							"Text": "Brake ease: the linked brakes' share of a lever at a lean",
 							"Position": [
 								-32.0,
@@ -361,7 +361,7 @@
 							]
 						},
 						{
-							"ID": 22,
+							"ID": 25,
 							"Type": "Expression",
 							"Position": [
 								192.0,
@@ -379,7 +379,7 @@
 								"FromDistance"
 							],
 							"To": [
-								22,
+								25,
 								"start"
 							]
 						},
@@ -389,7 +389,7 @@
 								"ToDistance"
 							],
 							"To": [
-								22,
+								25,
 								"end"
 							]
 						},
@@ -399,7 +399,7 @@
 								"Position"
 							],
 							"To": [
-								22,
+								25,
 								"p"
 							]
 						},
@@ -409,7 +409,7 @@
 								"From"
 							],
 							"To": [
-								22,
+								25,
 								"a"
 							]
 						},
@@ -419,13 +419,13 @@
 								"To"
 							],
 							"To": [
-								22,
+								25,
 								"c"
 							]
 						},
 						{
 							"From": [
-								22,
+								25,
 								"Result"
 							],
 							"To": [
@@ -436,7 +436,7 @@
 					],
 					"Comments": [
 						{
-							"ID": 23,
+							"ID": 26,
 							"Text": "Line distance: a point's foot on a stretch of the line, along the lap",
 							"Position": [
 								-32.0,
@@ -492,7 +492,7 @@
 							]
 						},
 						{
-							"ID": 24,
+							"ID": 27,
 							"Type": "Expression",
 							"Position": [
 								192.0,
@@ -510,13 +510,13 @@
 								"Speed"
 							],
 							"To": [
-								24,
+								27,
 								"speed"
 							]
 						},
 						{
 							"From": [
-								24,
+								27,
 								"Result"
 							],
 							"To": [
@@ -527,7 +527,7 @@
 					],
 					"Comments": [
 						{
-							"ID": 25,
+							"ID": 28,
 							"Text": "Kmh: meters a second in kilometers an hour",
 							"Position": [
 								-32.0,
@@ -536,6 +536,256 @@
 							"Size": [
 								584.0,
 								186.0
+							],
+							"Color": [
+								0.949999988079071,
+								0.550000011920929,
+								0.15000000596046448,
+								0.2199999988079071
+							]
+						}
+					]
+				}
+			},
+			{
+				"ID": 16,
+				"Name": "YawDamper",
+				"Pure": true,
+				"Inputs": [
+					{
+						"Name": "Steer",
+						"Type": "float"
+					},
+					{
+						"Name": "YawRate",
+						"Type": "float"
+					},
+					{
+						"Name": "Speed",
+						"Type": "float"
+					},
+					{
+						"Name": "Lean",
+						"Type": "float"
+					},
+					{
+						"Name": "MaxLean",
+						"Type": "float"
+					}
+				],
+				"Outputs": [
+					{
+						"Name": "Damped",
+						"Type": "float"
+					}
+				],
+				"Locals": [],
+				"Graph": {
+					"Nodes": [
+						{
+							"ID": 17,
+							"Type": "Function.Entry",
+							"Position": [
+								0.0,
+								0.0
+							]
+						},
+						{
+							"ID": 18,
+							"Type": "Function.Return",
+							"Position": [
+								816.0,
+								0.0
+							]
+						},
+						{
+							"ID": 29,
+							"Type": "Expression",
+							"Position": [
+								192.0,
+								0.0
+							],
+							"Settings": {
+								"Formula": "sign(s) * min(abs(s) * 28.0, degrees(asin(clamp(16.143018 * tan(radians(most)) / max(speed * speed, 0.000001), -1, 1))))"
+							}
+						},
+						{
+							"ID": 30,
+							"Type": "Expression",
+							"Position": [
+								400.0,
+								0.0
+							],
+							"Settings": {
+								"Formula": "-speed * sin(radians(applied)) * 0.607693 / cos(radians(min(abs(lean), most)))"
+							}
+						},
+						{
+							"ID": 31,
+							"Type": "Expression",
+							"Position": [
+								400.0,
+								192.0
+							],
+							"Settings": {
+								"Formula": "clamp((abs(speed) - 0.5) / 1.5, 0, 1)"
+							}
+						},
+						{
+							"ID": 32,
+							"Type": "Expression",
+							"Position": [
+								608.0,
+								0.0
+							],
+							"Settings": {
+								"Formula": "clamp(s + fade * 0.002 * degrees(yaw - wanted), -1, 1)"
+							}
+						}
+					],
+					"Links": [
+						{
+							"From": [
+								17,
+								"Steer"
+							],
+							"To": [
+								29,
+								"s"
+							]
+						},
+						{
+							"From": [
+								17,
+								"Speed"
+							],
+							"To": [
+								29,
+								"speed"
+							]
+						},
+						{
+							"From": [
+								17,
+								"MaxLean"
+							],
+							"To": [
+								29,
+								"most"
+							]
+						},
+						{
+							"From": [
+								17,
+								"Speed"
+							],
+							"To": [
+								30,
+								"speed"
+							]
+						},
+						{
+							"From": [
+								29,
+								"Result"
+							],
+							"To": [
+								30,
+								"applied"
+							]
+						},
+						{
+							"From": [
+								17,
+								"Lean"
+							],
+							"To": [
+								30,
+								"lean"
+							]
+						},
+						{
+							"From": [
+								17,
+								"MaxLean"
+							],
+							"To": [
+								30,
+								"most"
+							]
+						},
+						{
+							"From": [
+								17,
+								"Speed"
+							],
+							"To": [
+								31,
+								"speed"
+							]
+						},
+						{
+							"From": [
+								17,
+								"Steer"
+							],
+							"To": [
+								32,
+								"s"
+							]
+						},
+						{
+							"From": [
+								31,
+								"Result"
+							],
+							"To": [
+								32,
+								"fade"
+							]
+						},
+						{
+							"From": [
+								17,
+								"YawRate"
+							],
+							"To": [
+								32,
+								"yaw"
+							]
+						},
+						{
+							"From": [
+								30,
+								"Result"
+							],
+							"To": [
+								32,
+								"wanted"
+							]
+						},
+						{
+							"From": [
+								32,
+								"Result"
+							],
+							"To": [
+								18,
+								"Damped"
+							]
+						}
+					],
+					"Comments": [
+						{
+							"ID": 33,
+							"Text": "Yaw damper: steering against the yaw beyond the steer's own",
+							"Position": [
+								-32.0,
+								-72.0
+							],
+							"Size": [
+								1000.0,
+								378.0
 							],
 							"Color": [
 								0.949999988079071,

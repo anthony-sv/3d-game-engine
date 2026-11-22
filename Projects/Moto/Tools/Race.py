@@ -32,6 +32,15 @@ SectorCrossed(Lap, Sector, Time), LapFinished(Lap, Time, Best), RaceFinished(Tot
 Lap, LapTime and BestLapTime with the read-outs below, and marks telemetry at each crossing it counts (Lap <n>,
 Sector <lap>.<n>, Lap end).
 
+The start. Every race starts from the grid: StartRace, from any state it is taken in, asks for the return, and at the
+director's first fixed step after it, while it is still counting down (an AbandonRace before then drops it), the subject
+is teleported to the grid's place and heading (Bike.grid_place) and its vehicle reset (VehicleComponent.ResetVehicle: at
+rest in neutral, the engine at idle), both in that one step, so the return is the same at every frame rate; a subject
+that does not run the riding graph (a test's box) stays where it is. At each fixed step the director sets the subject's
+riding graph's HoldAsked to its Holding (Vehicle.py's hold), which holds the bike on the grid through the countdown whatever
+its driver asks and lets it go in the step of the start signal; the riding graph takes the request at each of its steps
+and clears it, so a bike the director stops asking for is free in its next step. Returns counts the returns.
+
 The best lap is kept in the save slot SLOT: its time, its splits and the ghost's samples (GHOST_SAMPLES, at SAMPLE_RATE a
 second, as public arrays of the graph GHOST_GRAPH on the director's Ghost). The director opens the slot once the scene has
 started, takes the best lap from it and, when the ghost runs GHOST_GRAPH, writes the samples and the lap's time
@@ -153,6 +162,10 @@ assert all(BROADCASTS[name] == parameters for name, parameters in (Ghost.LAP_STA
 FLOAT_ARRAY = "float[]"
 VECTOR = "Strada.Vector3"
 SAVE_SLOT = "Strada.SaveSlot"
+# The return to the grid: the subject's body teleported and its vehicle reset in one fixed step.
+TELEPORT = "Call:Strada.RigidBodyComponent.Teleport(Strada.Vector3,Strada.Quaternion)"
+RESET = "Call:Strada.VehicleComponent.ResetVehicle()"
+ANGLE_AXIS = "Call:Strada.Quaternion.AngleAxis(float,Strada.Vector3)"
 
 
 def check():
@@ -239,6 +252,8 @@ def declare(author):
         private("CountdownSteps", "int", 0),
         private("NewBest", "bool", False),
         private("MixPending", "bool", False),
+        public("Returns", "int", 0, "How many times the subject was put back on the grid at a race's start (a read-out)"),
+        private("Returning", "bool", False),
     ), events=(
         ("GateCrossed", (("Gate", "int"), ("Step", "int"), ("Fraction", "float"))),
         ("GateEntered", (("Gate", "int"), ("Other", ENTITY))),
@@ -257,6 +272,8 @@ def declare(author):
         ("FinishRace", False, (("Time", "float"),), (), ()),
         ("Line", False, (("Time", "float"),), (), ()),
         ("Sector", False, (("Gate", "int"), ("Time", "float")), (), (("Split", "float", 0.0),)),
+        ("Return", False, (), (), ()),
+        ("Hold", False, (), (), ()),
     ))
 
 
@@ -342,10 +359,10 @@ def write_director(author):
         b.flow(misnumbered["False"], load)
         b.chain(load, titled)
         b.flow(titled["True"], b.own("Title"))
-    with author.region(DIRECTOR, "Steps: each fixed step, the crossings, the countdown and the clocks", EVENTS) as b:
+    with author.region(DIRECTOR, "Steps: the return, the crossings, the countdown, the hold, the clocks", EVENTS) as b:
         fixed = b.event("Event.FixedUpdate")
         counted = b.set("Steps", b.expr("steps + 1", steps=b.var("Steps")))
-        b.chain(fixed, counted, b.own("Track"), b.own("CountDown"), b.own("Clocks"))
+        b.chain(fixed, counted, b.own("Return"), b.own("Track"), b.own("CountDown"), b.own("Hold"), b.own("Clocks"))
     with author.region(DIRECTOR, "Crossed: a gate crossed in order while racing times a lap or a sector", RULES) as b:
         crossed = b.custom("GateCrossed")
         counts = b.branch(b.expr("racing && gate == expected", racing=is_state(b, "Racing"), gate=crossed["Gate"],
@@ -368,7 +385,8 @@ def write_director(author):
         ended = b.branch(b.expr("racing && lap >= 1", racing=is_state(b, "Racing"), lap=b.var("Lap")), comment="A lap in progress ends")
         steps = b.set("CountdownSteps", b.expr("int(round(seconds / dt))", seconds=b.var("Countdown"), dt=dt(b)))
         resets = [b.set("State", "Countdown"), b.set("Holding", True), b.set("Lap", 0), b.set("LapTime", 0.0),
-                  b.set("RaceTime", 0.0), b.set("Splits", b.lit(FLOAT_ARRAY, [])), b.set("CountdownLeft", b.var("Countdown"))]
+                  b.set("RaceTime", 0.0), b.set("Splits", b.lit(FLOAT_ARRAY, [])), b.set("CountdownLeft", b.var("Countdown")),
+                  b.set("Returning", True, comment="The subject goes back to the grid at the next fixed step")]
         ending = mark(b, "Lap end")
         saved = b.own("SaveBest")
         b.chain(start, allowed)
@@ -440,8 +458,8 @@ def runs_ghost(b):
 
 def write_functions(author):
     with author.region(DIRECTOR, "Title: the title over the attract mode", EFFECTS, "Title") as b:
-        b.chain(b.entry, b.set("State", "Title"), b.set("Holding", False), b.set("Lap", 0), b.set("LapTime", 0.0),
-                b.set("CountdownLeft", 0.0), broadcast(b, "AttractStarted"), b.ret)
+        b.chain(b.entry, b.set("State", "Title"), b.set("Holding", False), b.set("Returning", False), b.set("Lap", 0),
+                b.set("LapTime", 0.0), b.set("CountdownLeft", 0.0), broadcast(b, "AttractStarted"), b.ret)
     with author.region(DIRECTOR, "Load best: the slot's best lap, and the ghost's samples", EFFECTS, "LoadBest") as b:
         opened = b.call("Call:Strada.SaveSlot.Open(string)", "Result", Name=SLOT, comment="Once: the slot is kept")
         kept = b.set("Slot", opened.out)
@@ -584,6 +602,33 @@ def write_functions(author):
                                              count=b.pure("Array.Length", "Length", Array=b.var("Gates"))))
         crossed = broadcast(b, "SectorCrossed", Lap=b.var("Lap"), Sector=b.entry["Gate"], Time=b.var("Split"))
         b.chain(b.entry, split, kept, marked, following, crossed, b.ret)
+    with author.region(DIRECTOR, "Return: the ridden bike back on the grid and reset, in one fixed step", EFFECTS, "Return") as b:
+        place, yaw = Bike.grid_place()
+        subject = b.var("Subject")
+        asked = b.branch(b.var("Returning"), comment="StartRace asked for it")
+        done = b.set("Returning", False)
+        counting = b.branch(is_state(b, "Countdown"), comment="Still counting down: an AbandonRace before this step drops it")
+        ridden = b.branch(b.runs(Vehicle.BIKE, subject), comment="A subject that runs the riding graph; any other stays put")
+        moved = b.call(TELEPORT, Target=subject, Position=[round(value, 4) for value in place],
+                       Rotation=b.pure(ANGLE_AXIS, Degrees=round(yaw, 4), Axis=[0.0, 1.0, 0.0]),
+                       comment="The grid's place and heading")
+        reset = b.call(RESET, Target=subject, comment="As the vehicle was made, at rest in neutral, the engine at idle: in the "
+                       "teleport's step, so that no physics step comes between them")
+        counted = b.set("Returns", b.expr("returns + 1", returns=b.var("Returns")))
+        b.chain(b.entry, asked)
+        b.chain(asked["True"], done, counting)
+        b.chain(counting["True"], ridden)
+        b.chain(ridden["True"], moved, reset, counted, b.ret)
+        for source in (asked["False"], counting["False"], ridden["False"]):
+            b.flow(source, b.ret)
+    with author.region(DIRECTOR, "Hold: the subject's riding graph asked to hold on the grid while Holding", EFFECTS, "Hold") as b:
+        subject = b.var("Subject")
+        ridden = b.branch(b.runs(Vehicle.BIKE, subject))
+        held = b.set(Vehicle.HOLD_ASKED, b.var("Holding"), graph=Vehicle.BIKE, target=subject,
+                     comment="Asked at each step of the countdown, not from the signal's step; the riding graph clears it")
+        b.chain(b.entry, ridden)
+        b.chain(ridden["True"], held, b.ret)
+        b.flow(ridden["False"], b.ret)
 
 
 def write(author):

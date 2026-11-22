@@ -87,7 +87,8 @@
 			"MaxRPM": 16000.0,
 			"Torque": "1015757436819593749",
 			"Inertia": 0.05000000074505806,
-			"AngularDamping": 0.004999999888241291
+			"AngularDamping": 0.004999999888241291,
+			"NeutralDamping": 2.244999885559082
 		},
 		"Transmission": {
 			"Mode": "Manual",

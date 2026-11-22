@@ -2632,7 +2632,9 @@ TEST_CASE("PlayCommands: play mode flies the Moto sample's camera tour, a graph'
 	fixture.Ok("play.advance", Json::object({{"frames", 30}}));
 	Json const upright = ridden();
 	CAPTURE(upright.dump());
-	CHECK(upright["applied"]["lean"] == 0.0);
+	// The stick at rest asks for no lean: the vehicle's steering is the yaw damper's answer to the yaw the leans left
+	// (Tools/Vehicle.py: 0.002 of the lock for each degree a second), under its answer to 10 degrees a second.
+	CHECK(std::abs(upright["applied"]["lean"].get<float>()) < 0.02f);
 	CHECK(upright["gear"] == 1);
 	float const brakeFrom = upright["forwardSpeed"].get<float>();
 	CHECK(brakeFrom > 4.0f);

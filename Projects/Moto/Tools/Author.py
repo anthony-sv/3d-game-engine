@@ -57,8 +57,9 @@ visual scripts alone (no C#). In order:
     Scenes/Tests.sscene; Scenes/Ride.sscene, whose graph rides the bike, BikeChecks.py, and its assists and its
     autopilot, RideChecks.py, reads the directors, DirectorChecks.py, and the best lap's ghost, GhostChecks.py;
     Scenes/Flow.sscene, whose graph rides the bike too while the race, the HUD, the pause and the menus are played,
-    RaceChecks.py, HudChecks.py and MenuChecks.py; and Scenes/Lap.sscene, whole laps on the autopilot, LapChecks.py) and
-    their graphs (Checks.py);
+    RaceChecks.py, HudChecks.py and MenuChecks.py; Scenes/Lap.sscene, whole laps on the autopilot, LapChecks.py;
+    Scenes/Start.sscene, the race's starts from the title, the results, a fall and the gravel, StartChecks.py; and
+    Scenes/Trial.sscene, a whole race on the race director and the ghost, TrialChecks.py) and their graphs (Checks.py);
 16. checks: spheres dropped on the road, a kerb, a gravel trap, a verge, the ground, a barrier and the footbridge come to
     rest on their surfaces; the test scene's checks pass in a test run; the tour plays in play mode, the camera where its
     path puts it, and so does the ghost, where its line puts it; and nothing logs a warning.

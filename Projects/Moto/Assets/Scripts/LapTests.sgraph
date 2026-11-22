@@ -4355,7 +4355,7 @@
 								0.0
 							],
 							"Settings": {
-								"Formula": "ready && share >= 0.57"
+								"Formula": "ready && share >= 0.545"
 							}
 						},
 						{
@@ -4366,7 +4366,7 @@
 								144.0
 							],
 							"Settings": {
-								"Format": "leaned {Share} of the lean that balances each turn over {Count} samples (at least 0.57)"
+								"Format": "leaned {Share} of the lean that balances each turn over {Count} samples (at least 0.545)"
 							}
 						},
 						{

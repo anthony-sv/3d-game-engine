@@ -11,6 +11,9 @@ Vehicle.py or Ride.py states, so that a graph and the tool that checks it comput
   the stretch of the line between two of its points, from their distances (the stretch's ends, the point projected on
   the ground and kept within the stretch).
 - Kmh(Speed) -> Kmh: meters a second in kilometers an hour.
+- YawDamper(Steer, YawRate, Speed, Lean, MaxLean) -> Damped: the steering input with the yaw damper's correction, from the
+  steering asked for, the chassis's yaw rate (radians a second about the world's up, positive to the left), its forward
+  speed, its lean and the definition's lean limit (degrees; Vehicle.yaw_damper).
 
 A library has no variables: the line's points live in the graph that rides it (Ride.sgraph), which calls these.
 """
@@ -29,13 +32,15 @@ FLOAT = "float"
 
 def declare(author):
     author.declare(LIB, "Moto's library: the rider assist's mapping, the lean a curvature takes, the linked brakes' easing "
-                   "by the lean, a point's distance along the lap and units. Tools/MotoLib.py writes it.", functions=(
+                   "by the lean, a point's distance along the lap, units and the yaw damper. Tools/MotoLib.py writes it.", functions=(
                        ("AssistSteer", True, (("Request", FLOAT), ("Speed", FLOAT)), (("Steer", FLOAT),), ()),
                        ("CurvatureLean", True, (("Curvature", FLOAT), ("Speed", FLOAT)), (("Request", FLOAT),), ()),
                        ("BrakeEase", True, (("Lean", FLOAT),), (("Share", FLOAT),), ()),
                        ("LineDistance", True, (("Position", VECTOR), ("From", VECTOR), ("To", VECTOR), ("FromDistance", FLOAT),
                                                ("ToDistance", FLOAT)), (("Distance", FLOAT),), ()),
                        ("Kmh", True, (("Speed", FLOAT),), (("Kmh", FLOAT),), ()),
+                       ("YawDamper", True, (("Steer", FLOAT), ("YawRate", FLOAT), ("Speed", FLOAT), ("Lean", FLOAT),
+                                            ("MaxLean", FLOAT)), (("Damped", FLOAT),), ()),
                    ))
 
 
@@ -59,3 +64,17 @@ def write(author):
                       c=b.entry["To"]), b.ret["Distance"])
     with author.region(LIB, "Kmh: meters a second in kilometers an hour", RULES, "Kmh") as b:
         b.link(b.expr("speed * 3.6", speed=b.entry["Speed"]), b.ret["Kmh"])
+    with author.region(LIB, "Yaw damper: steering against the yaw beyond the steer's own", RULES, "YawDamper") as b:
+        # The steer Jolt applies (the lock, within its lean steering limit at the speed) and the yaw rate it turns the bike
+        # at, leaned (Vehicle.yaw_damper); the correction counter-steers the rest.
+        limit = round(Vehicle.ASSIST_WHEELBASE * Vehicle.GRAVITY / Vehicle.CASTER_COS, 6)
+        turn = round(Vehicle.CASTER_COS / Vehicle.ASSIST_WHEELBASE, 6)
+        applied = b.expr(f"sign(s) * min(abs(s) * {Vehicle.STEER_LOCK}, degrees(asin(clamp({limit} * tan(radians(most)) / "
+                         f"max(speed * speed, 0.000001), -1, 1))))", s=b.entry["Steer"], speed=b.entry["Speed"], most=b.entry["MaxLean"])
+        wanted = b.expr(f"-speed * sin(radians(applied)) * {turn} / cos(radians(min(abs(lean), most)))", speed=b.entry["Speed"],
+                        applied=applied, lean=b.entry["Lean"], most=b.entry["MaxLean"])
+        # Faded out at a crawl, to nothing at rest, so that a bike standing still gets the steering as asked and sleeps.
+        fade = b.expr(f"clamp((abs(speed) - {Vehicle.YAW_DAMPING_FROM}) / {Vehicle.YAW_DAMPING_FULL - Vehicle.YAW_DAMPING_FROM}, 0, 1)",
+                      speed=b.entry["Speed"])
+        b.link(b.expr(f"clamp(s + fade * {Vehicle.YAW_DAMPING} * degrees(yaw - wanted), -1, 1)", s=b.entry["Steer"], fade=fade,
+                      yaw=b.entry["YawRate"], wanted=wanted), b.ret["Damped"])

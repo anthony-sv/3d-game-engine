@@ -109,9 +109,10 @@ COVERED_ROOM = (0.75, 1.15)
 MOST_OFFSET = 3.0
 MOST_LEAN = RacingLine.MAX_LEAN
 # The deepest lean of the segment through Turn 1, at least (degrees): 80 % of the weaker of the Debug and the Release
-# readings (the feel pass's contacts read 31.4 and 31.2; the bike as drawn, its contacts as wide as its tyres, 9.2), so
-# that a bike that takes Turn 1 upright again fails on every platform CI plays the scene on.
-LEAST_TURN1_LEAN = 24.9
+# readings (with the yaw damper 27.6 and 26.4; the feel pass's contacts read 31.4 and 31.2 before it, the bike as drawn,
+# its contacts as wide as its tyres, 9.2), so that a bike that takes Turn 1 upright again fails on every platform CI plays
+# the scene on.
+LEAST_TURN1_LEAN = 21.1
 # The pose: how far the rider may stand from where the riding graph poses him for the bike's drawn lean and speed (meters;
 # the check may read a frame after the pose was set), and the fork's axle from the front wheel's (degrees).
 POSE_TOLERANCE = 0.01

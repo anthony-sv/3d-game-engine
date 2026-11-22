@@ -1,0 +1,5510 @@
+{
+	"Strada": {
+		"Version": 3,
+		"Type": "VisualScript"
+	},
+	"VisualScript": {
+		"Description": "The trial test scene's checks: 4 checks of a whole race the autopilot rides on the real race director and ghost, each a latent function that waits for a reading the race takes in its fixed steps, then reports it.",
+		"Variables": [
+			{
+				"ID": 1,
+				"Name": "Bike",
+				"Type": "Strada.Entity",
+				"Public": true,
+				"Tooltip": "The ridden bike, which the autopilot rides"
+			},
+			{
+				"ID": 2,
+				"Name": "Race",
+				"Type": "Strada.Entity",
+				"Public": true,
+				"Tooltip": "The race director, which runs the race"
+			},
+			{
+				"ID": 3,
+				"Name": "GhostBike",
+				"Type": "Strada.Entity",
+				"Public": true,
+				"Tooltip": "The ghost, which records the best lap"
+			},
+			{
+				"ID": 4,
+				"Name": "DeltaPlate",
+				"Type": "Strada.Entity",
+				"Public": true,
+				"Tooltip": "The HUD's plate under the delta"
+			},
+			{
+				"ID": 5,
+				"Name": "DeltaText",
+				"Type": "Strada.Entity",
+				"Public": true,
+				"Tooltip": "The HUD's delta"
+			},
+			{
+				"ID": 6,
+				"Name": "StepStart",
+				"Type": "double",
+				"Value": 0.0
+			},
+			{
+				"ID": 7,
+				"Name": "TStep",
+				"Type": "int",
+				"Value": 0
+			},
+			{
+				"ID": 8,
+				"Name": "TAsked",
+				"Type": "int",
+				"Value": -1
+			},
+			{
+				"ID": 9,
+				"Name": "TLast",
+				"Type": "float",
+				"Value": 1.0
+			},
+			{
+				"ID": 10,
+				"Name": "TCrossings",
+				"Type": "int",
+				"Value": 0
+			},
+			{
+				"ID": 11,
+				"Name": "TCrossStep",
+				"Type": "int",
+				"Value": 0
+			},
+			{
+				"ID": 12,
+				"Name": "TOwnLaps",
+				"Type": "float[]",
+				"Value": []
+			},
+			{
+				"ID": 13,
+				"Name": "TLaps",
+				"Type": "float[]",
+				"Value": []
+			},
+			{
+				"ID": 14,
+				"Name": "TSeenLap",
+				"Type": "int",
+				"Value": 0
+			},
+			{
+				"ID": 15,
+				"Name": "THeldThrottle",
+				"Type": "float",
+				"Value": 0.0
+			},
+			{
+				"ID": 16,
+				"Name": "THeldGear",
+				"Type": "int",
+				"Value": 0
+			},
+			{
+				"ID": 17,
+				"Name": "TCount",
+				"Type": "int",
+				"Value": -1
+			},
+			{
+				"ID": 18,
+				"Name": "TReturns",
+				"Type": "int",
+				"Value": -1
+			},
+			{
+				"ID": 19,
+				"Name": "TRaceTime",
+				"Type": "float",
+				"Value": -1.0
+			},
+			{
+				"ID": 20,
+				"Name": "TBest",
+				"Type": "float",
+				"Value": -1.0
+			},
+			{
+				"ID": 21,
+				"Name": "TGhostBest",
+				"Type": "float",
+				"Value": -1.0
+			},
+			{
+				"ID": 22,
+				"Name": "TGhostSamples",
+				"Type": "int",
+				"Value": -1
+			},
+			{
+				"ID": 23,
+				"Name": "TSaves",
+				"Type": "int",
+				"Value": -1
+			},
+			{
+				"ID": 24,
+				"Name": "TSlotTime",
+				"Type": "float",
+				"Value": -1.0
+			},
+			{
+				"ID": 25,
+				"Name": "TSlotSamples",
+				"Type": "int",
+				"Value": -1
+			},
+			{
+				"ID": 26,
+				"Name": "TResults",
+				"Type": "bool",
+				"Value": false
+			},
+			{
+				"ID": 27,
+				"Name": "TrialDone",
+				"Type": "bool",
+				"Value": false
+			},
+			{
+				"ID": 28,
+				"Name": "TKeptLogged",
+				"Type": "bool",
+				"Value": false
+			}
+		],
+		"Functions": [
+			{
+				"ID": 29,
+				"Name": "TrialRace",
+				"Pure": false,
+				"Inputs": [],
+				"Outputs": [],
+				"Locals": [],
+				"Graph": {
+					"Nodes": [
+						{
+							"ID": 30,
+							"Type": "Function.Entry",
+							"Position": [
+								0.0,
+								0.0
+							]
+						},
+						{
+							"ID": 31,
+							"Type": "Function.Return",
+							"Position": [
+								5888.0,
+								0.0
+							]
+						},
+						{
+							"ID": 50,
+							"Type": "Variable.Get",
+							"Position": [
+								0.0,
+								112.0
+							],
+							"Settings": {
+								"Variable": 8
+							}
+						},
+						{
+							"ID": 51,
+							"Type": "Variable.Get",
+							"Position": [
+								0.0,
+								176.0
+							],
+							"Settings": {
+								"Variable": 7
+							}
+						},
+						{
+							"ID": 52,
+							"Type": "Expression",
+							"Position": [
+								192.0,
+								0.0
+							],
+							"Settings": {
+								"Formula": "asked < 0 && step >= 1"
+							}
+						},
+						{
+							"ID": 53,
+							"Type": "Flow.Branch",
+							"Position": [
+								400.0,
+								0.0
+							],
+							"Comment": "The race starts as the scene does, as RACE starts it"
+						},
+						{
+							"ID": 54,
+							"Type": "Variable.Get",
+							"Position": [
+								192.0,
+								144.0
+							],
+							"Settings": {
+								"Variable": 2
+							}
+						},
+						{
+							"ID": 55,
+							"Type": "Variable.Get",
+							"Position": [
+								400.0,
+								128.0
+							],
+							"Settings": {
+								"Variable": 20,
+								"Graph": "12016132572530095741"
+							}
+						},
+						{
+							"ID": 56,
+							"Type": "Variable.Set",
+							"Position": [
+								624.0,
+								0.0
+							],
+							"Settings": {
+								"Variable": 8
+							}
+						},
+						{
+							"ID": 57,
+							"Type": "Event.Send",
+							"Position": [
+								816.0,
+								0.0
+							],
+							"Settings": {
+								"Name": "StartRace",
+								"Graph": "12016132572530095741",
+								"Parameters": []
+							}
+						},
+						{
+							"ID": 58,
+							"Type": "Variable.Get",
+							"Position": [
+								400.0,
+								256.0
+							],
+							"Settings": {
+								"Variable": 7,
+								"Graph": "12016132572530095741"
+							}
+						},
+						{
+							"ID": 59,
+							"Type": "Literal",
+							"Position": [
+								400.0,
+								384.0
+							],
+							"Settings": {
+								"Type": "string",
+								"Value": "Countdown"
+							}
+						},
+						{
+							"ID": 60,
+							"Type": "Operator.Equal",
+							"Position": [
+								624.0,
+								128.0
+							]
+						},
+						{
+							"ID": 61,
+							"Type": "Expression",
+							"Position": [
+								816.0,
+								144.0
+							],
+							"Settings": {
+								"Formula": "counting && steps >= asked + 2"
+							}
+						},
+						{
+							"ID": 62,
+							"Type": "Flow.Branch",
+							"Position": [
+								1040.0,
+								0.0
+							],
+							"Comment": "Held on the grid: what the vehicle applied"
+						},
+						{
+							"ID": 63,
+							"Type": "Variable.Get",
+							"Position": [
+								816.0,
+								320.0
+							],
+							"Settings": {
+								"Variable": 15
+							}
+						},
+						{
+							"ID": 64,
+							"Type": "Variable.Get",
+							"Position": [
+								624.0,
+								208.0
+							],
+							"Settings": {
+								"Variable": 1
+							}
+						},
+						{
+							"ID": 65,
+							"Type": "Get:Strada.VehicleComponent.Throttle",
+							"Position": [
+								816.0,
+								384.0
+							]
+						},
+						{
+							"ID": 66,
+							"Type": "Expression",
+							"Position": [
+								1040.0,
+								128.0
+							],
+							"Settings": {
+								"Formula": "max(most, applied)"
+							}
+						},
+						{
+							"ID": 67,
+							"Type": "Variable.Set",
+							"Position": [
+								1264.0,
+								0.0
+							],
+							"Settings": {
+								"Variable": 15
+							}
+						},
+						{
+							"ID": 68,
+							"Type": "Variable.Get",
+							"Position": [
+								1040.0,
+								272.0
+							],
+							"Settings": {
+								"Variable": 16
+							}
+						},
+						{
+							"ID": 69,
+							"Type": "Get:Strada.VehicleComponent.Gear",
+							"Position": [
+								1040.0,
+								336.0
+							]
+						},
+						{
+							"ID": 70,
+							"Type": "Expression",
+							"Position": [
+								1264.0,
+								128.0
+							],
+							"Settings": {
+								"Formula": "max(most, gear)"
+							}
+						},
+						{
+							"ID": 71,
+							"Type": "Variable.Set",
+							"Position": [
+								1472.0,
+								0.0
+							],
+							"Settings": {
+								"Variable": 16
+							}
+						},
+						{
+							"ID": 72,
+							"Type": "Get:Strada.TransformComponent.WorldTranslation",
+							"Position": [
+								1040.0,
+								464.0
+							]
+						},
+						{
+							"ID": 73,
+							"Type": "Literal",
+							"Position": [
+								1040.0,
+								592.0
+							],
+							"Settings": {
+								"Type": "Strada.Vector3",
+								"Value": [
+									73.3658,
+									0.0,
+									-218.0049
+								]
+							}
+						},
+						{
+							"ID": 74,
+							"Type": "Literal",
+							"Position": [
+								1040.0,
+								720.0
+							],
+							"Settings": {
+								"Type": "Strada.Vector3",
+								"Value": [
+									0.935383,
+									0.0,
+									0.353635
+								]
+							}
+						},
+						{
+							"ID": 75,
+							"Type": "Expression",
+							"Position": [
+								1264.0,
+								272.0
+							],
+							"Settings": {
+								"Formula": "dot(at - origin, forward)"
+							}
+						},
+						{
+							"ID": 76,
+							"Type": "Variable.Get",
+							"Position": [
+								1264.0,
+								448.0
+							],
+							"Settings": {
+								"Variable": 9
+							}
+						},
+						{
+							"ID": 77,
+							"Type": "Expression",
+							"Position": [
+								1472.0,
+								128.0
+							],
+							"Settings": {
+								"Formula": "last < 0 && here >= 0 && last > -2.27"
+							}
+						},
+						{
+							"ID": 78,
+							"Type": "Flow.Branch",
+							"Position": [
+								1696.0,
+								0.0
+							],
+							"Comment": "Forward across the start and finish line's plane since the step before"
+						},
+						{
+							"ID": 79,
+							"Type": "Variable.Get",
+							"Position": [
+								1472.0,
+								272.0
+							],
+							"Settings": {
+								"Variable": 10
+							}
+						},
+						{
+							"ID": 80,
+							"Type": "Expression",
+							"Position": [
+								1696.0,
+								128.0
+							],
+							"Settings": {
+								"Formula": "crossings >= 1"
+							}
+						},
+						{
+							"ID": 81,
+							"Type": "Flow.Branch",
+							"Position": [
+								1920.0,
+								0.0
+							],
+							"Comment": "A lap of the runner's count ends"
+						},
+						{
+							"ID": 82,
+							"Type": "Variable.Get",
+							"Position": [
+								1696.0,
+								256.0
+							],
+							"Settings": {
+								"Variable": 12
+							}
+						},
+						{
+							"ID": 83,
+							"Type": "Variable.Get",
+							"Position": [
+								1472.0,
+								336.0
+							],
+							"Settings": {
+								"Variable": 11
+							}
+						},
+						{
+							"ID": 84,
+							"Type": "Get:Strada.Time.FixedDeltaTime",
+							"Position": [
+								1472.0,
+								400.0
+							]
+						},
+						{
+							"ID": 85,
+							"Type": "Expression",
+							"Position": [
+								1696.0,
+								320.0
+							],
+							"Settings": {
+								"Formula": "float(step - from) * dt"
+							}
+						},
+						{
+							"ID": 86,
+							"Type": "Array.Add",
+							"Position": [
+								1920.0,
+								128.0
+							]
+						},
+						{
+							"ID": 87,
+							"Type": "Variable.Set",
+							"Position": [
+								2144.0,
+								0.0
+							],
+							"Settings": {
+								"Variable": 12
+							}
+						},
+						{
+							"ID": 88,
+							"Type": "Expression",
+							"Position": [
+								2144.0,
+								128.0
+							],
+							"Settings": {
+								"Formula": "crossings + 1"
+							}
+						},
+						{
+							"ID": 89,
+							"Type": "Variable.Set",
+							"Position": [
+								2368.0,
+								0.0
+							],
+							"Settings": {
+								"Variable": 10
+							}
+						},
+						{
+							"ID": 90,
+							"Type": "Variable.Set",
+							"Position": [
+								2560.0,
+								0.0
+							],
+							"Settings": {
+								"Variable": 11
+							}
+						},
+						{
+							"ID": 91,
+							"Type": "Variable.Set",
+							"Position": [
+								2768.0,
+								0.0
+							],
+							"Settings": {
+								"Variable": 9
+							}
+						},
+						{
+							"ID": 92,
+							"Type": "Variable.Get",
+							"Position": [
+								2560.0,
+								128.0
+							],
+							"Settings": {
+								"Variable": 8,
+								"Graph": "12016132572530095741"
+							}
+						},
+						{
+							"ID": 93,
+							"Type": "Variable.Get",
+							"Position": [
+								2560.0,
+								256.0
+							],
+							"Settings": {
+								"Variable": 14
+							}
+						},
+						{
+							"ID": 94,
+							"Type": "Expression",
+							"Position": [
+								2768.0,
+								128.0
+							],
+							"Settings": {
+								"Formula": "lap != seen"
+							}
+						},
+						{
+							"ID": 95,
+							"Type": "Flow.Branch",
+							"Position": [
+								2960.0,
+								0.0
+							],
+							"Comment": "The director began a lap"
+						},
+						{
+							"ID": 96,
+							"Type": "Expression",
+							"Position": [
+								2960.0,
+								128.0
+							],
+							"Settings": {
+								"Formula": "seen >= 1"
+							}
+						},
+						{
+							"ID": 97,
+							"Type": "Flow.Branch",
+							"Position": [
+								3184.0,
+								0.0
+							],
+							"Comment": "And finished the one before"
+						},
+						{
+							"ID": 98,
+							"Type": "Variable.Get",
+							"Position": [
+								2960.0,
+								256.0
+							],
+							"Settings": {
+								"Variable": 13
+							}
+						},
+						{
+							"ID": 99,
+							"Type": "Variable.Get",
+							"Position": [
+								2960.0,
+								320.0
+							],
+							"Settings": {
+								"Variable": 11,
+								"Graph": "12016132572530095741"
+							}
+						},
+						{
+							"ID": 100,
+							"Type": "Array.Add",
+							"Position": [
+								3184.0,
+								128.0
+							]
+						},
+						{
+							"ID": 101,
+							"Type": "Variable.Set",
+							"Position": [
+								3408.0,
+								0.0
+							],
+							"Settings": {
+								"Variable": 13
+							}
+						},
+						{
+							"ID": 102,
+							"Type": "Variable.Set",
+							"Position": [
+								3600.0,
+								0.0
+							],
+							"Settings": {
+								"Variable": 14
+							}
+						},
+						{
+							"ID": 103,
+							"Type": "Literal",
+							"Position": [
+								3184.0,
+								272.0
+							],
+							"Settings": {
+								"Type": "string",
+								"Value": "Results"
+							}
+						},
+						{
+							"ID": 104,
+							"Type": "Operator.Equal",
+							"Position": [
+								3408.0,
+								128.0
+							]
+						},
+						{
+							"ID": 105,
+							"Type": "Variable.Get",
+							"Position": [
+								3408.0,
+								208.0
+							],
+							"Settings": {
+								"Variable": 26
+							}
+						},
+						{
+							"ID": 106,
+							"Type": "Expression",
+							"Position": [
+								3600.0,
+								128.0
+							],
+							"Settings": {
+								"Formula": "results && !done"
+							}
+						},
+						{
+							"ID": 107,
+							"Type": "Flow.Branch",
+							"Position": [
+								3808.0,
+								0.0
+							],
+							"Comment": "The results: the race's last lap finished"
+						},
+						{
+							"ID": 108,
+							"Type": "Array.Add",
+							"Position": [
+								3808.0,
+								128.0
+							]
+						},
+						{
+							"ID": 109,
+							"Type": "Variable.Set",
+							"Position": [
+								4032.0,
+								0.0
+							],
+							"Settings": {
+								"Variable": 13
+							}
+						},
+						{
+							"ID": 110,
+							"Type": "Variable.Set",
+							"Position": [
+								4224.0,
+								0.0
+							],
+							"Settings": {
+								"Variable": 26
+							},
+							"Inputs": {
+								"Value": true
+							}
+						},
+						{
+							"ID": 111,
+							"Type": "Variable.Get",
+							"Position": [
+								4224.0,
+								128.0
+							],
+							"Settings": {
+								"Variable": 12,
+								"Graph": "12016132572530095741"
+							}
+						},
+						{
+							"ID": 112,
+							"Type": "Variable.Set",
+							"Position": [
+								4448.0,
+								0.0
+							],
+							"Settings": {
+								"Variable": 19
+							}
+						},
+						{
+							"ID": 113,
+							"Type": "Variable.Get",
+							"Position": [
+								4448.0,
+								128.0
+							],
+							"Settings": {
+								"Variable": 10,
+								"Graph": "12016132572530095741"
+							}
+						},
+						{
+							"ID": 114,
+							"Type": "Variable.Set",
+							"Position": [
+								4656.0,
+								0.0
+							],
+							"Settings": {
+								"Variable": 20
+							}
+						},
+						{
+							"ID": 115,
+							"Type": "Variable.Get",
+							"Position": [
+								4448.0,
+								256.0
+							],
+							"Settings": {
+								"Variable": 3
+							}
+						},
+						{
+							"ID": 116,
+							"Type": "Variable.Get",
+							"Position": [
+								4656.0,
+								128.0
+							],
+							"Settings": {
+								"Variable": 12,
+								"Graph": "10119309049923292088"
+							}
+						},
+						{
+							"ID": 117,
+							"Type": "Variable.Set",
+							"Position": [
+								4880.0,
+								0.0
+							],
+							"Settings": {
+								"Variable": 21
+							}
+						},
+						{
+							"ID": 118,
+							"Type": "Variable.Get",
+							"Position": [
+								4656.0,
+								256.0
+							],
+							"Settings": {
+								"Variable": 8,
+								"Graph": "10119309049923292088"
+							}
+						},
+						{
+							"ID": 119,
+							"Type": "Array.Length",
+							"Position": [
+								4880.0,
+								128.0
+							]
+						},
+						{
+							"ID": 120,
+							"Type": "Variable.Set",
+							"Position": [
+								5088.0,
+								0.0
+							],
+							"Settings": {
+								"Variable": 22
+							}
+						},
+						{
+							"ID": 121,
+							"Type": "Variable.Get",
+							"Position": [
+								5088.0,
+								128.0
+							],
+							"Settings": {
+								"Variable": 46,
+								"Graph": "12016132572530095741"
+							}
+						},
+						{
+							"ID": 122,
+							"Type": "Variable.Set",
+							"Position": [
+								5296.0,
+								0.0
+							],
+							"Settings": {
+								"Variable": 18
+							}
+						},
+						{
+							"ID": 123,
+							"Type": "Variable.Get",
+							"Position": [
+								5088.0,
+								256.0
+							],
+							"Settings": {
+								"Variable": 21,
+								"Graph": "12016132572530095741"
+							}
+						},
+						{
+							"ID": 124,
+							"Type": "Expression",
+							"Position": [
+								5296.0,
+								128.0
+							],
+							"Settings": {
+								"Formula": "start - asked"
+							}
+						},
+						{
+							"ID": 125,
+							"Type": "Variable.Set",
+							"Position": [
+								5504.0,
+								0.0
+							],
+							"Settings": {
+								"Variable": 17
+							}
+						},
+						{
+							"ID": 126,
+							"Type": "Expression",
+							"Position": [
+								5504.0,
+								128.0
+							],
+							"Settings": {
+								"Formula": "step + 1"
+							}
+						},
+						{
+							"ID": 127,
+							"Type": "Variable.Set",
+							"Position": [
+								5696.0,
+								0.0
+							],
+							"Settings": {
+								"Variable": 7
+							}
+						}
+					],
+					"Links": [
+						{
+							"From": [
+								50,
+								"Value"
+							],
+							"To": [
+								52,
+								"asked"
+							]
+						},
+						{
+							"From": [
+								51,
+								"Value"
+							],
+							"To": [
+								52,
+								"step"
+							]
+						},
+						{
+							"From": [
+								52,
+								"Result"
+							],
+							"To": [
+								53,
+								"Condition"
+							]
+						},
+						{
+							"From": [
+								54,
+								"Value"
+							],
+							"To": [
+								55,
+								"Target"
+							]
+						},
+						{
+							"From": [
+								55,
+								"Value"
+							],
+							"To": [
+								56,
+								"Value"
+							]
+						},
+						{
+							"From": [
+								54,
+								"Value"
+							],
+							"To": [
+								57,
+								"Target"
+							]
+						},
+						{
+							"From": [
+								54,
+								"Value"
+							],
+							"To": [
+								58,
+								"Target"
+							]
+						},
+						{
+							"From": [
+								58,
+								"Value"
+							],
+							"To": [
+								60,
+								"A"
+							]
+						},
+						{
+							"From": [
+								59,
+								"Value"
+							],
+							"To": [
+								60,
+								"B"
+							]
+						},
+						{
+							"From": [
+								60,
+								"Result"
+							],
+							"To": [
+								61,
+								"counting"
+							]
+						},
+						{
+							"From": [
+								55,
+								"Value"
+							],
+							"To": [
+								61,
+								"steps"
+							]
+						},
+						{
+							"From": [
+								50,
+								"Value"
+							],
+							"To": [
+								61,
+								"asked"
+							]
+						},
+						{
+							"From": [
+								61,
+								"Result"
+							],
+							"To": [
+								62,
+								"Condition"
+							]
+						},
+						{
+							"From": [
+								64,
+								"Value"
+							],
+							"To": [
+								65,
+								"Target"
+							]
+						},
+						{
+							"From": [
+								63,
+								"Value"
+							],
+							"To": [
+								66,
+								"most"
+							]
+						},
+						{
+							"From": [
+								65,
+								"Value"
+							],
+							"To": [
+								66,
+								"applied"
+							]
+						},
+						{
+							"From": [
+								66,
+								"Result"
+							],
+							"To": [
+								67,
+								"Value"
+							]
+						},
+						{
+							"From": [
+								64,
+								"Value"
+							],
+							"To": [
+								69,
+								"Target"
+							]
+						},
+						{
+							"From": [
+								68,
+								"Value"
+							],
+							"To": [
+								70,
+								"most"
+							]
+						},
+						{
+							"From": [
+								69,
+								"Value"
+							],
+							"To": [
+								70,
+								"gear"
+							]
+						},
+						{
+							"From": [
+								70,
+								"Result"
+							],
+							"To": [
+								71,
+								"Value"
+							]
+						},
+						{
+							"From": [
+								64,
+								"Value"
+							],
+							"To": [
+								72,
+								"Target"
+							]
+						},
+						{
+							"From": [
+								72,
+								"Value"
+							],
+							"To": [
+								75,
+								"at"
+							]
+						},
+						{
+							"From": [
+								73,
+								"Value"
+							],
+							"To": [
+								75,
+								"origin"
+							]
+						},
+						{
+							"From": [
+								74,
+								"Value"
+							],
+							"To": [
+								75,
+								"forward"
+							]
+						},
+						{
+							"From": [
+								76,
+								"Value"
+							],
+							"To": [
+								77,
+								"last"
+							]
+						},
+						{
+							"From": [
+								75,
+								"Result"
+							],
+							"To": [
+								77,
+								"here"
+							]
+						},
+						{
+							"From": [
+								77,
+								"Result"
+							],
+							"To": [
+								78,
+								"Condition"
+							]
+						},
+						{
+							"From": [
+								79,
+								"Value"
+							],
+							"To": [
+								80,
+								"crossings"
+							]
+						},
+						{
+							"From": [
+								80,
+								"Result"
+							],
+							"To": [
+								81,
+								"Condition"
+							]
+						},
+						{
+							"From": [
+								51,
+								"Value"
+							],
+							"To": [
+								85,
+								"step"
+							]
+						},
+						{
+							"From": [
+								83,
+								"Value"
+							],
+							"To": [
+								85,
+								"from"
+							]
+						},
+						{
+							"From": [
+								84,
+								"Value"
+							],
+							"To": [
+								85,
+								"dt"
+							]
+						},
+						{
+							"From": [
+								82,
+								"Value"
+							],
+							"To": [
+								86,
+								"Array"
+							]
+						},
+						{
+							"From": [
+								85,
+								"Result"
+							],
+							"To": [
+								86,
+								"Value"
+							]
+						},
+						{
+							"From": [
+								86,
+								"Result"
+							],
+							"To": [
+								87,
+								"Value"
+							]
+						},
+						{
+							"From": [
+								79,
+								"Value"
+							],
+							"To": [
+								88,
+								"crossings"
+							]
+						},
+						{
+							"From": [
+								88,
+								"Result"
+							],
+							"To": [
+								89,
+								"Value"
+							]
+						},
+						{
+							"From": [
+								51,
+								"Value"
+							],
+							"To": [
+								90,
+								"Value"
+							]
+						},
+						{
+							"From": [
+								75,
+								"Result"
+							],
+							"To": [
+								91,
+								"Value"
+							]
+						},
+						{
+							"From": [
+								54,
+								"Value"
+							],
+							"To": [
+								92,
+								"Target"
+							]
+						},
+						{
+							"From": [
+								92,
+								"Value"
+							],
+							"To": [
+								94,
+								"lap"
+							]
+						},
+						{
+							"From": [
+								93,
+								"Value"
+							],
+							"To": [
+								94,
+								"seen"
+							]
+						},
+						{
+							"From": [
+								94,
+								"Result"
+							],
+							"To": [
+								95,
+								"Condition"
+							]
+						},
+						{
+							"From": [
+								93,
+								"Value"
+							],
+							"To": [
+								96,
+								"seen"
+							]
+						},
+						{
+							"From": [
+								96,
+								"Result"
+							],
+							"To": [
+								97,
+								"Condition"
+							]
+						},
+						{
+							"From": [
+								54,
+								"Value"
+							],
+							"To": [
+								99,
+								"Target"
+							]
+						},
+						{
+							"From": [
+								98,
+								"Value"
+							],
+							"To": [
+								100,
+								"Array"
+							]
+						},
+						{
+							"From": [
+								99,
+								"Value"
+							],
+							"To": [
+								100,
+								"Value"
+							]
+						},
+						{
+							"From": [
+								100,
+								"Result"
+							],
+							"To": [
+								101,
+								"Value"
+							]
+						},
+						{
+							"From": [
+								92,
+								"Value"
+							],
+							"To": [
+								102,
+								"Value"
+							]
+						},
+						{
+							"From": [
+								58,
+								"Value"
+							],
+							"To": [
+								104,
+								"A"
+							]
+						},
+						{
+							"From": [
+								103,
+								"Value"
+							],
+							"To": [
+								104,
+								"B"
+							]
+						},
+						{
+							"From": [
+								104,
+								"Result"
+							],
+							"To": [
+								106,
+								"results"
+							]
+						},
+						{
+							"From": [
+								105,
+								"Value"
+							],
+							"To": [
+								106,
+								"done"
+							]
+						},
+						{
+							"From": [
+								106,
+								"Result"
+							],
+							"To": [
+								107,
+								"Condition"
+							]
+						},
+						{
+							"From": [
+								98,
+								"Value"
+							],
+							"To": [
+								108,
+								"Array"
+							]
+						},
+						{
+							"From": [
+								99,
+								"Value"
+							],
+							"To": [
+								108,
+								"Value"
+							]
+						},
+						{
+							"From": [
+								108,
+								"Result"
+							],
+							"To": [
+								109,
+								"Value"
+							]
+						},
+						{
+							"From": [
+								54,
+								"Value"
+							],
+							"To": [
+								111,
+								"Target"
+							]
+						},
+						{
+							"From": [
+								111,
+								"Value"
+							],
+							"To": [
+								112,
+								"Value"
+							]
+						},
+						{
+							"From": [
+								54,
+								"Value"
+							],
+							"To": [
+								113,
+								"Target"
+							]
+						},
+						{
+							"From": [
+								113,
+								"Value"
+							],
+							"To": [
+								114,
+								"Value"
+							]
+						},
+						{
+							"From": [
+								115,
+								"Value"
+							],
+							"To": [
+								116,
+								"Target"
+							]
+						},
+						{
+							"From": [
+								116,
+								"Value"
+							],
+							"To": [
+								117,
+								"Value"
+							]
+						},
+						{
+							"From": [
+								115,
+								"Value"
+							],
+							"To": [
+								118,
+								"Target"
+							]
+						},
+						{
+							"From": [
+								118,
+								"Value"
+							],
+							"To": [
+								119,
+								"Array"
+							]
+						},
+						{
+							"From": [
+								119,
+								"Length"
+							],
+							"To": [
+								120,
+								"Value"
+							]
+						},
+						{
+							"From": [
+								54,
+								"Value"
+							],
+							"To": [
+								121,
+								"Target"
+							]
+						},
+						{
+							"From": [
+								121,
+								"Value"
+							],
+							"To": [
+								122,
+								"Value"
+							]
+						},
+						{
+							"From": [
+								54,
+								"Value"
+							],
+							"To": [
+								123,
+								"Target"
+							]
+						},
+						{
+							"From": [
+								123,
+								"Value"
+							],
+							"To": [
+								124,
+								"start"
+							]
+						},
+						{
+							"From": [
+								50,
+								"Value"
+							],
+							"To": [
+								124,
+								"asked"
+							]
+						},
+						{
+							"From": [
+								124,
+								"Result"
+							],
+							"To": [
+								125,
+								"Value"
+							]
+						},
+						{
+							"From": [
+								51,
+								"Value"
+							],
+							"To": [
+								126,
+								"step"
+							]
+						},
+						{
+							"From": [
+								126,
+								"Result"
+							],
+							"To": [
+								127,
+								"Value"
+							]
+						},
+						{
+							"From": [
+								30,
+								"Then"
+							],
+							"To": [
+								53,
+								"Execute"
+							]
+						},
+						{
+							"From": [
+								53,
+								"True"
+							],
+							"To": [
+								56,
+								"Execute"
+							]
+						},
+						{
+							"From": [
+								56,
+								"Then"
+							],
+							"To": [
+								57,
+								"Execute"
+							]
+						},
+						{
+							"From": [
+								57,
+								"Then"
+							],
+							"To": [
+								62,
+								"Execute"
+							]
+						},
+						{
+							"From": [
+								53,
+								"False"
+							],
+							"To": [
+								62,
+								"Execute"
+							]
+						},
+						{
+							"From": [
+								62,
+								"True"
+							],
+							"To": [
+								67,
+								"Execute"
+							]
+						},
+						{
+							"From": [
+								67,
+								"Then"
+							],
+							"To": [
+								71,
+								"Execute"
+							]
+						},
+						{
+							"From": [
+								71,
+								"Then"
+							],
+							"To": [
+								78,
+								"Execute"
+							]
+						},
+						{
+							"From": [
+								62,
+								"False"
+							],
+							"To": [
+								78,
+								"Execute"
+							]
+						},
+						{
+							"From": [
+								78,
+								"True"
+							],
+							"To": [
+								81,
+								"Execute"
+							]
+						},
+						{
+							"From": [
+								81,
+								"True"
+							],
+							"To": [
+								87,
+								"Execute"
+							]
+						},
+						{
+							"From": [
+								87,
+								"Then"
+							],
+							"To": [
+								89,
+								"Execute"
+							]
+						},
+						{
+							"From": [
+								89,
+								"Then"
+							],
+							"To": [
+								90,
+								"Execute"
+							]
+						},
+						{
+							"From": [
+								81,
+								"False"
+							],
+							"To": [
+								89,
+								"Execute"
+							]
+						},
+						{
+							"From": [
+								90,
+								"Then"
+							],
+							"To": [
+								91,
+								"Execute"
+							]
+						},
+						{
+							"From": [
+								78,
+								"False"
+							],
+							"To": [
+								91,
+								"Execute"
+							]
+						},
+						{
+							"From": [
+								91,
+								"Then"
+							],
+							"To": [
+								95,
+								"Execute"
+							]
+						},
+						{
+							"From": [
+								95,
+								"True"
+							],
+							"To": [
+								97,
+								"Execute"
+							]
+						},
+						{
+							"From": [
+								97,
+								"True"
+							],
+							"To": [
+								101,
+								"Execute"
+							]
+						},
+						{
+							"From": [
+								101,
+								"Then"
+							],
+							"To": [
+								102,
+								"Execute"
+							]
+						},
+						{
+							"From": [
+								97,
+								"False"
+							],
+							"To": [
+								102,
+								"Execute"
+							]
+						},
+						{
+							"From": [
+								102,
+								"Then"
+							],
+							"To": [
+								107,
+								"Execute"
+							]
+						},
+						{
+							"From": [
+								95,
+								"False"
+							],
+							"To": [
+								107,
+								"Execute"
+							]
+						},
+						{
+							"From": [
+								107,
+								"True"
+							],
+							"To": [
+								109,
+								"Execute"
+							]
+						},
+						{
+							"From": [
+								109,
+								"Then"
+							],
+							"To": [
+								110,
+								"Execute"
+							]
+						},
+						{
+							"From": [
+								110,
+								"Then"
+							],
+							"To": [
+								112,
+								"Execute"
+							]
+						},
+						{
+							"From": [
+								112,
+								"Then"
+							],
+							"To": [
+								114,
+								"Execute"
+							]
+						},
+						{
+							"From": [
+								114,
+								"Then"
+							],
+							"To": [
+								117,
+								"Execute"
+							]
+						},
+						{
+							"From": [
+								117,
+								"Then"
+							],
+							"To": [
+								120,
+								"Execute"
+							]
+						},
+						{
+							"From": [
+								120,
+								"Then"
+							],
+							"To": [
+								122,
+								"Execute"
+							]
+						},
+						{
+							"From": [
+								122,
+								"Then"
+							],
+							"To": [
+								125,
+								"Execute"
+							]
+						},
+						{
+							"From": [
+								125,
+								"Then"
+							],
+							"To": [
+								127,
+								"Execute"
+							]
+						},
+						{
+							"From": [
+								107,
+								"False"
+							],
+							"To": [
+								127,
+								"Execute"
+							]
+						},
+						{
+							"From": [
+								127,
+								"Then"
+							],
+							"To": [
+								31,
+								"Execute"
+							]
+						}
+					],
+					"Comments": [
+						{
+							"ID": 128,
+							"Text": "Race: each fixed step, StartRace first, the laps and the results",
+							"Position": [
+								-32.0,
+								-72.0
+							],
+							"Size": [
+								6072.0,
+								906.0
+							],
+							"Color": [
+								0.20000000298023224,
+								0.41999998688697815,
+								0.949999988079071,
+								0.2199999988079071
+							]
+						}
+					]
+				}
+			},
+			{
+				"ID": 32,
+				"Name": "TrialSaved",
+				"Pure": false,
+				"Inputs": [],
+				"Outputs": [],
+				"Locals": [],
+				"Graph": {
+					"Nodes": [
+						{
+							"ID": 33,
+							"Type": "Function.Entry",
+							"Position": [
+								0.0,
+								0.0
+							]
+						},
+						{
+							"ID": 34,
+							"Type": "Function.Return",
+							"Position": [
+								2304.0,
+								0.0
+							]
+						},
+						{
+							"ID": 129,
+							"Type": "Variable.Get",
+							"Position": [
+								192.0,
+								0.0
+							],
+							"Settings": {
+								"Variable": 26
+							}
+						},
+						{
+							"ID": 130,
+							"Type": "Variable.Get",
+							"Position": [
+								192.0,
+								64.0
+							],
+							"Settings": {
+								"Variable": 27
+							}
+						},
+						{
+							"ID": 131,
+							"Type": "Variable.Get",
+							"Position": [
+								0.0,
+								112.0
+							],
+							"Settings": {
+								"Variable": 2
+							}
+						},
+						{
+							"ID": 132,
+							"Type": "Variable.Get",
+							"Position": [
+								192.0,
+								128.0
+							],
+							"Settings": {
+								"Variable": 19,
+								"Graph": "12016132572530095741"
+							}
+						},
+						{
+							"ID": 133,
+							"Type": "Expression",
+							"Position": [
+								400.0,
+								0.0
+							],
+							"Settings": {
+								"Formula": "results && !done && saves >= 1"
+							}
+						},
+						{
+							"ID": 134,
+							"Type": "Flow.Branch",
+							"Position": [
+								608.0,
+								0.0
+							]
+						},
+						{
+							"ID": 135,
+							"Type": "Call:Strada.SaveSlot.Open(string)",
+							"Position": [
+								832.0,
+								0.0
+							],
+							"Inputs": {
+								"Name": "BestLap"
+							}
+						},
+						{
+							"ID": 136,
+							"Type": "Literal",
+							"Position": [
+								832.0,
+								144.0
+							],
+							"Settings": {
+								"Type": "float",
+								"Value": -1.0
+							}
+						},
+						{
+							"ID": 137,
+							"Type": "Call:Strada.SaveSlot.Get<T>(string,T)",
+							"Position": [
+								1136.0,
+								128.0
+							],
+							"Inputs": {
+								"Name": "LapTime"
+							}
+						},
+						{
+							"ID": 138,
+							"Type": "Literal",
+							"Position": [
+								832.0,
+								272.0
+							],
+							"Settings": {
+								"Type": "Strada.Vector3[]",
+								"Value": []
+							}
+						},
+						{
+							"ID": 139,
+							"Type": "Call:Strada.SaveSlot.Get<T>(string,T)",
+							"Position": [
+								1136.0,
+								304.0
+							],
+							"Inputs": {
+								"Name": "BestLapPositions"
+							}
+						},
+						{
+							"ID": 140,
+							"Type": "Variable.Set",
+							"Position": [
+								1136.0,
+								0.0
+							],
+							"Settings": {
+								"Variable": 23
+							}
+						},
+						{
+							"ID": 141,
+							"Type": "Variable.Set",
+							"Position": [
+								1440.0,
+								0.0
+							],
+							"Settings": {
+								"Variable": 24
+							}
+						},
+						{
+							"ID": 142,
+							"Type": "Array.Length",
+							"Position": [
+								1440.0,
+								128.0
+							]
+						},
+						{
+							"ID": 143,
+							"Type": "Variable.Set",
+							"Position": [
+								1648.0,
+								0.0
+							],
+							"Settings": {
+								"Variable": 25
+							}
+						},
+						{
+							"ID": 144,
+							"Type": "Variable.Get",
+							"Position": [
+								1440.0,
+								256.0
+							],
+							"Settings": {
+								"Variable": 13
+							}
+						},
+						{
+							"ID": 145,
+							"Type": "Variable.Get",
+							"Position": [
+								1440.0,
+								320.0
+							],
+							"Settings": {
+								"Variable": 12
+							}
+						},
+						{
+							"ID": 146,
+							"Type": "Variable.Get",
+							"Position": [
+								1440.0,
+								384.0
+							],
+							"Settings": {
+								"Variable": 19
+							}
+						},
+						{
+							"ID": 147,
+							"Type": "Variable.Get",
+							"Position": [
+								1440.0,
+								448.0
+							],
+							"Settings": {
+								"Variable": 17
+							}
+						},
+						{
+							"ID": 148,
+							"Type": "Variable.Get",
+							"Position": [
+								1440.0,
+								512.0
+							],
+							"Settings": {
+								"Variable": 18
+							}
+						},
+						{
+							"ID": 149,
+							"Type": "Variable.Get",
+							"Position": [
+								1440.0,
+								576.0
+							],
+							"Settings": {
+								"Variable": 15
+							}
+						},
+						{
+							"ID": 150,
+							"Type": "Variable.Get",
+							"Position": [
+								1440.0,
+								640.0
+							],
+							"Settings": {
+								"Variable": 16
+							}
+						},
+						{
+							"ID": 151,
+							"Type": "Variable.Get",
+							"Position": [
+								1440.0,
+								704.0
+							],
+							"Settings": {
+								"Variable": 20
+							}
+						},
+						{
+							"ID": 152,
+							"Type": "Variable.Get",
+							"Position": [
+								1440.0,
+								768.0
+							],
+							"Settings": {
+								"Variable": 21
+							}
+						},
+						{
+							"ID": 153,
+							"Type": "Variable.Get",
+							"Position": [
+								1440.0,
+								832.0
+							],
+							"Settings": {
+								"Variable": 22
+							}
+						},
+						{
+							"ID": 154,
+							"Type": "Variable.Get",
+							"Position": [
+								1440.0,
+								896.0
+							],
+							"Settings": {
+								"Variable": 23
+							}
+						},
+						{
+							"ID": 155,
+							"Type": "Variable.Get",
+							"Position": [
+								1440.0,
+								960.0
+							],
+							"Settings": {
+								"Variable": 24
+							}
+						},
+						{
+							"ID": 156,
+							"Type": "Variable.Get",
+							"Position": [
+								1440.0,
+								1024.0
+							],
+							"Settings": {
+								"Variable": 25
+							}
+						},
+						{
+							"ID": 157,
+							"Type": "FormatString",
+							"Position": [
+								1648.0,
+								128.0
+							],
+							"Settings": {
+								"Format": "Moto's trial: laps {Laps} s as the director timed them, {Own} s by the steps between the line's crossings; the race {Race} s; started {Count} steps after StartRace with {Returns} returns, the vehicle applying at most {Throttle} of the throttle and gear {Gear} through the countdown; the best lap {Best} s, the ghost's {GhostBest} s of {Samples} samples; saved {Saves} times, the slot keeping {SlotSamples} samples of a {SlotTime} s lap"
+							}
+						},
+						{
+							"ID": 158,
+							"Type": "Call:Strada.Log.Info(string)",
+							"Position": [
+								1888.0,
+								0.0
+							],
+							"Comment": "Every reading of the race"
+						},
+						{
+							"ID": 159,
+							"Type": "Variable.Set",
+							"Position": [
+								2080.0,
+								0.0
+							],
+							"Settings": {
+								"Variable": 27
+							},
+							"Inputs": {
+								"Value": true
+							}
+						}
+					],
+					"Links": [
+						{
+							"From": [
+								131,
+								"Value"
+							],
+							"To": [
+								132,
+								"Target"
+							]
+						},
+						{
+							"From": [
+								129,
+								"Value"
+							],
+							"To": [
+								133,
+								"results"
+							]
+						},
+						{
+							"From": [
+								130,
+								"Value"
+							],
+							"To": [
+								133,
+								"done"
+							]
+						},
+						{
+							"From": [
+								132,
+								"Value"
+							],
+							"To": [
+								133,
+								"saves"
+							]
+						},
+						{
+							"From": [
+								133,
+								"Result"
+							],
+							"To": [
+								134,
+								"Condition"
+							]
+						},
+						{
+							"From": [
+								135,
+								"Result"
+							],
+							"To": [
+								137,
+								"Target"
+							]
+						},
+						{
+							"From": [
+								136,
+								"Value"
+							],
+							"To": [
+								137,
+								"Fallback"
+							]
+						},
+						{
+							"From": [
+								135,
+								"Result"
+							],
+							"To": [
+								139,
+								"Target"
+							]
+						},
+						{
+							"From": [
+								138,
+								"Value"
+							],
+							"To": [
+								139,
+								"Fallback"
+							]
+						},
+						{
+							"From": [
+								132,
+								"Value"
+							],
+							"To": [
+								140,
+								"Value"
+							]
+						},
+						{
+							"From": [
+								137,
+								"Result"
+							],
+							"To": [
+								141,
+								"Value"
+							]
+						},
+						{
+							"From": [
+								139,
+								"Result"
+							],
+							"To": [
+								142,
+								"Array"
+							]
+						},
+						{
+							"From": [
+								142,
+								"Length"
+							],
+							"To": [
+								143,
+								"Value"
+							]
+						},
+						{
+							"From": [
+								144,
+								"Value"
+							],
+							"To": [
+								157,
+								"Laps"
+							]
+						},
+						{
+							"From": [
+								145,
+								"Value"
+							],
+							"To": [
+								157,
+								"Own"
+							]
+						},
+						{
+							"From": [
+								146,
+								"Value"
+							],
+							"To": [
+								157,
+								"Race"
+							]
+						},
+						{
+							"From": [
+								147,
+								"Value"
+							],
+							"To": [
+								157,
+								"Count"
+							]
+						},
+						{
+							"From": [
+								148,
+								"Value"
+							],
+							"To": [
+								157,
+								"Returns"
+							]
+						},
+						{
+							"From": [
+								149,
+								"Value"
+							],
+							"To": [
+								157,
+								"Throttle"
+							]
+						},
+						{
+							"From": [
+								150,
+								"Value"
+							],
+							"To": [
+								157,
+								"Gear"
+							]
+						},
+						{
+							"From": [
+								151,
+								"Value"
+							],
+							"To": [
+								157,
+								"Best"
+							]
+						},
+						{
+							"From": [
+								152,
+								"Value"
+							],
+							"To": [
+								157,
+								"GhostBest"
+							]
+						},
+						{
+							"From": [
+								153,
+								"Value"
+							],
+							"To": [
+								157,
+								"Samples"
+							]
+						},
+						{
+							"From": [
+								154,
+								"Value"
+							],
+							"To": [
+								157,
+								"Saves"
+							]
+						},
+						{
+							"From": [
+								155,
+								"Value"
+							],
+							"To": [
+								157,
+								"SlotTime"
+							]
+						},
+						{
+							"From": [
+								156,
+								"Value"
+							],
+							"To": [
+								157,
+								"SlotSamples"
+							]
+						},
+						{
+							"From": [
+								157,
+								"Result"
+							],
+							"To": [
+								158,
+								"Message"
+							]
+						},
+						{
+							"From": [
+								33,
+								"Then"
+							],
+							"To": [
+								134,
+								"Execute"
+							]
+						},
+						{
+							"From": [
+								134,
+								"True"
+							],
+							"To": [
+								135,
+								"Execute"
+							]
+						},
+						{
+							"From": [
+								135,
+								"Then"
+							],
+							"To": [
+								140,
+								"Execute"
+							]
+						},
+						{
+							"From": [
+								140,
+								"Then"
+							],
+							"To": [
+								141,
+								"Execute"
+							]
+						},
+						{
+							"From": [
+								141,
+								"Then"
+							],
+							"To": [
+								143,
+								"Execute"
+							]
+						},
+						{
+							"From": [
+								143,
+								"Then"
+							],
+							"To": [
+								158,
+								"Execute"
+							]
+						},
+						{
+							"From": [
+								158,
+								"Then"
+							],
+							"To": [
+								159,
+								"Execute"
+							]
+						},
+						{
+							"From": [
+								159,
+								"Then"
+							],
+							"To": [
+								34,
+								"Execute"
+							]
+						},
+						{
+							"From": [
+								134,
+								"False"
+							],
+							"To": [
+								34,
+								"Execute"
+							]
+						}
+					],
+					"Comments": [
+						{
+							"ID": 160,
+							"Text": "Saved: the slot read back once the director saved it",
+							"Position": [
+								-32.0,
+								-72.0
+							],
+							"Size": [
+								2488.0,
+								1156.0
+							],
+							"Color": [
+								0.20000000298023224,
+								0.41999998688697815,
+								0.949999988079071,
+								0.2199999988079071
+							]
+						}
+					]
+				}
+			},
+			{
+				"ID": 35,
+				"Name": "TrialKept",
+				"Pure": false,
+				"Inputs": [],
+				"Outputs": [],
+				"Locals": [],
+				"Graph": {
+					"Nodes": [
+						{
+							"ID": 36,
+							"Type": "Function.Entry",
+							"Position": [
+								0.0,
+								0.0
+							]
+						},
+						{
+							"ID": 37,
+							"Type": "Function.Return",
+							"Position": [
+								1264.0,
+								0.0
+							]
+						},
+						{
+							"ID": 161,
+							"Type": "Variable.Get",
+							"Position": [
+								192.0,
+								0.0
+							],
+							"Settings": {
+								"Variable": 28
+							}
+						},
+						{
+							"ID": 162,
+							"Type": "Variable.Get",
+							"Position": [
+								0.0,
+								112.0
+							],
+							"Settings": {
+								"Variable": 2
+							}
+						},
+						{
+							"ID": 163,
+							"Type": "Variable.Get",
+							"Position": [
+								192.0,
+								64.0
+							],
+							"Settings": {
+								"Variable": 8,
+								"Graph": "12016132572530095741"
+							}
+						},
+						{
+							"ID": 164,
+							"Type": "Variable.Get",
+							"Position": [
+								192.0,
+								192.0
+							],
+							"Settings": {
+								"Variable": 9,
+								"Graph": "12016132572530095741"
+							}
+						},
+						{
+							"ID": 165,
+							"Type": "Expression",
+							"Position": [
+								416.0,
+								0.0
+							],
+							"Settings": {
+								"Formula": "!logged && lap == 1 && time >= 3.0"
+							}
+						},
+						{
+							"ID": 166,
+							"Type": "Flow.Branch",
+							"Position": [
+								624.0,
+								0.0
+							]
+						},
+						{
+							"ID": 167,
+							"Type": "Variable.Get",
+							"Position": [
+								192.0,
+								320.0
+							],
+							"Settings": {
+								"Variable": 4
+							}
+						},
+						{
+							"ID": 168,
+							"Type": "Get:Strada.UIRectComponent.Visible",
+							"Position": [
+								416.0,
+								176.0
+							]
+						},
+						{
+							"ID": 169,
+							"Type": "Variable.Get",
+							"Position": [
+								192.0,
+								384.0
+							],
+							"Settings": {
+								"Variable": 5
+							}
+						},
+						{
+							"ID": 170,
+							"Type": "Get:Strada.UITextComponent.Text",
+							"Position": [
+								416.0,
+								304.0
+							]
+						},
+						{
+							"ID": 171,
+							"Type": "Variable.Get",
+							"Position": [
+								416.0,
+								432.0
+							],
+							"Settings": {
+								"Variable": 18,
+								"Graph": "12016132572530095741"
+							}
+						},
+						{
+							"ID": 172,
+							"Type": "Variable.Get",
+							"Position": [
+								0.0,
+								176.0
+							],
+							"Settings": {
+								"Variable": 3
+							}
+						},
+						{
+							"ID": 173,
+							"Type": "Variable.Get",
+							"Position": [
+								416.0,
+								560.0
+							],
+							"Settings": {
+								"Variable": 15,
+								"Graph": "10119309049923292088"
+							}
+						},
+						{
+							"ID": 174,
+							"Type": "Variable.Get",
+							"Position": [
+								192.0,
+								448.0
+							],
+							"Settings": {
+								"Variable": 8,
+								"Graph": "10119309049923292088"
+							}
+						},
+						{
+							"ID": 175,
+							"Type": "Array.Length",
+							"Position": [
+								416.0,
+								688.0
+							]
+						},
+						{
+							"ID": 176,
+							"Type": "Variable.Get",
+							"Position": [
+								416.0,
+								816.0
+							],
+							"Settings": {
+								"Variable": 13,
+								"Graph": "10119309049923292088"
+							}
+						},
+						{
+							"ID": 177,
+							"Type": "FormatString",
+							"Position": [
+								624.0,
+								128.0
+							],
+							"Settings": {
+								"Format": "Moto's kept lap: loaded at start {Loaded} s, the ghost riding it {Rides} with {Samples} samples; {Time} s into lap 1 the ghost's Delta {Delta} s, the HUD's delta plate shown {Shown} reading '{Text}'"
+							}
+						},
+						{
+							"ID": 178,
+							"Type": "Call:Strada.Log.Info(string)",
+							"Position": [
+								848.0,
+								0.0
+							],
+							"Comment": "Read in a frame: the HUD updates in frames"
+						},
+						{
+							"ID": 179,
+							"Type": "Variable.Set",
+							"Position": [
+								1040.0,
+								0.0
+							],
+							"Settings": {
+								"Variable": 28
+							},
+							"Inputs": {
+								"Value": true
+							}
+						}
+					],
+					"Links": [
+						{
+							"From": [
+								162,
+								"Value"
+							],
+							"To": [
+								163,
+								"Target"
+							]
+						},
+						{
+							"From": [
+								162,
+								"Value"
+							],
+							"To": [
+								164,
+								"Target"
+							]
+						},
+						{
+							"From": [
+								161,
+								"Value"
+							],
+							"To": [
+								165,
+								"logged"
+							]
+						},
+						{
+							"From": [
+								163,
+								"Value"
+							],
+							"To": [
+								165,
+								"lap"
+							]
+						},
+						{
+							"From": [
+								164,
+								"Value"
+							],
+							"To": [
+								165,
+								"time"
+							]
+						},
+						{
+							"From": [
+								165,
+								"Result"
+							],
+							"To": [
+								166,
+								"Condition"
+							]
+						},
+						{
+							"From": [
+								167,
+								"Value"
+							],
+							"To": [
+								168,
+								"Target"
+							]
+						},
+						{
+							"From": [
+								169,
+								"Value"
+							],
+							"To": [
+								170,
+								"Target"
+							]
+						},
+						{
+							"From": [
+								162,
+								"Value"
+							],
+							"To": [
+								171,
+								"Target"
+							]
+						},
+						{
+							"From": [
+								172,
+								"Value"
+							],
+							"To": [
+								173,
+								"Target"
+							]
+						},
+						{
+							"From": [
+								172,
+								"Value"
+							],
+							"To": [
+								174,
+								"Target"
+							]
+						},
+						{
+							"From": [
+								174,
+								"Value"
+							],
+							"To": [
+								175,
+								"Array"
+							]
+						},
+						{
+							"From": [
+								172,
+								"Value"
+							],
+							"To": [
+								176,
+								"Target"
+							]
+						},
+						{
+							"From": [
+								171,
+								"Value"
+							],
+							"To": [
+								177,
+								"Loaded"
+							]
+						},
+						{
+							"From": [
+								173,
+								"Value"
+							],
+							"To": [
+								177,
+								"Rides"
+							]
+						},
+						{
+							"From": [
+								175,
+								"Length"
+							],
+							"To": [
+								177,
+								"Samples"
+							]
+						},
+						{
+							"From": [
+								164,
+								"Value"
+							],
+							"To": [
+								177,
+								"Time"
+							]
+						},
+						{
+							"From": [
+								176,
+								"Value"
+							],
+							"To": [
+								177,
+								"Delta"
+							]
+						},
+						{
+							"From": [
+								168,
+								"Value"
+							],
+							"To": [
+								177,
+								"Shown"
+							]
+						},
+						{
+							"From": [
+								170,
+								"Value"
+							],
+							"To": [
+								177,
+								"Text"
+							]
+						},
+						{
+							"From": [
+								177,
+								"Result"
+							],
+							"To": [
+								178,
+								"Message"
+							]
+						},
+						{
+							"From": [
+								36,
+								"Then"
+							],
+							"To": [
+								166,
+								"Execute"
+							]
+						},
+						{
+							"From": [
+								166,
+								"True"
+							],
+							"To": [
+								178,
+								"Execute"
+							]
+						},
+						{
+							"From": [
+								178,
+								"Then"
+							],
+							"To": [
+								179,
+								"Execute"
+							]
+						},
+						{
+							"From": [
+								179,
+								"Then"
+							],
+							"To": [
+								37,
+								"Execute"
+							]
+						},
+						{
+							"From": [
+								166,
+								"False"
+							],
+							"To": [
+								37,
+								"Execute"
+							]
+						}
+					],
+					"Comments": [
+						{
+							"ID": 180,
+							"Text": "Kept lap: what the ghost and the HUD show in lap 1",
+							"Position": [
+								-32.0,
+								-72.0
+							],
+							"Size": [
+								1448.0,
+								1002.0
+							],
+							"Color": [
+								0.20000000298023224,
+								0.41999998688697815,
+								0.949999988079071,
+								0.2199999988079071
+							]
+						}
+					]
+				}
+			},
+			{
+				"ID": 38,
+				"Name": "CheckTrialStart",
+				"Pure": false,
+				"Inputs": [],
+				"Outputs": [],
+				"Locals": [],
+				"Graph": {
+					"Nodes": [
+						{
+							"ID": 39,
+							"Type": "Function.Entry",
+							"Position": [
+								0.0,
+								256.0
+							]
+						},
+						{
+							"ID": 40,
+							"Type": "Function.Return",
+							"Position": [
+								912.0,
+								0.0
+							]
+						},
+						{
+							"ID": 181,
+							"Type": "Variable.Get",
+							"Position": [
+								0.0,
+								496.0
+							],
+							"Settings": {
+								"Variable": 27
+							}
+						},
+						{
+							"ID": 182,
+							"Type": "Variable.Get",
+							"Position": [
+								0.0,
+								0.0
+							],
+							"Settings": {
+								"Variable": 18
+							}
+						},
+						{
+							"ID": 183,
+							"Type": "Variable.Get",
+							"Position": [
+								0.0,
+								64.0
+							],
+							"Settings": {
+								"Variable": 17
+							}
+						},
+						{
+							"ID": 184,
+							"Type": "Variable.Get",
+							"Position": [
+								0.0,
+								128.0
+							],
+							"Settings": {
+								"Variable": 15
+							}
+						},
+						{
+							"ID": 185,
+							"Type": "Variable.Get",
+							"Position": [
+								0.0,
+								192.0
+							],
+							"Settings": {
+								"Variable": 16
+							}
+						},
+						{
+							"ID": 186,
+							"Type": "Expression",
+							"Position": [
+								192.0,
+								0.0
+							],
+							"Settings": {
+								"Formula": "returns == 1 && count >= 180 && count <= 181 && throttle == 0 && gear == 0"
+							}
+						},
+						{
+							"ID": 187,
+							"Type": "Operator.And",
+							"Position": [
+								400.0,
+								0.0
+							]
+						},
+						{
+							"ID": 188,
+							"Type": "FormatString",
+							"Position": [
+								400.0,
+								80.0
+							],
+							"Settings": {
+								"Format": "started {Count} steps after StartRace (the countdown's 180) with {Returns} returns; the vehicle applied at most {Throttle} of the throttle and gear {Gear} through the countdown"
+							}
+						},
+						{
+							"ID": 189,
+							"Type": "Get:Strada.Time.Elapsed",
+							"Position": [
+								0.0,
+								368.0
+							]
+						},
+						{
+							"ID": 190,
+							"Type": "Variable.Set",
+							"Position": [
+								192.0,
+								192.0
+							],
+							"Settings": {
+								"Variable": 6
+							}
+						},
+						{
+							"ID": 191,
+							"Type": "Variable.Get",
+							"Position": [
+								0.0,
+								560.0
+							],
+							"Settings": {
+								"Variable": 6
+							}
+						},
+						{
+							"ID": 192,
+							"Type": "Expression",
+							"Position": [
+								192.0,
+								320.0
+							],
+							"Settings": {
+								"Formula": "done || now - start > 220"
+							}
+						},
+						{
+							"ID": 193,
+							"Type": "Flow.WaitUntil",
+							"Position": [
+								400.0,
+								256.0
+							]
+						},
+						{
+							"ID": 194,
+							"Type": "Function.Call",
+							"Position": [
+								640.0,
+								0.0
+							],
+							"Settings": {
+								"Graph": "11160837631458717455",
+								"Function": 1
+							},
+							"Inputs": {
+								"Name": "Moto: the race begins on the grid: the bike put back once and held through the countdown while the autopilot asks"
+							}
+						}
+					],
+					"Links": [
+						{
+							"From": [
+								182,
+								"Value"
+							],
+							"To": [
+								186,
+								"returns"
+							]
+						},
+						{
+							"From": [
+								183,
+								"Value"
+							],
+							"To": [
+								186,
+								"count"
+							]
+						},
+						{
+							"From": [
+								184,
+								"Value"
+							],
+							"To": [
+								186,
+								"throttle"
+							]
+						},
+						{
+							"From": [
+								185,
+								"Value"
+							],
+							"To": [
+								186,
+								"gear"
+							]
+						},
+						{
+							"From": [
+								181,
+								"Value"
+							],
+							"To": [
+								187,
+								"A"
+							]
+						},
+						{
+							"From": [
+								186,
+								"Result"
+							],
+							"To": [
+								187,
+								"B"
+							]
+						},
+						{
+							"From": [
+								183,
+								"Value"
+							],
+							"To": [
+								188,
+								"Count"
+							]
+						},
+						{
+							"From": [
+								182,
+								"Value"
+							],
+							"To": [
+								188,
+								"Returns"
+							]
+						},
+						{
+							"From": [
+								184,
+								"Value"
+							],
+							"To": [
+								188,
+								"Throttle"
+							]
+						},
+						{
+							"From": [
+								185,
+								"Value"
+							],
+							"To": [
+								188,
+								"Gear"
+							]
+						},
+						{
+							"From": [
+								189,
+								"Value"
+							],
+							"To": [
+								190,
+								"Value"
+							]
+						},
+						{
+							"From": [
+								189,
+								"Value"
+							],
+							"To": [
+								192,
+								"now"
+							]
+						},
+						{
+							"From": [
+								191,
+								"Value"
+							],
+							"To": [
+								192,
+								"start"
+							]
+						},
+						{
+							"From": [
+								181,
+								"Value"
+							],
+							"To": [
+								192,
+								"done"
+							]
+						},
+						{
+							"From": [
+								192,
+								"Result"
+							],
+							"To": [
+								193,
+								"Condition"
+							]
+						},
+						{
+							"From": [
+								190,
+								"Then"
+							],
+							"To": [
+								193,
+								"Execute"
+							]
+						},
+						{
+							"From": [
+								187,
+								"Result"
+							],
+							"To": [
+								194,
+								"Passed"
+							]
+						},
+						{
+							"From": [
+								188,
+								"Result"
+							],
+							"To": [
+								194,
+								"Detail"
+							]
+						},
+						{
+							"From": [
+								193,
+								"Completed"
+							],
+							"To": [
+								194,
+								"Execute"
+							]
+						},
+						{
+							"From": [
+								39,
+								"Then"
+							],
+							"To": [
+								190,
+								"Execute"
+							]
+						},
+						{
+							"From": [
+								194,
+								"Then"
+							],
+							"To": [
+								40,
+								"Execute"
+							]
+						}
+					],
+					"Comments": [
+						{
+							"ID": 195,
+							"Text": "Start: the race begins on the grid, held through the countdown",
+							"Position": [
+								-32.0,
+								-72.0
+							],
+							"Size": [
+								1096.0,
+								692.0
+							],
+							"Color": [
+								0.44999998807907104,
+								0.6000000238418579,
+								0.699999988079071,
+								0.2199999988079071
+							]
+						}
+					]
+				}
+			},
+			{
+				"ID": 41,
+				"Name": "CheckTrialLaps",
+				"Pure": false,
+				"Inputs": [],
+				"Outputs": [],
+				"Locals": [],
+				"Graph": {
+					"Nodes": [
+						{
+							"ID": 42,
+							"Type": "Function.Entry",
+							"Position": [
+								0.0,
+								128.0
+							]
+						},
+						{
+							"ID": 43,
+							"Type": "Function.Return",
+							"Position": [
+								1168.0,
+								0.0
+							]
+						},
+						{
+							"ID": 196,
+							"Type": "Variable.Get",
+							"Position": [
+								0.0,
+								368.0
+							],
+							"Settings": {
+								"Variable": 27
+							}
+						},
+						{
+							"ID": 197,
+							"Type": "Variable.Get",
+							"Position": [
+								0.0,
+								0.0
+							],
+							"Settings": {
+								"Variable": 13
+							}
+						},
+						{
+							"ID": 198,
+							"Type": "Array.Get",
+							"Position": [
+								192.0,
+								0.0
+							],
+							"Inputs": {
+								"Index": 0
+							}
+						},
+						{
+							"ID": 199,
+							"Type": "Array.Get",
+							"Position": [
+								192.0,
+								144.0
+							],
+							"Inputs": {
+								"Index": 1
+							}
+						},
+						{
+							"ID": 200,
+							"Type": "Array.Length",
+							"Position": [
+								192.0,
+								288.0
+							]
+						},
+						{
+							"ID": 201,
+							"Type": "Variable.Get",
+							"Position": [
+								0.0,
+								64.0
+							],
+							"Settings": {
+								"Variable": 12
+							}
+						},
+						{
+							"ID": 202,
+							"Type": "Array.Length",
+							"Position": [
+								192.0,
+								416.0
+							]
+						},
+						{
+							"ID": 203,
+							"Type": "Array.Get",
+							"Position": [
+								192.0,
+								544.0
+							],
+							"Inputs": {
+								"Index": 0
+							}
+						},
+						{
+							"ID": 204,
+							"Type": "Array.Get",
+							"Position": [
+								192.0,
+								688.0
+							],
+							"Inputs": {
+								"Index": 1
+							}
+						},
+						{
+							"ID": 205,
+							"Type": "Variable.Get",
+							"Position": [
+								192.0,
+								832.0
+							],
+							"Settings": {
+								"Variable": 19
+							}
+						},
+						{
+							"ID": 206,
+							"Type": "Expression",
+							"Position": [
+								464.0,
+								0.0
+							],
+							"Settings": {
+								"Formula": "count == 2 && own >= 2 && abs(first - own1) <= 0.0333 && abs(second - own2) <= 0.0333 && first >= 71.11 && first <= 88.89 && second >= 71.11 && second <= 88.89 && abs(race - first - second) <= 0.001"
+							}
+						},
+						{
+							"ID": 207,
+							"Type": "Operator.And",
+							"Position": [
+								704.0,
+								0.0
+							]
+						},
+						{
+							"ID": 208,
+							"Type": "FormatString",
+							"Position": [
+								704.0,
+								80.0
+							],
+							"Settings": {
+								"Format": "the director timed laps of {Laps} s (in 71.11 to 88.89), the steps between the crossings {Own} s (within 0.0333 s), the race {Race} s"
+							}
+						},
+						{
+							"ID": 209,
+							"Type": "Get:Strada.Time.Elapsed",
+							"Position": [
+								0.0,
+								240.0
+							]
+						},
+						{
+							"ID": 210,
+							"Type": "Variable.Set",
+							"Position": [
+								192.0,
+								896.0
+							],
+							"Settings": {
+								"Variable": 6
+							}
+						},
+						{
+							"ID": 211,
+							"Type": "Variable.Get",
+							"Position": [
+								0.0,
+								432.0
+							],
+							"Settings": {
+								"Variable": 6
+							}
+						},
+						{
+							"ID": 212,
+							"Type": "Expression",
+							"Position": [
+								192.0,
+								1024.0
+							],
+							"Settings": {
+								"Formula": "done || now - start > 220"
+							}
+						},
+						{
+							"ID": 213,
+							"Type": "Flow.WaitUntil",
+							"Position": [
+								464.0,
+								272.0
+							]
+						},
+						{
+							"ID": 214,
+							"Type": "Function.Call",
+							"Position": [
+								896.0,
+								0.0
+							],
+							"Settings": {
+								"Graph": "11160837631458717455",
+								"Function": 1
+							},
+							"Inputs": {
+								"Name": "Moto: the director times the race's 2 laps at the gates as the bike's crossings of the line do"
+							}
+						}
+					],
+					"Links": [
+						{
+							"From": [
+								197,
+								"Value"
+							],
+							"To": [
+								198,
+								"Array"
+							]
+						},
+						{
+							"From": [
+								197,
+								"Value"
+							],
+							"To": [
+								199,
+								"Array"
+							]
+						},
+						{
+							"From": [
+								197,
+								"Value"
+							],
+							"To": [
+								200,
+								"Array"
+							]
+						},
+						{
+							"From": [
+								201,
+								"Value"
+							],
+							"To": [
+								202,
+								"Array"
+							]
+						},
+						{
+							"From": [
+								201,
+								"Value"
+							],
+							"To": [
+								203,
+								"Array"
+							]
+						},
+						{
+							"From": [
+								201,
+								"Value"
+							],
+							"To": [
+								204,
+								"Array"
+							]
+						},
+						{
+							"From": [
+								200,
+								"Length"
+							],
+							"To": [
+								206,
+								"count"
+							]
+						},
+						{
+							"From": [
+								202,
+								"Length"
+							],
+							"To": [
+								206,
+								"own"
+							]
+						},
+						{
+							"From": [
+								198,
+								"Element"
+							],
+							"To": [
+								206,
+								"first"
+							]
+						},
+						{
+							"From": [
+								199,
+								"Element"
+							],
+							"To": [
+								206,
+								"second"
+							]
+						},
+						{
+							"From": [
+								203,
+								"Element"
+							],
+							"To": [
+								206,
+								"own1"
+							]
+						},
+						{
+							"From": [
+								204,
+								"Element"
+							],
+							"To": [
+								206,
+								"own2"
+							]
+						},
+						{
+							"From": [
+								205,
+								"Value"
+							],
+							"To": [
+								206,
+								"race"
+							]
+						},
+						{
+							"From": [
+								196,
+								"Value"
+							],
+							"To": [
+								207,
+								"A"
+							]
+						},
+						{
+							"From": [
+								206,
+								"Result"
+							],
+							"To": [
+								207,
+								"B"
+							]
+						},
+						{
+							"From": [
+								197,
+								"Value"
+							],
+							"To": [
+								208,
+								"Laps"
+							]
+						},
+						{
+							"From": [
+								201,
+								"Value"
+							],
+							"To": [
+								208,
+								"Own"
+							]
+						},
+						{
+							"From": [
+								205,
+								"Value"
+							],
+							"To": [
+								208,
+								"Race"
+							]
+						},
+						{
+							"From": [
+								209,
+								"Value"
+							],
+							"To": [
+								210,
+								"Value"
+							]
+						},
+						{
+							"From": [
+								209,
+								"Value"
+							],
+							"To": [
+								212,
+								"now"
+							]
+						},
+						{
+							"From": [
+								211,
+								"Value"
+							],
+							"To": [
+								212,
+								"start"
+							]
+						},
+						{
+							"From": [
+								196,
+								"Value"
+							],
+							"To": [
+								212,
+								"done"
+							]
+						},
+						{
+							"From": [
+								212,
+								"Result"
+							],
+							"To": [
+								213,
+								"Condition"
+							]
+						},
+						{
+							"From": [
+								210,
+								"Then"
+							],
+							"To": [
+								213,
+								"Execute"
+							]
+						},
+						{
+							"From": [
+								207,
+								"Result"
+							],
+							"To": [
+								214,
+								"Passed"
+							]
+						},
+						{
+							"From": [
+								208,
+								"Result"
+							],
+							"To": [
+								214,
+								"Detail"
+							]
+						},
+						{
+							"From": [
+								213,
+								"Completed"
+							],
+							"To": [
+								214,
+								"Execute"
+							]
+						},
+						{
+							"From": [
+								42,
+								"Then"
+							],
+							"To": [
+								210,
+								"Execute"
+							]
+						},
+						{
+							"From": [
+								214,
+								"Then"
+							],
+							"To": [
+								43,
+								"Execute"
+							]
+						}
+					],
+					"Comments": [
+						{
+							"ID": 215,
+							"Text": "Laps: the director's times, the race's and the steps between crossings",
+							"Position": [
+								-32.0,
+								-72.0
+							],
+							"Size": [
+								1352.0,
+								1258.0
+							],
+							"Color": [
+								0.44999998807907104,
+								0.6000000238418579,
+								0.699999988079071,
+								0.2199999988079071
+							]
+						}
+					]
+				}
+			},
+			{
+				"ID": 44,
+				"Name": "CheckTrialGhost",
+				"Pure": false,
+				"Inputs": [],
+				"Outputs": [],
+				"Locals": [],
+				"Graph": {
+					"Nodes": [
+						{
+							"ID": 45,
+							"Type": "Function.Entry",
+							"Position": [
+								0.0,
+								192.0
+							]
+						},
+						{
+							"ID": 46,
+							"Type": "Function.Return",
+							"Position": [
+								928.0,
+								0.0
+							]
+						},
+						{
+							"ID": 216,
+							"Type": "Variable.Get",
+							"Position": [
+								0.0,
+								432.0
+							],
+							"Settings": {
+								"Variable": 27
+							}
+						},
+						{
+							"ID": 217,
+							"Type": "Variable.Get",
+							"Position": [
+								0.0,
+								0.0
+							],
+							"Settings": {
+								"Variable": 21
+							}
+						},
+						{
+							"ID": 218,
+							"Type": "Variable.Get",
+							"Position": [
+								0.0,
+								64.0
+							],
+							"Settings": {
+								"Variable": 20
+							}
+						},
+						{
+							"ID": 219,
+							"Type": "Variable.Get",
+							"Position": [
+								0.0,
+								128.0
+							],
+							"Settings": {
+								"Variable": 22
+							}
+						},
+						{
+							"ID": 220,
+							"Type": "Expression",
+							"Position": [
+								208.0,
+								0.0
+							],
+							"Settings": {
+								"Formula": "abs(ghost - best) <= 0.0001 && abs(float(samples) - (floor(best * 10.0) + 1)) <= 1"
+							}
+						},
+						{
+							"ID": 221,
+							"Type": "Operator.And",
+							"Position": [
+								416.0,
+								0.0
+							]
+						},
+						{
+							"ID": 222,
+							"Type": "FormatString",
+							"Position": [
+								416.0,
+								80.0
+							],
+							"Settings": {
+								"Format": "the race's best lap {Best} s, the ghost's {Ghost} s of {Samples} samples (10 a second, one either way)"
+							}
+						},
+						{
+							"ID": 223,
+							"Type": "Get:Strada.Time.Elapsed",
+							"Position": [
+								0.0,
+								304.0
+							]
+						},
+						{
+							"ID": 224,
+							"Type": "Variable.Set",
+							"Position": [
+								208.0,
+								176.0
+							],
+							"Settings": {
+								"Variable": 6
+							}
+						},
+						{
+							"ID": 225,
+							"Type": "Variable.Get",
+							"Position": [
+								0.0,
+								496.0
+							],
+							"Settings": {
+								"Variable": 6
+							}
+						},
+						{
+							"ID": 226,
+							"Type": "Expression",
+							"Position": [
+								208.0,
+								304.0
+							],
+							"Settings": {
+								"Formula": "done || now - start > 220"
+							}
+						},
+						{
+							"ID": 227,
+							"Type": "Flow.WaitUntil",
+							"Position": [
+								416.0,
+								240.0
+							]
+						},
+						{
+							"ID": 228,
+							"Type": "Function.Call",
+							"Position": [
+								656.0,
+								0.0
+							],
+							"Settings": {
+								"Graph": "11160837631458717455",
+								"Function": 1
+							},
+							"Inputs": {
+								"Name": "Moto: the ghost records the race's best lap at the director's lap events"
+							}
+						}
+					],
+					"Links": [
+						{
+							"From": [
+								217,
+								"Value"
+							],
+							"To": [
+								220,
+								"ghost"
+							]
+						},
+						{
+							"From": [
+								218,
+								"Value"
+							],
+							"To": [
+								220,
+								"best"
+							]
+						},
+						{
+							"From": [
+								219,
+								"Value"
+							],
+							"To": [
+								220,
+								"samples"
+							]
+						},
+						{
+							"From": [
+								216,
+								"Value"
+							],
+							"To": [
+								221,
+								"A"
+							]
+						},
+						{
+							"From": [
+								220,
+								"Result"
+							],
+							"To": [
+								221,
+								"B"
+							]
+						},
+						{
+							"From": [
+								218,
+								"Value"
+							],
+							"To": [
+								222,
+								"Best"
+							]
+						},
+						{
+							"From": [
+								217,
+								"Value"
+							],
+							"To": [
+								222,
+								"Ghost"
+							]
+						},
+						{
+							"From": [
+								219,
+								"Value"
+							],
+							"To": [
+								222,
+								"Samples"
+							]
+						},
+						{
+							"From": [
+								223,
+								"Value"
+							],
+							"To": [
+								224,
+								"Value"
+							]
+						},
+						{
+							"From": [
+								223,
+								"Value"
+							],
+							"To": [
+								226,
+								"now"
+							]
+						},
+						{
+							"From": [
+								225,
+								"Value"
+							],
+							"To": [
+								226,
+								"start"
+							]
+						},
+						{
+							"From": [
+								216,
+								"Value"
+							],
+							"To": [
+								226,
+								"done"
+							]
+						},
+						{
+							"From": [
+								226,
+								"Result"
+							],
+							"To": [
+								227,
+								"Condition"
+							]
+						},
+						{
+							"From": [
+								224,
+								"Then"
+							],
+							"To": [
+								227,
+								"Execute"
+							]
+						},
+						{
+							"From": [
+								221,
+								"Result"
+							],
+							"To": [
+								228,
+								"Passed"
+							]
+						},
+						{
+							"From": [
+								222,
+								"Result"
+							],
+							"To": [
+								228,
+								"Detail"
+							]
+						},
+						{
+							"From": [
+								227,
+								"Completed"
+							],
+							"To": [
+								228,
+								"Execute"
+							]
+						},
+						{
+							"From": [
+								45,
+								"Then"
+							],
+							"To": [
+								224,
+								"Execute"
+							]
+						},
+						{
+							"From": [
+								228,
+								"Then"
+							],
+							"To": [
+								46,
+								"Execute"
+							]
+						}
+					],
+					"Comments": [
+						{
+							"ID": 229,
+							"Text": "Ghost: the race's best lap recorded, its samples",
+							"Position": [
+								-32.0,
+								-72.0
+							],
+							"Size": [
+								1112.0,
+								628.0
+							],
+							"Color": [
+								0.44999998807907104,
+								0.6000000238418579,
+								0.699999988079071,
+								0.2199999988079071
+							]
+						}
+					]
+				}
+			},
+			{
+				"ID": 47,
+				"Name": "CheckTrialSlot",
+				"Pure": false,
+				"Inputs": [],
+				"Outputs": [],
+				"Locals": [],
+				"Graph": {
+					"Nodes": [
+						{
+							"ID": 48,
+							"Type": "Function.Entry",
+							"Position": [
+								0.0,
+								320.0
+							]
+						},
+						{
+							"ID": 49,
+							"Type": "Function.Return",
+							"Position": [
+								928.0,
+								0.0
+							]
+						},
+						{
+							"ID": 230,
+							"Type": "Variable.Get",
+							"Position": [
+								0.0,
+								560.0
+							],
+							"Settings": {
+								"Variable": 27
+							}
+						},
+						{
+							"ID": 231,
+							"Type": "Variable.Get",
+							"Position": [
+								0.0,
+								0.0
+							],
+							"Settings": {
+								"Variable": 23
+							}
+						},
+						{
+							"ID": 232,
+							"Type": "Variable.Get",
+							"Position": [
+								0.0,
+								64.0
+							],
+							"Settings": {
+								"Variable": 24
+							}
+						},
+						{
+							"ID": 233,
+							"Type": "Variable.Get",
+							"Position": [
+								0.0,
+								128.0
+							],
+							"Settings": {
+								"Variable": 20
+							}
+						},
+						{
+							"ID": 234,
+							"Type": "Variable.Get",
+							"Position": [
+								0.0,
+								192.0
+							],
+							"Settings": {
+								"Variable": 25
+							}
+						},
+						{
+							"ID": 235,
+							"Type": "Variable.Get",
+							"Position": [
+								0.0,
+								256.0
+							],
+							"Settings": {
+								"Variable": 22
+							}
+						},
+						{
+							"ID": 236,
+							"Type": "Expression",
+							"Position": [
+								208.0,
+								0.0
+							],
+							"Settings": {
+								"Formula": "saves == 1 && abs(slot - best) <= 0.0001 && samples == ghost && ghost > 0"
+							}
+						},
+						{
+							"ID": 237,
+							"Type": "Operator.And",
+							"Position": [
+								416.0,
+								0.0
+							]
+						},
+						{
+							"ID": 238,
+							"Type": "FormatString",
+							"Position": [
+								416.0,
+								80.0
+							],
+							"Settings": {
+								"Format": "saved {Saves} times: the slot keeps {Slot} s with {Samples} samples, the ghost's {Ghost}"
+							}
+						},
+						{
+							"ID": 239,
+							"Type": "Get:Strada.Time.Elapsed",
+							"Position": [
+								0.0,
+								432.0
+							]
+						},
+						{
+							"ID": 240,
+							"Type": "Variable.Set",
+							"Position": [
+								208.0,
+								224.0
+							],
+							"Settings": {
+								"Variable": 6
+							}
+						},
+						{
+							"ID": 241,
+							"Type": "Variable.Get",
+							"Position": [
+								0.0,
+								624.0
+							],
+							"Settings": {
+								"Variable": 6
+							}
+						},
+						{
+							"ID": 242,
+							"Type": "Expression",
+							"Position": [
+								208.0,
+								352.0
+							],
+							"Settings": {
+								"Formula": "done || now - start > 220"
+							}
+						},
+						{
+							"ID": 243,
+							"Type": "Flow.WaitUntil",
+							"Position": [
+								416.0,
+								256.0
+							]
+						},
+						{
+							"ID": 244,
+							"Type": "Function.Call",
+							"Position": [
+								656.0,
+								0.0
+							],
+							"Settings": {
+								"Graph": "11160837631458717455",
+								"Function": 1
+							},
+							"Inputs": {
+								"Name": "Moto: the director saves the best lap in the slot with the ghost's samples once the results show"
+							}
+						}
+					],
+					"Links": [
+						{
+							"From": [
+								231,
+								"Value"
+							],
+							"To": [
+								236,
+								"saves"
+							]
+						},
+						{
+							"From": [
+								232,
+								"Value"
+							],
+							"To": [
+								236,
+								"slot"
+							]
+						},
+						{
+							"From": [
+								233,
+								"Value"
+							],
+							"To": [
+								236,
+								"best"
+							]
+						},
+						{
+							"From": [
+								234,
+								"Value"
+							],
+							"To": [
+								236,
+								"samples"
+							]
+						},
+						{
+							"From": [
+								235,
+								"Value"
+							],
+							"To": [
+								236,
+								"ghost"
+							]
+						},
+						{
+							"From": [
+								230,
+								"Value"
+							],
+							"To": [
+								237,
+								"A"
+							]
+						},
+						{
+							"From": [
+								236,
+								"Result"
+							],
+							"To": [
+								237,
+								"B"
+							]
+						},
+						{
+							"From": [
+								231,
+								"Value"
+							],
+							"To": [
+								238,
+								"Saves"
+							]
+						},
+						{
+							"From": [
+								232,
+								"Value"
+							],
+							"To": [
+								238,
+								"Slot"
+							]
+						},
+						{
+							"From": [
+								234,
+								"Value"
+							],
+							"To": [
+								238,
+								"Samples"
+							]
+						},
+						{
+							"From": [
+								235,
+								"Value"
+							],
+							"To": [
+								238,
+								"Ghost"
+							]
+						},
+						{
+							"From": [
+								239,
+								"Value"
+							],
+							"To": [
+								240,
+								"Value"
+							]
+						},
+						{
+							"From": [
+								239,
+								"Value"
+							],
+							"To": [
+								242,
+								"now"
+							]
+						},
+						{
+							"From": [
+								241,
+								"Value"
+							],
+							"To": [
+								242,
+								"start"
+							]
+						},
+						{
+							"From": [
+								230,
+								"Value"
+							],
+							"To": [
+								242,
+								"done"
+							]
+						},
+						{
+							"From": [
+								242,
+								"Result"
+							],
+							"To": [
+								243,
+								"Condition"
+							]
+						},
+						{
+							"From": [
+								240,
+								"Then"
+							],
+							"To": [
+								243,
+								"Execute"
+							]
+						},
+						{
+							"From": [
+								237,
+								"Result"
+							],
+							"To": [
+								244,
+								"Passed"
+							]
+						},
+						{
+							"From": [
+								238,
+								"Result"
+							],
+							"To": [
+								244,
+								"Detail"
+							]
+						},
+						{
+							"From": [
+								243,
+								"Completed"
+							],
+							"To": [
+								244,
+								"Execute"
+							]
+						},
+						{
+							"From": [
+								48,
+								"Then"
+							],
+							"To": [
+								240,
+								"Execute"
+							]
+						},
+						{
+							"From": [
+								244,
+								"Then"
+							],
+							"To": [
+								49,
+								"Execute"
+							]
+						}
+					],
+					"Comments": [
+						{
+							"ID": 245,
+							"Text": "Slot: the best lap saved with the ghost's samples",
+							"Position": [
+								-32.0,
+								-72.0
+							],
+							"Size": [
+								1112.0,
+								756.0
+							],
+							"Color": [
+								0.44999998807907104,
+								0.6000000238418579,
+								0.699999988079071,
+								0.2199999988079071
+							]
+						}
+					]
+				}
+			}
+		],
+		"Graph": {
+			"Nodes": [
+				{
+					"ID": 246,
+					"Type": "Event.Create",
+					"Position": [
+						0.0,
+						0.0
+					]
+				},
+				{
+					"ID": 247,
+					"Type": "Flow.WaitFrames",
+					"Position": [
+						192.0,
+						0.0
+					],
+					"Inputs": {
+						"Frames": 1
+					},
+					"Comment": "Every entity has run its Create first"
+				},
+				{
+					"ID": 248,
+					"Type": "Flow.Sequence",
+					"Position": [
+						496.0,
+						0.0
+					],
+					"Settings": {
+						"Count": 5
+					}
+				},
+				{
+					"ID": 249,
+					"Type": "Function.Call",
+					"Position": [
+						688.0,
+						0.0
+					],
+					"Settings": {
+						"Function": 38
+					}
+				},
+				{
+					"ID": 250,
+					"Type": "Function.Call",
+					"Position": [
+						688.0,
+						112.0
+					],
+					"Settings": {
+						"Function": 41
+					}
+				},
+				{
+					"ID": 251,
+					"Type": "Function.Call",
+					"Position": [
+						688.0,
+						224.0
+					],
+					"Settings": {
+						"Function": 44
+					}
+				},
+				{
+					"ID": 252,
+					"Type": "Function.Call",
+					"Position": [
+						688.0,
+						336.0
+					],
+					"Settings": {
+						"Function": 47
+					}
+				},
+				{
+					"ID": 253,
+					"Type": "Call:Strada.Testing.TestReporter.Finish()",
+					"Position": [
+						688.0,
+						448.0
+					]
+				},
+				{
+					"ID": 255,
+					"Type": "Flow.Sequence",
+					"Position": [
+						192.0,
+						672.0
+					],
+					"Settings": {
+						"Count": 2
+					}
+				},
+				{
+					"ID": 256,
+					"Type": "Event.FixedUpdate",
+					"Position": [
+						0.0,
+						672.0
+					]
+				},
+				{
+					"ID": 257,
+					"Type": "Function.Call",
+					"Position": [
+						384.0,
+						672.0
+					],
+					"Settings": {
+						"Function": 29
+					}
+				},
+				{
+					"ID": 258,
+					"Type": "Function.Call",
+					"Position": [
+						384.0,
+						784.0
+					],
+					"Settings": {
+						"Function": 32
+					}
+				},
+				{
+					"ID": 260,
+					"Type": "Event.Update",
+					"Position": [
+						0.0,
+						992.0
+					]
+				},
+				{
+					"ID": 261,
+					"Type": "Function.Call",
+					"Position": [
+						192.0,
+						992.0
+					],
+					"Settings": {
+						"Function": 35
+					}
+				}
+			],
+			"Links": [
+				{
+					"From": [
+						246,
+						"Then"
+					],
+					"To": [
+						247,
+						"Execute"
+					]
+				},
+				{
+					"From": [
+						247,
+						"Completed"
+					],
+					"To": [
+						248,
+						"Execute"
+					]
+				},
+				{
+					"From": [
+						248,
+						"Then0"
+					],
+					"To": [
+						249,
+						"Execute"
+					]
+				},
+				{
+					"From": [
+						248,
+						"Then1"
+					],
+					"To": [
+						250,
+						"Execute"
+					]
+				},
+				{
+					"From": [
+						248,
+						"Then2"
+					],
+					"To": [
+						251,
+						"Execute"
+					]
+				},
+				{
+					"From": [
+						248,
+						"Then3"
+					],
+					"To": [
+						252,
+						"Execute"
+					]
+				},
+				{
+					"From": [
+						248,
+						"Then4"
+					],
+					"To": [
+						253,
+						"Execute"
+					]
+				},
+				{
+					"From": [
+						256,
+						"Then"
+					],
+					"To": [
+						255,
+						"Execute"
+					]
+				},
+				{
+					"From": [
+						255,
+						"Then0"
+					],
+					"To": [
+						257,
+						"Execute"
+					]
+				},
+				{
+					"From": [
+						255,
+						"Then1"
+					],
+					"To": [
+						258,
+						"Execute"
+					]
+				},
+				{
+					"From": [
+						260,
+						"Then"
+					],
+					"To": [
+						261,
+						"Execute"
+					]
+				}
+			],
+			"Comments": [
+				{
+					"ID": 254,
+					"Text": "Start: every check in turn, then the report",
+					"Position": [
+						-32.0,
+						-72.0
+					],
+					"Size": [
+						905.4000244140625,
+						634.0
+					],
+					"Color": [
+						0.44999998807907104,
+						0.6000000238418579,
+						0.699999988079071,
+						0.2199999988079071
+					]
+				},
+				{
+					"ID": 259,
+					"Text": "Fixed steps: each module's ride, in turn, every fixed step",
+					"Position": [
+						-32.0,
+						600.0
+					],
+					"Size": [
+						568.0,
+						282.0
+					],
+					"Color": [
+						0.20000000298023224,
+						0.41999998688697815,
+						0.949999988079071,
+						0.2199999988079071
+					]
+				},
+				{
+					"ID": 262,
+					"Text": "Frames: each module's readings, in turn, every frame",
+					"Position": [
+						-32.0,
+						920.0
+					],
+					"Size": [
+						376.0,
+						194.0
+					],
+					"Color": [
+						0.20000000298023224,
+						0.41999998688697815,
+						0.949999988079071,
+						0.2199999988079071
+					]
+				}
+			]
+		}
+	}
+}

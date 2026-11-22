@@ -46,8 +46,9 @@ using namespace Strada;
 // The Moto sample in the editor, played as M1 shows it (Docs/Architecture.md section 15, "The race"): a conditional
 // breakpoint on its race director stepped into the HUD across a broadcast, the race's telemetry marks recorded at three
 // frame rates, its menus driven by an injected gamepad, the mouse and the keyboard, their settings and bindings kept for
-// the next play, the HUD's shift light following a live edit of the bike's definition, and the camera director following
-// the race director from the title's attract mode to the race's chase view.
+// the next play, the HUD's shift light following a live edit of the bike's definition, the camera director following the
+// race director from the title's attract mode to the race's chase view, and every race starting from the grid, the bike held
+// there through the countdown.
 
 namespace
 {
@@ -189,6 +190,14 @@ namespace
 			VisualScriptComponent script = found.GetComponent<VisualScriptComponent>();
 			script.Variables[name] = std::move(value);
 			REQUIRE(m_Operations.SetComponent(found.GetUUID(), script).IsOk());
+		}
+
+		// Sets a public variable of the graph an entity runs, in its running instance (as a graph's Set of it does).
+		void SetInstanceVariable(std::string_view entity, std::string const& name, ScriptFieldValue value)
+		{
+			ScriptFieldMap const variables = {{name, std::move(value)}};
+			Result<void> const set = VisualScriptEngine::SetInstanceVariables(Find(entity).GetUUID(), variables);
+			REQUIRE_MESSAGE(set.IsOk(), (set ? std::string() : set.GetError()));
 		}
 
 		std::string GetText(std::string_view element) { return Find(element).GetComponent<UITextComponent>().Text; }
@@ -603,5 +612,140 @@ TEST_CASE("MotoPlay: the race director's AttractStarted puts the camera director
 	CHECK(moto.ReadOut("Trackside", "Active").GetInt32() == 8);
 	CHECK(shows("Chase Camera"));
 	CHECK_FALSE(shows("Main Camera"));
+	moto.Stop();
+}
+
+TEST_CASE("MotoPlay: the title's RACE holds the bike on the grid through the countdown with the throttle held open and lets it go "
+          "at the signal, and RACE AGAIN from the results puts the bike back on the grid")
+{
+	// The main scene as the game opens it, the player holding the throttle (Key/W) open from the title on. Enter presses
+	// RACE: the race director (Tools/Race.py) puts its subject, the bike, on the grid and resets it as the countdown begins,
+	// and asks the riding graph (Tools/Vehicle.py) at each step of the countdown to hold the bike (its Held), which gives the
+	// vehicle no throttle, both brakes and no shift whatever the player asks. The countdown is 1 s here (the game's is 3 s), to keep the
+	// case short.
+	MotoPlay moto;
+	moto.SetVariable("Race", "Countdown", ScriptFieldValue::FromFloat(1.0f));
+	glm::vec3 const grid = moto.Find("Bike").GetComponent<TransformComponent>().Translation;
+	moto.Start();
+	moto.Advance(3);
+	REQUIRE(moto.ReadOut("Race", "State").GetString() == "Title");
+	auto const vehicle = [&moto]
+	{
+		Json const vehicles = moto.Ok("vehicle.state")["vehicles"];
+		REQUIRE(vehicles.size() == 1);
+		return vehicles[0];
+	};
+	auto const fromGrid = [&moto, grid]
+	{
+		return glm::distance(moto.Find("Bike").GetComponent<TransformComponent>().Translation, grid);
+	};
+	// Each frame of a countdown after the return (its first two frames: the director's step and the riding graph's), what the
+	// vehicle applied, its gear and how far it stands from the grid; and the engine at the countdown's last frame.
+	struct Countdown
+	{
+		int32_t Frames = 0;
+		float Throttle = 0.0f;
+		int32_t Gear = 0;
+		float Moved = 0.0f;
+		float Engine = 0.0f;
+		bool Held = true;
+	};
+	auto const countDown = [&moto, &vehicle, &fromGrid]
+	{
+		Countdown countdown;
+		while (countdown.Frames < 240 && moto.ReadOut("Race", "State").GetString() == "Countdown")
+		{
+			if (countdown.Frames >= 2)
+			{
+				Json const state = vehicle();
+				countdown.Throttle = std::max(countdown.Throttle, state["applied"]["throttle"].get<float>());
+				countdown.Gear = std::max(countdown.Gear, state["gear"].get<int32_t>());
+				countdown.Moved = std::max(countdown.Moved, fromGrid());
+				countdown.Engine = state["engineSpeed"].get<float>();
+				countdown.Held = countdown.Held && moto.ReadOut("Bike", "Held").GetBool();
+			}
+			moto.Advance(1);
+			countdown.Frames++;
+		}
+		return countdown;
+	};
+
+	moto.Give(Json::object({{"keys", Json::object({{"W", true}})}}));
+	moto.Advance(1);
+	moto.Press("Enter");
+	REQUIRE(moto.ReadOut("Race", "State").GetString() == "Countdown");
+	Countdown const first = countDown();
+	REQUIRE(moto.ReadOut("Race", "State").GetString() == "Racing");
+	// The countdown is 1 s of fixed steps, 60 frames at 1/60 s (two of them run before Press returns), with a frame of room
+	// either way.
+	CHECK(first.Frames >= 57);
+	CHECK(first.Frames <= 61);
+	CHECK(first.Held);
+	CHECK(first.Throttle == 0.0f);
+	CHECK(first.Gear == 0);
+	CHECK(first.Moved < 0.03f);
+	CHECK(first.Engine <= 1.01f * 1700.0f);
+	// At the signal the held throttle reaches the vehicle: the automatic shift takes first gear and the bike rides off.
+	moto.Advance(60);
+	CHECK_FALSE(moto.ReadOut("Bike", "Held").GetBool());
+	Json const launched = vehicle();
+	CHECK(launched["gear"].get<int32_t>() >= 1);
+	CHECK(launched["forwardSpeed"].get<float>() > 5.0f);
+	CHECK(fromGrid() > 3.0f);
+
+	// The results, while the bike rides on at speed. Racing three laps to them is the start test scene's and the trial test
+	// scene's (StradaRuntimeTests, Tools/StartChecks.py and Tools/TrialChecks.py); here the director's State is set to
+	// Results, the read-out the menus show the results screen by, and the results' RACE AGAIN is clicked as a player does.
+	moto.SetInstanceVariable("Race", "State", ScriptFieldValue::FromString("Results"));
+	moto.Advance(2);
+	REQUIRE(moto.ReadOut("Menus", "Screen").GetString() == "Results");
+	CHECK(moto.IsShown("Results Screen"));
+	float const away = fromGrid();
+	CAPTURE(away);
+	CHECK(away > 3.0f);
+	CHECK(vehicle()["forwardSpeed"].get<float>() > 5.0f);
+	// The HUD as a raced lap leaves it, which the State set above skips: the lap's sectors and a delta on its plate, put
+	// there as the HUD's own graph shows them. A countdown clears them as it begins, so a second race never shows the last.
+	moto.Find("Sectors Text").GetComponent<UITextComponent>().Text = "S1 0:21.250";
+	moto.Find("Delta Text").GetComponent<UITextComponent>().Text = "+0.480";
+	moto.Find("Delta Plate").GetComponent<UIRectComponent>().Visible = true;
+	moto.Click("Again Button");
+	REQUIRE(moto.ReadOut("Race", "State").GetString() == "Countdown");
+	CHECK(moto.ReadOut("Race", "Returns").GetInt32() == 2);
+	moto.Advance(1);
+	CHECK(moto.IsShown("Countdown Text"));
+	CHECK(moto.GetText("Sectors Text").empty());
+	CHECK(moto.GetText("Delta Text").empty());
+	CHECK_FALSE(moto.IsShown("Delta Plate"));
+	Countdown const again = countDown();
+	REQUIRE(moto.ReadOut("Race", "State").GetString() == "Racing");
+	CHECK(again.Frames >= 56);
+	CHECK(again.Frames <= 60);
+	CHECK(again.Held);
+	CHECK(again.Throttle == 0.0f);
+	CHECK(again.Gear == 0);
+	CHECK(again.Moved < 0.03f);
+	CHECK(again.Engine <= 1.01f * 1700.0f);
+	// At the second signal the camera director cuts to the chase view as at the first (RaceStarted), and the chase camera
+	// stands behind the bike back on the grid: Tools/Trackside.py's 6.5 m behind it on the level and 2.2 m above.
+	moto.Advance(2);
+	Entity const chase = moto.Find("Chase Camera");
+	CHECK(chase.GetComponent<CameraComponent>().Primary);
+	CHECK(chase.GetComponent<AudioListenerComponent>().Active);
+	CHECK_FALSE(moto.Find("Main Camera").GetComponent<CameraComponent>().Primary);
+	Entity const ridden = moto.Find("Bike");
+	glm::mat4 const bikeWorld = ridden.GetScene()->GetWorldTransform(ridden);
+	glm::vec3 const bikeAt = glm::vec3(bikeWorld[3]);
+	glm::vec3 const bikeForward = glm::normalize(glm::vec3(bikeWorld * glm::vec4(0.0f, 0.0f, -1.0f, 0.0f)));
+	glm::vec3 const behind = glm::vec3(chase.GetScene()->GetWorldTransform(chase)[3]) - bikeAt;
+	CAPTURE(behind.x);
+	CAPTURE(behind.y);
+	CAPTURE(behind.z);
+	CHECK(fromGrid() < 1.0f);
+	CHECK(glm::dot(behind, bikeForward) < -6.0f);
+	CHECK(glm::dot(behind, bikeForward) > -7.0f);
+	CHECK(behind.y > 1.7f);
+	CHECK(behind.y < 2.7f);
+	moto.Give(Json::object({{"keys", Json::object({{"W", false}})}}));
 	moto.Stop();
 }

@@ -11929,7 +11929,7 @@
 						1712.0
 					],
 					"Settings": {
-						"Formula": "curve * 1.15 - (atan2(dot(vec2(f.X, f.Z), normalize(vec2(a.Z - c.Z, c.X - a.X))), dot(vec2(f.X, f.Z), normalize(vec2(c.X - a.X, c.Z - a.Z)))) + clamp(offset / (max(v, 5.0) * 1.2), -0.3, 0.3)) / (max(v, 5.0) * 0.4)"
+						"Formula": "curve * 1.16 - (atan2(dot(vec2(f.X, f.Z), normalize(vec2(a.Z - c.Z, c.X - a.X))), dot(vec2(f.X, f.Z), normalize(vec2(c.X - a.X, c.Z - a.Z)))) + clamp(offset / (max(v, 5.0) * 1.2), -0.3, 0.3)) / (max(v, 5.0) * 0.4)"
 					}
 				},
 				{

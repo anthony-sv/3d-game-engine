@@ -206,8 +206,9 @@ circuit, lined with 10,000 props and whose surfaces have physics materials, a ge
 grid, a vehicle with a front and a rear brake that a graph rides on the input actions, a camera tour made of a graph,
 and a ghost bike riding the racing line with a synthesized engine that dopplers past seven trackside cameras and echoes
 under the footbridge, with 24 test checks that are graphs too and a ride test scene whose graph rides the bike. It opens
-on a title over the attract mode, from which a three-lap race timed through trigger gates runs with a HUD to its
-results, with a pause and menus whose settings and bindings are kept for the next run.
+on a title over the attract mode, from which a three-lap race starts from the grid, where the bike is held through the
+countdown, and runs timed through trigger gates with a HUD to its results, with a pause and menus whose settings and
+bindings are kept for the next run.
 
 ## Features
 
