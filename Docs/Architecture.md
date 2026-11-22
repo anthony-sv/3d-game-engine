@@ -3104,16 +3104,20 @@ displacement), the contacts the world has reported and the events not yet taken,
 count, the accumulator, the fold of the steps' hashes so far, the state of the sequence entities made while running
 take their UUIDs from, the poses last
 exchanged with the bodies, the local poses moving bodies are drawn between (and which parts of each are drawn, or
-whether it was moved since its step), the characters' step positions and ground, and the wheels' step values. Entities made after a restore so
+whether it was moved since its step), the characters' step positions and ground, the wheels' step values, and for a
+made vehicle with no step yet (one just made, or made again or reset since its last step, which has no pose to draw its
+wheels from: "Interpolated wheels" below) each of its wheel entities' parent and local translation and rotation.
+Entities made after a restore so
 take the UUIDs entities made after the save took, except one an entity made since (and not destroyed) still holds,
 which is skipped.
-`Scene::RestorePhysicsState` puts it all back and places the entities of bodies and characters where they were then, so
+`Scene::RestorePhysicsState` puts it all back and places the entities of bodies and characters where they were then (and
+the wheel entities as "Interpolated wheels" says), so
 the steps that follow run as they did from there (given the same fixed-step inputs). Its limit: a snapshot belongs to
 the world it was saved from and to the bodies, joints, characters and vehicles that world had. Once one was added,
 removed or rebuilt (a physics component changed), restoring is refused and changes nothing, because Jolt's state recorder neither
 adds nor removes bodies. Nor does a snapshot hold what the simulation does not change: settings scripts or components set
-since (gravity factors, damping, layers, what characters ignore), the scripts' own state, entities without bodies, sounds
-and particles.
+since (gravity factors, damping, layers, what characters ignore), the scripts' own state, entities without bodies other
+than those wheel entities, sounds and particles.
 
 Joints (`JointDesc`, `PhysicsScene::AddJoint`) are Jolt constraints made in world space from where the bodies are:
 fixed, hinge (with limits within ±180° and a velocity motor with a torque limit), point (`Ball`), distance (a range;
@@ -3245,7 +3249,8 @@ wheel all of its torque).
   or the last `SetVehicleSettings`'), and the structure version, since the world holds the same vehicles with the same
   values in the same places of Jolt's list: a snapshot taken before a reset restores after it (bringing back the ride as
   it was then), and one taken after it restores too. The hash and the snapshot gain nothing: a reset vehicle is hashed and
-  saved as any vehicle is. **When it applies**: at the call, on the main thread, between steps (no script runs inside
+  saved as any vehicle is, and until its next step as any vehicle with no step yet (its wheel entities kept as "Interpolated
+  wheels" says). **When it applies**: at the call, on the main thread, between steps (no script runs inside
   one), so from `OnFixedUpdate` it is in place for the step that follows and from `OnUpdate` for the first step of the
   same frame (scripts' `OnUpdate` runs before the frame's steps, `Scene::OnUpdateRuntime`). A reset touches its own
   vehicle alone and the constraints go back into UUID order after each, so several resets in one fixed step (with no
@@ -3557,21 +3562,30 @@ wheel all of its torque).
   scale kept. Between steps each is drawn from the chassis as drawn and the wheel's values the part of the way from the
   step before to the last one that the time left over makes up, as bodies are (at its last step when the chassis's
   `RigidBody` does not interpolate), and before the next physics changes and steps each goes back exactly to where its last
-  step left it. A wheel is placed from its vehicle's first step on (before it, the entity stays where it was put), and a
-  vehicle made again or reset starts again. Nothing about the wheels is in the hash or reaches the simulation: a wheel entity has
-  no body, and the vehicle writes its transform at every step and frame, so a script's or the editor's edit of it lasts
-  until then. **Every write is made in the wheel's parent's space from the parent's world transform at the moment of the
-  write, and from nothing else** (after the step, in `Scene.Interpolate`, in `Scene.ReturnToSteps`, and when physics
-  changes made between frames return the entities to their steps and draw them again), so the wheel's world pose is the
-  vehicle's whatever its parent is or does, and the same step and parent give the same bits whatever the wheel showed
-  before: a wheel may be the child of a fork that a script turns, and the tests compare world poses. A `VehicleWheel` on an
-  entity with a body or a character of its own (which the writes would move), with no `Vehicle` above it, or whose name the
-  definition of its vehicle lacks is left as it is, each reason said once; one below a `Vehicle` that makes no vehicle says
-  nothing, as its `Vehicle` says why. The scene's snapshot keeps each vehicle's last two steps of its wheels, and a
-  restore draws the wheels again from them and the chassis as it was. The frame runs the scripts' `OnUpdate` before `Scene.UpdatePhysics` and each `OnFixedUpdate` before its step
-  (`Scene.cpp:673-680`, `RunFixedStep`), so a fork turned there is in place when the wheel is written; a parent moved
-  after `Scene.UpdatePhysics` in the same frame (by the editor, or contact handlers) moves the wheel with it until the
-  next write. A fork that follows the steering takes the steering angle the last step left (`VehicleWheelState::
+  step left it. A wheel is placed from its vehicle's first step on (before it, the entity stays where it was put, and a
+  restore gives it back its pose in its parent's space, below), and a vehicle made again or reset starts again, while one
+  the world carries over to its rebuilt body keeps its steps and goes on being drawn from them. Nothing about the wheels
+  is in the hash or reaches the simulation: a wheel entity has no body, and the vehicle writes its transform at every step
+  and frame, so a script's or the editor's edit of it lasts until then. **Every write is made in the wheel's parent's
+  space from the parent's world transform at the moment of the write, and from nothing else** (after the step, in
+  `Scene.Interpolate`, in `Scene.ReturnToSteps`, and when physics changes made between frames return the entities to their
+  steps and draw them again), so the wheel's world pose is the vehicle's whatever its parent is or does, and the same step
+  and parent give the same bits whatever the wheel showed before: a wheel may be the child of a fork that a script turns,
+  and the tests compare world poses. The one other write is a restore's for a vehicle with no step (below). A
+  `VehicleWheel` on an entity with a body or a character of its own (which the writes would move), with no
+  `Vehicle` above it, or whose name the definition of its vehicle lacks is left as it is, each reason said once; one below
+  a `Vehicle` that makes no vehicle says nothing, as its `Vehicle` says why. The scene's snapshot keeps each vehicle's
+  last two steps of its wheels, and a restore draws the wheels again from them and the chassis as it was. A made vehicle
+  with no step yet has no pose to compose its wheels from, so for each wheel entity it draws by the rules above the
+  snapshot keeps the parent and the local translation and rotation, and the restore gives the entity back its own
+  translation and rotation in its parent's space, its scale kept as every write keeps it: its world pose is then the
+  snapshot's as long as the entities between it and its chassis stand as they did, which a snapshot does not hold. A wheel
+  entity gone since the snapshot is skipped; one added since, one with another parent now (a pose in one parent's space
+  means nothing in another's) or one no made vehicle draws is left as it is. The frame runs the scripts' `OnUpdate` before
+  `Scene.UpdatePhysics` and each `OnFixedUpdate` before its step (`Scene.cpp:673-680`, `RunFixedStep`), so a fork turned
+  there is in place when the wheel is written; a parent moved after `Scene.UpdatePhysics` in the same frame (by the
+  editor, or contact handlers) moves the wheel with it until the next write. A fork that follows the steering takes the
+  steering angle the last step left (`VehicleWheelState::
   SteerAngle`), which lags the drawn wheel's by at most one step's change of steering; the wheel itself is drawn right.
 - **The fixed step's order.** `Scene::RunFixedStep` runs `OnFixedUpdate`, then the physics changes it made
   (`RebuildChangedBodies`: bodies, characters, vehicles, joints), the syncs to physics, the step (`PhysicsScene::Step`:

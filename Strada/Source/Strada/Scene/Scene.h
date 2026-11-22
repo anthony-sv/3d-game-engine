@@ -249,6 +249,15 @@ namespace Strada
 			UUID Entity = UUID::Invalid();
 			WheelDrawing Drawing;
 		};
+		// A VehicleWheel entity that a made vehicle with no step yet draws, its parent and its local translation and rotation:
+		// such a vehicle has no pose to draw its wheels from, so a restore gives the entity back its own pose in its parent's
+		// space while it has the same parent, its scale kept as every wheel write keeps it.
+		struct WheelEntity
+		{
+			UUID Entity = UUID::Invalid();
+			UUID Parent = UUID::Invalid();
+			LocalPose Pose;
+		};
 
 		PhysicsSnapshot m_Physics;
 		uint64_t m_Step = 0;
@@ -264,6 +273,8 @@ namespace Strada
 		std::vector<Character> m_Characters;
 		// The vehicles the scene had made, in UUID order.
 		std::vector<VehicleWheels> m_Vehicles;
+		// The wheel entities of those of them with no step yet, in the order of their UUIDs.
+		std::vector<WheelEntity> m_WheelEntities;
 	};
 
 	// An ECS world: entities with components, an ordered hierarchy, settings and runtime state. Main thread only.
@@ -460,17 +471,22 @@ namespace Strada
 		// Saves the running scene's simulation between frames (ScenePhysicsSnapshot): the physics world's state
 		// (PhysicsScene::SaveState), the fixed step count, the accumulator, the fold of the steps' state hashes so far
 		// (GetFoldedPhysicsHash), the sequence of the UUIDs entities made while running take, what the scene exchanged with
-		// each body and character, and the steps each vehicle's wheels are drawn between. Physics component changes not
-		// applied yet are applied first. Fails when the scene runs no physics.
+		// each body and character, the steps each vehicle's wheels are drawn between, and for a made vehicle with no step yet
+		// (one just made, or made again or reset since its last step), which has no pose to draw its wheels from, each of its
+		// wheel entities' parent and local translation and rotation. Physics component changes not applied yet are applied
+		// first. Fails when the scene runs no physics.
 		[[nodiscard]] Result<ScenePhysicsSnapshot> SavePhysicsState();
 		// Goes back to a snapshot of this run between frames: the physics world, the step count and accumulator, the fold of
 		// the steps' hashes, the UUID sequence (an ID still held by an entity made since is skipped), and the entities of
-		// bodies and characters where they
-		// were then, with the vehicles' wheels drawn as they were, so the steps that follow run as they did. Physics component
-		// changes not applied yet are applied first, as
-		// the next frame would. Then it fails, changing nothing more, when the scene runs no physics, the snapshot is of
-		// another run, or a body, joint, character or vehicle was added, removed or rebuilt since. What the simulation does
-		// not change (scripts' state, entities without bodies, settings) stays as it is.
+		// bodies and characters where they were then, and the wheel entities a made vehicle draws: drawn from the saved
+		// steps, or for a vehicle with no step yet given back their own translation and rotation in their parents' space
+		// (their scale kept), so they stand where the snapshot saw them as long as the entities between them and the chassis
+		// stand as they did, which a snapshot does not hold. So the steps that follow run as they did. A wheel entity gone
+		// since is skipped; one added since, one with another parent now, or one no made vehicle draws is left as it is.
+		// Physics component changes not applied yet are applied first, as the next frame would. Then it fails, changing
+		// nothing more, when the scene runs no physics, the snapshot is of another run, or a body, joint, character or
+		// vehicle was added, removed or rebuilt since. What the simulation does not change (scripts' state, other entities
+		// without bodies, settings) stays as it is.
 		[[nodiscard]] Result<void> RestorePhysicsState(ScenePhysicsSnapshot const& snapshot);
 		// The physics world while running; null otherwise or when physics is unavailable.
 		PhysicsScene* GetPhysicsScene() { return m_Physics.get(); }
@@ -804,6 +820,18 @@ namespace Strada
 			std::string Wheel;
 		};
 		void SayVehicleWheelProblem(Entity wheel, WheelDrawProblem problem, Entity chassis, std::string const& name);
+		// Which made vehicle draws a VehicleWheel entity, and which of its wheels: the nearest entity above it with a Vehicle,
+		// when its vehicle is made and its definition has the wheel's name. Vehicle is null when none does, and Problem says
+		// why (Drawn with no vehicle: the Vehicle above makes none, which that Vehicle says); Chassis is the vehicle's entity
+		// once one was found made. The one resolution of DrawVehicleWheels and of the snapshot's wheel entities.
+		struct WheelDrawer
+		{
+			WheelDrawProblem Problem = WheelDrawProblem::Drawn;
+			VehicleSyncState const* Vehicle = nullptr;
+			entt::entity Chassis = entt::null;
+			size_t Index = 0;
+		};
+		WheelDrawer FindWheelDrawer(entt::entity wheel);
 		// The entities whose vehicles the scene made, in the order of their UUIDs (a snapshot's vehicles).
 		std::vector<entt::entity> GetMadeVehicleOrder() const;
 
